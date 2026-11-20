@@ -1,0 +1,22 @@
+[package]
+name = "nitor"
+description = "Nitor — керування RGB-прожекторами через DMX"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nitor-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+indexmap.workspace = true
+log.workspace = true
+eframe = { version = "0.32.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "x11", "wayland"] }
+egui_extras = { version = "0.32.3", features = ["svg", "image"] }
+# рушій малювання: DirectX 12 / Vulkan, запасний — GL (у т.ч. програмний)
+wgpu = { version = "25.0.2", default-features = false, features = ["dx12", "vulkan", "gles", "metal", "wgsl"] }
+rfd = "0.17.2"
+image = { version = "0.25.9", default-features = false, features = ["png", "ico"] }
+egui = "0.32.3"
+arboard = "3.7.0"
