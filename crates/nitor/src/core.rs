@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use nitor_core::engine::FPS;
-use nitor_core::outputs::{self, Output, OutputInfo};
+use nitor_core::outputs::{self, Output};
 use nitor_core::{Command, DMX_CHANNELS, Engine};
 
 pub struct State {
@@ -56,10 +56,6 @@ impl Core {
         let mut s = self.lock();
         s.engine.handle(cmd, now).map_err(|e| e.0)?;
         Ok(s.engine.pop_notice())
-    }
-
-    pub fn output_info(&self) -> OutputInfo {
-        self.lock().output.info()
     }
 
     fn run(&self) {

@@ -1,0 +1,70 @@
+# Тести на кожен push; якщо версія у Cargo.toml (workspace) нова — створюється реліз.
+# Програма Nitor бачить новий реліз і пропонує користувачу оновитися (завантажує Nitor-Setup.exe).
+name: Tests & Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Системні бібліотеки (вікно egui під Linux)
+        run: sudo apt-get update -q && sudo apt-get install -y -q libxkbcommon-dev libudev-dev
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  release:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Версія
+        id: ver
+        shell: bash
+        run: |
+          VER=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.ver.outputs.exists == 'false'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.ver.outputs.exists == 'false'
+      - name: Збірка nitor.exe і Nitor-Setup.exe
+        if: steps.ver.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          cargo build --release -p nitor
+          if ($LASTEXITCODE) { exit 1 }
+          $env:NITOR_APP_EXE = "$pwd\target\release\nitor.exe"
+          cargo build --release -p nitor-setup
+          if ($LASTEXITCODE) { exit 1 }
+          Copy-Item target\release\Nitor-Setup.exe Nitor-Setup.exe
+      - name: Реліз
+        if: steps.ver.outputs.exists == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=$(awk -v v="## ${{ steps.ver.outputs.version }}" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)
+          [ -z "$NOTES" ] && NOTES="Nitor ${{ steps.ver.outputs.version }}"
+          gh release create "v${{ steps.ver.outputs.version }}" Nitor-Setup.exe \
+            --title "Nitor ${{ steps.ver.outputs.version }}" --notes "$NOTES"

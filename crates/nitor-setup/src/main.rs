@@ -34,6 +34,8 @@ struct Args {
     app_dir: Option<PathBuf>,
     no_desktop: bool,
     no_start_menu: bool,
+    /// тихе видалення: які дані видалити (`scenes,fixtures,profiles,colors,settings`; порожньо — лише програму)
+    parts: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -52,6 +54,7 @@ fn parse_args() -> Args {
             "--app-dir" => a.app_dir = it.next().map(PathBuf::from),
             "--no-desktop" => a.no_desktop = true,
             "--no-start-menu" => a.no_start_menu = true,
+            "--parts" => a.parts = Some(it.next().unwrap_or_default()),
             _ => {}
         }
     }
@@ -200,6 +203,17 @@ fn run_uninstall(job: &Shared, app_dir: &Path, removal: &Removal) -> Result<Stri
     })
 }
 
+fn part_key(s: &str) -> Option<Part> {
+    Some(match s {
+        "scenes" => Part::Scenes,
+        "fixtures" => Part::Fixtures,
+        "profiles" => Part::Profiles,
+        "colors" => Part::Colors,
+        "settings" => Part::Settings,
+        _ => return None,
+    })
+}
+
 /// Запущений деінсталятор не може видалити сам себе: працюємо з тимчасової копії.
 fn relaunch_from_temp(args: &Args, app_dir: &Path) -> bool {
     let Ok(me) = std::env::current_exe() else { return false };
@@ -211,6 +225,9 @@ fn relaunch_from_temp(args: &Args, app_dir: &Path) -> bool {
     cmd.arg("/uninstall-temp").arg("--app-dir").arg(app_dir);
     if args.silent {
         cmd.arg("/S");
+    }
+    if let Some(p) = &args.parts {
+        cmd.arg("--parts").arg(p);
     }
     cmd.spawn().is_ok()
 }
@@ -236,8 +253,12 @@ fn main() {
         }
         if args.silent {
             let job: Shared = Default::default();
-            let all: BTreeSet<Part> = Part::ALL.into_iter().collect();
-            let code = match run_uninstall(&job, &app_dir, &Removal::WithData(all)) {
+            let removal = match &args.parts {
+                None => Removal::WithData(Part::ALL.into_iter().collect()),
+                Some(list) if list.trim().is_empty() => Removal::ProgramOnly,
+                Some(list) => Removal::WithData(list.split(',').filter_map(|s| part_key(s.trim())).collect()),
+            };
+            let code = match run_uninstall(&job, &app_dir, &removal) {
                 Ok(_) => 0,
                 Err(e) => {
                     note(&job, e);
@@ -356,13 +377,16 @@ fn gui(mode: Mode) -> i32 {
     *code.lock().unwrap()
 }
 
+/// Робота, що виконується у фоновому потоці вікна.
+type Task = Box<dyn FnOnce(&Shared) -> Result<String, String> + Send>;
+
 impl Gui {
     fn start(&mut self, ctx: &egui::Context) {
         self.phase = Phase::Working;
         let job = self.job.clone();
         let code = self.code.clone();
         let ctx = ctx.clone();
-        let task: Box<dyn FnOnce(&Shared) -> Result<String, String> + Send> = match &self.mode {
+        let task: Task = match &self.mode {
             Mode::Install => {
                 let sc = Shortcuts { desktop: self.desktop, start_menu: self.start_menu };
                 job.lock().unwrap().heading = "Встановлення…".into();

@@ -1,0 +1,208 @@
+# Перевірка на справжній Windows (гілки, крім main, і вручну): збірка, встановлення поверх Nitor 1.x,
+# ярлики й ідентифікатор програми, вікно програми й вікно запуску, одна копія, повторне встановлення
+# поверх відкритої програми, вибіркове видалення даних.
+# Знімки вікон — в артефакті windows-check і в журналі рядками SHOT|назва|base64.
+name: Windows check
+
+on:
+  push:
+    branches-ignore: [main]
+    paths-ignore: ['.claude/**', 'CLAUDE.md', '.mcp.json', '**/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Тести
+        run: cargo test --workspace
+
+      - name: Збірка nitor.exe і Nitor-Setup.exe
+        shell: pwsh
+        run: |
+          cargo build --release -p nitor
+          if ($LASTEXITCODE) { exit 1 }
+          $env:NITOR_APP_EXE = "$pwd\target\release\nitor.exe"
+          cargo build --release -p nitor-setup
+          if ($LASTEXITCODE) { exit 1 }
+          Copy-Item target\release\Nitor-Setup.exe Nitor-Setup.exe
+          New-Item -ItemType Directory -Force shots | Out-Null
+          "{0,-20} {1:N1} МБ" -f 'nitor.exe', ((Get-Item target\release\nitor.exe).Length / 1MB)
+          "{0,-20} {1:N1} МБ" -f 'Nitor-Setup.exe', ((Get-Item Nitor-Setup.exe).Length / 1MB)
+
+      - name: Вікно встановлення (знімок)
+        shell: pwsh
+        run: |
+          $env:NITOR_SCREENSHOT = "$pwd\shots\setup.png"
+          Start-Process .\Nitor-Setup.exe -Wait
+          Test-Path shots\setup.png
+
+      - name: Стара установка Nitor 1.x
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          New-Item -ItemType Directory -Force "$app\dmxctl", "$app\.venv\Scripts" | Out-Null
+          Set-Content "$app\dmxctl\engine.py" '' -Encoding UTF8
+          Set-Content "$app\nitor.pyw" '' -Encoding UTF8
+          Set-Content "$app\config.json" '{"fixtures": []}' -Encoding UTF8
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor'
+          New-Item $key -Force | Out-Null
+          New-ItemProperty $key -Name DisplayVersion -Value '1.26.9' -Force | Out-Null
+
+      - name: Тихе встановлення поверх 1.x
+        shell: pwsh
+        run: |
+          $p = Start-Process .\Nitor-Setup.exe -ArgumentList '/S' -PassThru -Wait
+          "Код виходу інсталятора: $($p.ExitCode)"
+          Get-Content "$env:TEMP\Nitor-install.log" -Encoding UTF8 | Select-Object -Last 20
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor'
+          $checks = [ordered]@{
+            'код виходу 0'              = $p.ExitCode -eq 0
+            'nitor.exe'                 = Test-Path "$app\nitor.exe"
+            'Uninstall.exe'             = Test-Path "$app\Uninstall.exe"
+            '1.x прибрано (dmxctl)'     = -not (Test-Path "$app\dmxctl")
+            '1.x прибрано (.venv)'      = -not (Test-Path "$app\.venv")
+            'налаштування 1.x прибрано' = -not (Test-Path "$app\config.json")
+            'версія в «Програмах»'      = (Get-ItemProperty $key).DisplayVersion -ne '1.26.9'
+            'ярлик на робочому столі'   = Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nitor.lnk')
+            'ярлик у меню «Пуск»'       = Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk')
+          }
+          $checks.GetEnumerator() | ForEach-Object { "{0,-28} {1}" -f $_.Key, $_.Value }
+          if ($checks.Values -contains $false) { exit 1 }
+
+      - name: Ідентифікатор програми в ярликах
+        shell: pwsh
+        run: |
+          $shell = New-Object -ComObject Shell.Application
+          $bad = 0
+          foreach ($dir in [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) {
+            $id = $shell.Namespace($dir).ParseName('Nitor.lnk').ExtendedProperty('System.AppUserModel.ID')
+            "{0,-60} {1}" -f (Join-Path $dir 'Nitor.lnk'), $id
+            if ($id -ne 'Navascar.Nitor') { $bad++ }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Вікно програми (знімки)
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          @'
+          {"version": 2, "output": {"type": "none"}, "master": 230,
+           "fixtures": [
+            {"id": "a1", "name": "Лівий PAR", "address": 1, "profile": "RGBW (4 кан.)", "r": 255, "g": 80},
+            {"id": "a2", "name": "Правий PAR", "address": 5, "profile": "RGBW (4 кан.)", "g": 120, "b": 255},
+            {"id": "a3", "name": "Бар", "address": 20, "profile": "Free Color WASH 243 · 24 кан. P001 (8 сегментів)",
+             "b": 255, "segs": [[255,0,0],null,[0,255,0]], "model": {"m": "Free Color", "n": "WASH 243", "mode": "P001 · 8 сегментів"}}],
+           "scenes": {"Вечір": {"fixtures": {}}}}
+          '@ | Set-Content "$app\config.json" -Encoding UTF8
+          $env:NITOR_NO_UPDATE = '1'
+          foreach ($shot in @('main', 'settings', 'library', 'props', 'close')) {
+            $env:NITOR_SCREENSHOT = "$pwd\shots\app-$shot.png"
+            $env:NITOR_SCREENSHOT_ACTS = "selectAll,$shot"
+            $p = Start-Process "$app\nitor.exe" -PassThru
+            if (-not $p.WaitForExit(60000)) { $p.Kill(); "$shot: вікно не закрилося"; exit 1 }
+            "{0,-10} {1}" -f $shot, (Test-Path "shots\app-$shot.png")
+          }
+          Remove-Item Env:NITOR_SCREENSHOT_ACTS
+          if (-not (Test-Path shots\app-main.png)) { Get-Content "$app\nitor.log" -Encoding UTF8 | Select-Object -Last 30; exit 1 }
+
+      - name: Вікно запуску не відкриває програму, поки є оновлення
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force upd | Out-Null
+          '{"tag_name": "v9.9.9", "body": "## 9.9.9\n- Перевірка вікна запуску", "html_url": "https://github.com/Navascar/Nitor/releases",
+            "assets": [{"name": "Nitor-Setup.exe", "browser_download_url": "http://127.0.0.1:8977/Nitor-Setup.exe"}]}' |
+            Set-Content upd\latest.json -Encoding UTF8
+          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8977', '--directory', 'upd' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $env:NITOR_UPDATE_API = 'http://127.0.0.1:8977/latest.json'
+          $env:NITOR_UPDATE_ALLOW = '1'
+          $env:NITOR_SCREENSHOT = "$pwd\shots\splash-update.png"
+          $env:NITOR_SCREENSHOT_SPLASH = '1'
+          $p = Start-Process (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.exe') -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill() }
+          Stop-Process -Id $srv.Id -Force
+          Select-String -Path (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.log') -Pattern 'Вікно запуску' -Encoding UTF8 | Select-Object -Last 3
+          if (-not (Select-String -Path (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.log') -Pattern 'Вікно запуску: Update' -Quiet)) { exit 1 }
+
+      - name: Друга копія не відкривається
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'Nitor\nitor.exe'
+          $env:NITOR_NO_SPLASH = '1'
+          $env:NITOR_NO_UPDATE = '1'
+          $first = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 6
+          $second = Start-Process $exe -PassThru
+          $ok = $second.WaitForExit(10000)
+          $count = @(Get-Process nitor -ErrorAction SilentlyContinue).Count
+          "друга копія завершилась: $ok, процесів nitor: $count"
+          if (-not $ok -or $count -ne 1 -or $first.HasExited) { exit 1 }
+
+      - name: Повторне встановлення, коли Nitor відкрито (лише ярлик у меню «Пуск»)
+        shell: pwsh
+        run: |
+          $p = Start-Process .\Nitor-Setup.exe -ArgumentList '/S', '--no-desktop' -PassThru -Wait
+          "Код виходу: $($p.ExitCode)"
+          $count = @(Get-Process nitor -ErrorAction SilentlyContinue).Count
+          $desk = Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nitor.lnk')
+          "процесів nitor: $count, ярлик на робочому столі: $desk"
+          Get-Content "$env:TEMP\Nitor-install.log" -Encoding UTF8 | Select-Object -Last 8
+          if ($p.ExitCode -ne 0 -or $count -ne 0 -or $desk) { exit 1 }
+
+      - name: Видалення лише сцен і кольорів (решта даних лишається)
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          $p = Start-Process "$app\Uninstall.exe" -ArgumentList '/S', '--parts', 'scenes,colors' -PassThru -Wait
+          Start-Sleep -Seconds 5
+          $cfg = Get-Content "$app\config.json" -Raw -Encoding UTF8
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor'
+          $checks = [ordered]@{
+            'nitor.exe видалено'        = -not (Test-Path "$app\nitor.exe")
+            'config.json лишився'       = Test-Path "$app\config.json"
+            'сцени видалено'            = $cfg -notmatch '"scenes"'
+            'прилади лишилися'          = $cfg -match 'Лівий PAR'
+            'запис у «Програмах» зник'  = -not (Test-Path $key)
+            'ярлик у «Пуск» зник'       = -not (Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk'))
+          }
+          $checks.GetEnumerator() | ForEach-Object { "{0,-28} {1}" -f $_.Key, $_.Value }
+          if ($checks.Values -contains $false) { exit 1 }
+
+      - name: Вікно видалення (знімок)
+        if: always()
+        shell: pwsh
+        run: |
+          $env:NITOR_SCREENSHOT = "$pwd\shots\uninstall.png"
+          $env:NITOR_SCREENSHOT_DATA = '1'
+          Start-Process .\Nitor-Setup.exe -ArgumentList '/uninstall-temp', '--app-dir', "$pwd\shots" -Wait
+
+      - name: Артефакти
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-check
+          path: shots
+
+      - name: Знімки в журнал (base64, для перегляду без артефактів)
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem shots -Filter *.png -Recurse) {
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
+            for ($i = 0; $i -lt $b64.Length; $i += 3000) {
+              "SHOT|$($f.BaseName)|" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i))
+            }
+          }

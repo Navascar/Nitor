@@ -11,7 +11,7 @@ pub fn app_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("NITOR_HOME") {
         return PathBuf::from(d);
     }
-    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir()).join("Nitor")
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Nitor")
 }
 
 pub struct RegInfo<'a> {
@@ -174,7 +174,8 @@ mod imp {
         Ok(())
     }
     pub fn notify_shell() {}
-    pub fn register(_app_dir: &Path, _info: &RegInfo) -> Result<(), String> {
+    pub fn register(_app_dir: &Path, info: &RegInfo) -> Result<(), String> {
+        log::debug!("{UNINST_KEY}: {} ({} КБ), {APP_ID}", info.version, info.size_kb);
         Ok(())
     }
     pub fn unregister() {}

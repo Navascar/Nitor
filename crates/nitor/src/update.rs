@@ -311,8 +311,7 @@ impl Updater {
             }
             std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| e.to_string())?;
             done += n as u64;
-            if total > 0 {
-                let pct = done * 100 / total;
+            if let Some(pct) = (done * 100).checked_div(total) {
                 self.set(|s| s.progress = format!("Завантаження… {pct}%"));
             }
         }

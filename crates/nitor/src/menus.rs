@@ -11,6 +11,7 @@ use nitor_ui::icons;
 use nitor_ui::theme::*;
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     Title(String),
     Sep,
@@ -182,11 +183,10 @@ impl App {
         })];
         if let (Some(_), Some(i)) = (c, index) {
             let label = if self.sel.is_empty() {
-                "Застосувати до вибраних"
+                "Застосувати до всіх"
             } else {
                 "Застосувати до вибраних"
             };
-            let label = if self.sel.is_empty() { "Застосувати до всіх" } else { label };
             m.push(
                 item("dot", label, Act::StaticTo { index: i, ids: ids.clone() })
                     .key((i < 9).then(|| (i + 1).to_string())),

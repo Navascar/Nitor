@@ -8,6 +8,9 @@ fn main() {
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("payload.bin");
     let data = match std::env::var("NITOR_APP_EXE") {
         Ok(p) if !p.is_empty() => {
+            // відносний шлях — від кореня workspace
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let p = root.join(&p).display().to_string();
             println!("cargo:rerun-if-changed={p}");
             std::fs::read(&p).unwrap_or_else(|e| panic!("не вдалося прочитати {p}: {e}"))
         }

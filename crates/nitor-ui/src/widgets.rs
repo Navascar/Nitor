@@ -325,6 +325,7 @@ pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown
 }
 
 /// Рядок «підпис · повзунок · число» (сітка 84px · 1fr · 48px).
+#[allow(clippy::too_many_arguments)]
 pub fn slider_row(
     ui: &mut Ui,
     id: Id,

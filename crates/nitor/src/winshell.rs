@@ -113,7 +113,9 @@ mod imp {
 
     pub fn listen_quit(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
 
-    pub fn set_app_id() {}
+    pub fn set_app_id() {
+        let _ = super::APP_ID;
+    }
 }
 
 pub use imp::*;

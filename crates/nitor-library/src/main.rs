@@ -457,7 +457,7 @@ fn build(ofl: &Path, qlc: &Path) -> (usize, usize, Vec<Fx>) {
             merged.push(fx);
         }
     }
-    merged.sort_by(|a, b| (a.m.to_lowercase(), a.n.to_lowercase()).cmp(&(b.m.to_lowercase(), b.n.to_lowercase())));
+    merged.sort_by_key(|f| (f.m.to_lowercase(), f.n.to_lowercase()));
     (no, nq, merged)
 }
 
