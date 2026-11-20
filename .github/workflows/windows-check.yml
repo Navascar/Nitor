@@ -145,11 +145,15 @@ jobs:
           $env:NITOR_NO_UPDATE = '1'
           $first = Start-Process $exe -PassThru
           Start-Sleep -Seconds 6
+          # друга копія показує попередження «Nitor уже відкрито»: знімаємо його, після знімка вона закривається
+          $env:NITOR_SCREENSHOT = "$pwd\shots\second-instance.png"
           $second = Start-Process $exe -PassThru
-          $ok = $second.WaitForExit(10000)
+          $ok = $second.WaitForExit(30000)
+          Remove-Item Env:NITOR_SCREENSHOT
           $count = @(Get-Process nitor -ErrorAction SilentlyContinue).Count
-          "друга копія завершилась: $ok, процесів nitor: $count"
-          if (-not $ok -or $count -ne 1 -or $first.HasExited) { exit 1 }
+          $shot = Test-Path shots\second-instance.png
+          "друга копія завершилась: $ok, процесів nitor: $count, знімок попередження: $shot"
+          if (-not $ok -or $count -ne 1 -or $first.HasExited -or -not $shot) { exit 1 }
 
       - name: Повторне встановлення, коли Nitor відкрито (лише ярлик у меню «Пуск»)
         shell: pwsh

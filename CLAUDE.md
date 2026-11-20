@@ -12,7 +12,8 @@ Rust (Cargo workspace), інтерфейс на egui/eframe (рушій малю
   Enttec/Open DMX через serialport, Art-Net, sACN, симулятор; потік відправки з паузою на порожньому кадрі).
 - `crates/nitor` — програма: `app.rs` (стан інтерфейсу, дії `Act`), `ui_main.rs` (головне вікно), `dialogs.rs` (вікна),
   `menus.rs` (контекстні меню), `hotkeys.rs`, `splash.rs` (вікно запуску), `update.rs` (GitHub Releases),
-  `core.rs` (потік рушія 40 кадрів/с), `winshell.rs` (одна копія, події `Local\Nitor.Show` / `Local\Nitor.Quit`).
+  `core.rs` (потік рушія 40 кадрів/с), `winshell.rs` (одна копія, події `Local\Nitor.Show` / `Local\Nitor.Quit`),
+  `already.rs` (попередження другої копії; знімок — `NITOR_SCREENSHOT_ALREADY=1`).
 - `crates/nitor-ui` — дизайн-система: `theme.rs` (токени), `widgets.rs` (кнопки, повзунки, поля), `icons.rs`.
 - `crates/nitor-setup` — `Nitor-Setup.exe` (встановлення, видалення, `/S`, `/update --wait-pid`); програма вкладена
   стисненою (`NITOR_APP_EXE` під час збирання). Копія інсталятора в теці програми — `Uninstall.exe`.

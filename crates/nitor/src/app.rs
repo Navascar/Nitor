@@ -196,6 +196,8 @@ pub struct App {
     pub splash: Option<crate::splash::Splash>,
     /// вікно запуску щойно стало головним: розмір вікна, якого чекаємо, і крайній строк
     pub main_pending: Option<(egui::Vec2, std::time::Instant)>,
+    /// перший кадр ще має дочекатися перевірки оновлень (момент запуску програми)
+    pub boot: Option<std::time::Instant>,
     /// інша копія програми просить показати вікно
     pub show_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// інсталятор просить завершити роботу
@@ -248,6 +250,7 @@ impl App {
             pending_text_op: None,
             splash: None,
             main_pending: None,
+            boot: None,
             show_request: Default::default(),
             quit_request: Default::default(),
             shot_frame: None,

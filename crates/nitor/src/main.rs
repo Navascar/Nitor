@@ -4,6 +4,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod already;
 mod app;
 mod art;
 mod core;
@@ -84,34 +85,58 @@ fn main() {
         }
         std::process::exit(code);
     }
-    // одна копія програми: друга лише показує вікно першої
+    // попередження про другу копію — окремо, для знімка екрана в CI
+    if std::env::var_os("NITOR_SCREENSHOT_ALREADY").is_some() {
+        already::run();
+        return;
+    }
+    // одна копія програми: друга показує попередження
     let Some(_guard) = winshell::single_instance() else {
-        winshell::signal_existing();
+        winshell::set_app_id();
+        already::run();
         return;
     };
     winshell::set_app_id();
-    logging::init(paths::log_path(), args.verbose);
-    log::info!("Nitor {} запускається, налаштування: {}", nitor_core::VERSION, args.config.display());
-    std::panic::set_hook(Box::new(|info| log::error!("Збій: {info}")));
-
-    let engine = nitor_core::Engine::load(&args.config);
-    let core = core::Core::start(engine);
+    let t0 = std::time::Instant::now();
+    // перевірка оновлень — якнайраніше: від неї залежить, яким буде перше вікно
     let updater = update::Updater::new();
-    updater.start();
-    // вікно запуску — одразу; у режимі знімка екрана — одразу вікно програми
+    // вікно запуску потрібне лише тоді, коли є оновлення; у режимі знімка екрана — одразу вікно програми
     let with_splash = (std::env::var_os("NITOR_SCREENSHOT").is_none()
         || std::env::var_os("NITOR_SCREENSHOT_SPLASH").is_some())
         && std::env::var_os("NITOR_NO_SPLASH").is_none();
+    logging::init(paths::log_path(), args.verbose);
+    log::info!("Nitor {} запускається, налаштування: {}", nitor_core::VERSION, args.config.display());
+    std::panic::set_hook(Box::new(|info| log::error!("Збій: {info}")));
+    updater.start();
+
+    let engine = nitor_core::Engine::load(&args.config);
+    let core = core::Core::start(engine);
+    // Розмір вікна не змінюється після появи: Windows на мить розтягує старий кадр на новий
+    // розмір. Тому вікно одразу створюється таким, яким воно буде: головним або вікном запуску
+    // (якщо вже відомо, що є оновлення). Недовго чекаємо на перевірку тут; решту очікування
+    // бере перший кадр, поки вікно ще приховане (див. `App::boot_gate`).
+    let main_size = splash::main_size(winshell::work_area());
+    let mut splash_now = false;
+    if with_splash {
+        while !updater.info().checked && t0.elapsed() < Duration::from_millis(600) {
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        let u = updater.info();
+        splash_now = u.checked && update::decide(&u, f64::MAX, false) != update::SplashPhase::Open;
+    }
 
     let icon = image::load_from_memory(include_bytes!("../../../assets/icon.ico"))
         .ok()
         .map(|i| i.into_rgba8())
         .map(|i| egui::IconData { width: i.width(), height: i.height(), rgba: i.into_raw() });
     let mut viewport = egui::ViewportBuilder::default().with_title("Nitor").with_app_id("Nitor");
-    viewport = if with_splash {
-        viewport.with_inner_size([splash::WIDTH, 220.0]).with_decorations(false).with_resizable(false)
+    let splash_h = splash::splash_height(&updater.info());
+    viewport = if splash_now {
+        viewport.with_inner_size([splash::WIDTH, splash_h]).with_decorations(false).with_resizable(false)
     } else {
-        viewport.with_inner_size([1400.0, 900.0]).with_min_inner_size([900.0, 600.0])
+        viewport
+            .with_inner_size(main_size)
+            .with_min_inner_size([900.0_f32.min(main_size.x), 600.0_f32.min(main_size.y)])
     };
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
@@ -133,8 +158,10 @@ fn main() {
             nitor_ui::theme::install_fonts(&cc.egui_ctx);
             nitor_ui::theme::apply(&cc.egui_ctx);
             let mut app = App::new(core2, updater2);
-            if with_splash {
-                app.splash = Some(splash::Splash::new());
+            if splash_now {
+                app.splash = Some(splash::Splash::new(t0, splash_h));
+            } else if with_splash {
+                app.boot = Some(t0);
             }
             winshell::listen_show(app.show_request.clone(), cc.egui_ctx.clone());
             winshell::listen_quit(app.quit_request.clone(), cc.egui_ctx.clone());
@@ -171,6 +198,9 @@ impl eframe::App for App {
         if self.show_request.swap(false, std::sync::atomic::Ordering::Relaxed) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        if !self.boot_gate(ctx) {
+            return;
         }
         if self.splash.is_some() {
             if !self.splash_frame(ctx) {

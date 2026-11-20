@@ -1,7 +1,7 @@
 //! Інтеграція з Windows: одна копія програми, ідентифікатор для панелі задач.
 //!
-//! Друга копія не запускається: вона лише просить уже відкриту показати своє вікно
-//! (подія `Local\Nitor.Show`) і завершується.
+//! Друга копія не запускається: вона показує попередження й на прохання користувача просить
+//! уже відкриту показати своє вікно (подія `Local\Nitor.Show`).
 
 /// Ідентифікатор програми для панелі задач (той самий записує інсталятор у ярлики).
 pub const APP_ID: &str = "Navascar.Nitor";
@@ -88,6 +88,22 @@ mod imp {
         });
     }
 
+    /// Робоча область основного монітора (без панелі задач) у точках інтерфейсу.
+    pub fn work_area() -> Option<egui::Vec2> {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
+        let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut r as *mut RECT).cast(), 0) };
+        if ok == 0 {
+            return None;
+        }
+        // поки winit не ввімкнув DPI-обізнаність, і розміри, і DPI — «віртуальні» (96); потім — справжні
+        let scale = unsafe { GetDpiForSystem() }.max(96) as f32 / 96.0;
+        let size = egui::vec2((r.right - r.left) as f32, (r.bottom - r.top) as f32) / scale;
+        (size.x > 0.0 && size.y > 0.0).then_some(size)
+    }
+
     pub fn set_app_id() {
         let id = wide(super::APP_ID);
         unsafe {
@@ -112,6 +128,10 @@ mod imp {
     pub fn listen_show(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
 
     pub fn listen_quit(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
+
+    pub fn work_area() -> Option<egui::Vec2> {
+        None
+    }
 
     pub fn set_app_id() {
         let _ = super::APP_ID;
