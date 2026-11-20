@@ -1,0 +1,93 @@
+{
+  "profiles": {
+    "RGB": ["r", "g", "b"],
+    "RGBW": ["r", "g", "b", "w"],
+    "DimRGB": ["dim", "r", "g", "b"],
+    "RGBDim": ["r", "g", "b", "dim"],
+    "Full": ["dim", "r", "g", "b", "w", "a", "uv", "strobe", "zero", "full", "=32", "=255"],
+    "Bar4": ["r", "g", "b", "r", "g", "b", "r", "g", "b", "r", "g", "b"],
+    "H001": ["dim", "strobe", "macro", "speed", "r", "g", "b", "zero"],
+    "A001": ["macro", "speed"],
+    "StrobeRGB": ["r", "g", "b", "strobe"]
+  },
+  "cases": [
+    {"name": "static_basic", "master": 200,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "RGB", "r": 255, "g": 128, "b": 3},
+       {"id": "b", "address": 4, "profile": "RGBW", "r": 10, "g": 20, "b": 30, "w": 200, "dimmer": 128},
+       {"id": "c", "address": 8, "profile": "DimRGB", "r": 255, "g": 0, "b": 77, "dimmer": 99},
+       {"id": "d", "address": 12, "profile": "RGBDim", "r": 1, "g": 2, "b": 3},
+       {"id": "e", "address": 16, "profile": "RGB", "r": 100, "g": 200, "b": 50, "w": 120},
+       {"id": "f", "address": 20, "profile": "Full", "r": 9, "g": 8, "b": 7, "w": 6, "a": 5, "uv": 4, "strobe": 33, "dimmer": 201}
+     ], "times": [0]},
+    {"name": "dim_zero", "master": 255,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "DimRGB", "r": 255, "g": 255, "b": 255, "dimmer": 0},
+       {"id": "b", "address": 10, "profile": "RGB", "r": 255, "g": 255, "b": 255, "dimmer": 0}
+     ], "times": [0]},
+    {"name": "blackout", "master": 255, "blackout": true,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "Full", "r": 255, "g": 255, "b": 255, "strobe": 10},
+       {"id": "b", "address": 20, "profile": "H001", "preset": 3, "speed": 40}
+     ], "times": [0]},
+    {"name": "segments", "master": 180,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "Bar4", "r": 50, "g": 60, "b": 70, "w": 30,
+        "segs": [[255, 0, 0], null, [0, 0, 255]]},
+       {"id": "b", "address": 30, "profile": "Bar4", "r": 1, "g": 2, "b": 3}
+     ], "times": [0]},
+    {"name": "presets", "master": 230,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "H001", "preset": 5, "speed": 77, "dimmer": 150, "r": 10, "g": 20, "b": 30},
+       {"id": "b", "address": 10, "profile": "A001", "preset": 24, "speed": 200},
+       {"id": "c", "address": 20, "profile": "A001", "preset": 10, "speed": 3}
+     ], "times": [0]},
+    {"name": "strobe_all", "master": 255, "strobe": {"on": true, "ids": []},
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "StrobeRGB", "r": 255},
+       {"id": "b", "address": 5, "profile": "StrobeRGB", "g": 255, "strobe": 90},
+       {"id": "c", "address": 9, "profile": "RGB", "b": 255}
+     ], "times": [0]},
+    {"name": "strobe_some", "master": 255, "strobe": {"on": true, "ids": ["b"]},
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "StrobeRGB", "r": 255},
+       {"id": "b", "address": 5, "profile": "StrobeRGB", "g": 255}
+     ], "times": [0]},
+    {"name": "raw", "master": 255, "raw": {"1": 7, "512": 255, "100": 42},
+     "fixtures": [{"id": "a", "address": 1, "profile": "RGB", "r": 255, "g": 255, "b": 255}],
+     "times": [0]}
+  ],
+  "effects": {
+    "fixtures": [
+      {"id": "a", "address": 1, "profile": "RGB", "r": 200, "g": 100, "b": 50},
+      {"id": "b", "address": 4, "profile": "RGBW", "r": 0, "g": 100, "b": 250, "w": 40, "dimmer": 180},
+      {"id": "c", "address": 8, "profile": "Bar4", "r": 30, "g": 200, "b": 90, "segs": [null, [255, 255, 0]]},
+      {"id": "d", "address": 20, "profile": "DimRGB", "r": 255, "g": 0, "b": 255},
+      {"id": "e", "address": 24, "profile": "RGB", "r": 5, "g": 5, "b": 5}
+    ],
+    "types": ["rainbow", "fade", "chase", "pulse", "strobe", "random", "fire"],
+    "variants": [
+      {"speed": 0.5, "spread": 1.0, "colors": [], "by_segment": true, "ids": ["a", "b", "c", "d"]},
+      {"speed": 1.3, "spread": 0.3, "colors": ["#ff0000", "#00ff80", "#1020ff"], "by_segment": true, "ids": ["c", "a", "d"]},
+      {"speed": 2.7, "spread": 0.0, "colors": ["#ffaa00"], "by_segment": false, "ids": ["a", "b", "c", "d", "e"]},
+      {"speed": 0.07, "spread": 0.8, "colors": ["#ff00ff", "#00ffff"], "by_segment": false, "ids": ["b", "c"]}
+    ],
+    "master": 210,
+    "times": [0, 0.37, 1.1, 2.75, 10.2, 123.456]
+  },
+  "fades": [
+    {"name": "fade_basic", "dur": 2.0,
+     "fixtures": [
+       {"id": "a", "address": 1, "profile": "RGBW", "r": 0, "g": 0, "b": 0, "w": 0},
+       {"id": "b", "address": 5, "profile": "Bar4", "r": 255, "g": 0, "b": 0, "segs": [[0, 255, 0], null, null, [10, 20, 30]]},
+       {"id": "c", "address": 20, "profile": "H001", "r": 0, "g": 0, "b": 0, "preset": 2}
+     ],
+     "scene": {
+       "a": {"r": 255, "g": 128, "b": 7, "w": 99, "a": 0, "uv": 0, "dimmer": 100, "segs": null, "preset": null, "speed": 128},
+       "b": {"r": 0, "g": 0, "b": 255, "w": 0, "a": 0, "uv": 0, "dimmer": 255, "segs": [null, [200, 100, 0]], "preset": null, "speed": 128},
+       "c": {"r": 9, "g": 9, "b": 9, "w": 0, "a": 0, "uv": 0, "dimmer": 255, "segs": null, "preset": 7, "speed": 60},
+       "zz": {"r": 1, "g": 1, "b": 1, "w": 0, "a": 0, "uv": 0, "dimmer": 255, "segs": null, "preset": null, "speed": 128}
+     },
+     "times": [0, 0.3, 0.5, 1.0, 1.7, 2.0, 2.5]}
+  ]
+}

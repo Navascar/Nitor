@@ -1,0 +1,5 @@
+/target/
+config.json
+config.tmp
+config.broken-*.json
+nitor.log*
