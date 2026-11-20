@@ -198,6 +198,8 @@ pub struct App {
     pub show_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// інсталятор просить завершити роботу
     pub quit_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// кадр, на якому зробити знімок (режим NITOR_SCREENSHOT)
+    pub shot_frame: Option<u64>,
 }
 
 impl App {
@@ -245,6 +247,7 @@ impl App {
             splash: None,
             show_request: Default::default(),
             quit_request: Default::default(),
+            shot_frame: None,
         };
         app.sync_effect_draft();
         let warning = app.core.lock().engine.load_warning.clone();

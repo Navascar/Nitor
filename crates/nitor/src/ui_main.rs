@@ -1000,9 +1000,22 @@ impl App {
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner).id_salt("monitor"), |ui| {
             let frames = self.v.output.frames;
             let (r, resp) = ui.allocate_exact_size(vec2(inner.width(), 22.0), Sense::click());
-            let arrow = if self.monitor_open { "▾" } else { "▸" };
-            ui.painter().text(r.left_center(), Align2::LEFT_CENTER, format!("{arrow} DMX-монітор"), bold(FS_MD), TEXT);
-            let tw = widgets::text_width(ui, &format!("{arrow} DMX-монітор"), bold(FS_MD));
+            // трикутник розкриття малюємо самі: у шрифтах Windows може не бути гліфа «▸»
+            let c = pos2(r.left() + 5.0, r.center().y);
+            let tri = if self.monitor_open {
+                vec![c + vec2(-4.5, -2.5), c + vec2(4.5, -2.5), c + vec2(0.0, 3.0)]
+            } else {
+                vec![c + vec2(-2.5, -4.5), c + vec2(3.0, 0.0), c + vec2(-2.5, 4.5)]
+            };
+            ui.painter().add(egui::Shape::convex_polygon(tri, TEXT, Stroke::NONE));
+            ui.painter().text(
+                pos2(r.left() + 16.0, r.center().y),
+                Align2::LEFT_CENTER,
+                "DMX-монітор",
+                bold(FS_MD),
+                TEXT,
+            );
+            let tw = 16.0 + widgets::text_width(ui, "DMX-монітор", bold(FS_MD));
             ui.painter().text(
                 pos2(r.left() + tw + S2, r.center().y),
                 Align2::LEFT_CENTER,

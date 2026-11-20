@@ -303,7 +303,17 @@ impl App {
                 }
             }
         }
-        if frame == 40 {
+        // вікно запуску знімаємо, коли перевірка оновлень завершилась (або за 25 с)
+        let waiting = self
+            .splash
+            .as_ref()
+            .is_some_and(|s| !self.updater.info().checked && s.t0.elapsed() < std::time::Duration::from_secs(25));
+        if waiting {
+            self.shot_frame = None;
+        } else if self.shot_frame.is_none() {
+            self.shot_frame = Some((frame + 20).max(40));
+        }
+        if frame >= 40 && self.shot_frame == Some(frame) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
         let shot = ctx.input(|i| {
