@@ -662,7 +662,16 @@ impl Gui {
                 egui::StrokeKind::Inside,
             );
             let c = egui::pos2(r.left() + S3 + 8.0, r.top() + S3 + 10.0);
-            ui.painter().circle_stroke(c, 8.0, Stroke::new(1.5_f32, if on { ACCENT } else { LINE_STRONG }));
+            ui.painter().circle_stroke(c, 8.0, Stroke::new(1.5_f32, if on { ACCENT } else { LINE_FIELD }));
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, title));
+            if resp.has_focus() {
+                ui.painter().rect_stroke(
+                    r.expand(2.0),
+                    radius(R_MD + 2),
+                    Stroke::new(2.0_f32, ACCENT),
+                    egui::StrokeKind::Outside,
+                );
+            }
             if on {
                 ui.painter().circle_filled(c, 4.5, ACCENT);
             }

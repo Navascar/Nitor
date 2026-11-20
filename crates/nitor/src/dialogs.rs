@@ -569,7 +569,7 @@ impl App {
             let row_top = ui.cursor().min.y;
             if overlap.contains(&f.id) {
                 let r = Rect::from_min_size(pos2(ui.cursor().min.x, row_top), vec2(w, CONTROL_H + 2.0 * S1));
-                ui.painter().rect_filled(r, 0.0, rgba(245, 165, 36, 0.08));
+                ui.painter().rect_filled(r, 0.0, alpha(WARN, 0.08));
             }
             ui.painter().hline(ui.cursor().min.x..=ui.cursor().min.x + w, row_top, Stroke::new(1.0_f32, LINE));
             ui.add_space(S1);
@@ -755,6 +755,8 @@ impl App {
                 Entry::Action { id, label, keys: def } => {
                     let keys = hotkeys::keys_for(&custom, &id);
                     let changed = custom.contains_key(&id);
+                    // підсвітка рядка малюється під вмістом: місце для неї резервуємо заздалегідь
+                    let row_bg = ui.painter().add(egui::Shape::Noop);
                     let row = ui.horizontal(|ui| {
                         ui.set_min_height(CONTROL_H_SM + S1);
                         ui.add_space(S2);
@@ -818,8 +820,8 @@ impl App {
                             }
                         });
                     });
-                    if row.response.hovered() {
-                        ui.painter().rect_filled(row.response.rect, radius(R_MD), rgba(31, 35, 44, 0.0));
+                    if row.response.contains_pointer() {
+                        ui.painter().set(row_bg, egui::Shape::rect_filled(row.response.rect, radius(R_MD), RAISED));
                     }
                 }
             }
@@ -1593,7 +1595,7 @@ fn kbd(ui: &mut Ui, text: &str) {
 }
 
 fn lib_image(ui: &Ui, r: Rect, fx: &LibModel) {
-    ui.painter().rect_filled(r, radius(R_SM), Color32::from_rgb(0x0b, 0x0d, 0x11));
+    ui.painter().rect_filled(r, radius(R_SM), INK);
     let uri = format!("bytes://art/{}/{}.svg", fx.m, fx.n);
     let img = nitor_ui::icons::svg(uri, crate::art::svg(fx));
     // 240 × 96 у центрі

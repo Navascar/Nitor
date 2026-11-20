@@ -3,7 +3,7 @@
 
 use egui::{
     Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Rect, Response, RichText, Sense, Stroke, StrokeKind,
-    TextEdit, Ui, Vec2, WidgetText, pos2, vec2,
+    TextEdit, Ui, Vec2, WidgetInfo, WidgetText, WidgetType, pos2, vec2,
 };
 
 use crate::icons;
@@ -139,6 +139,21 @@ impl<'a> Btn<'a> {
         }
         let sense = if self.enabled { Sense::click() } else { Sense::hover() };
         let (rect, resp) = ui.allocate_exact_size(vec2(w, h), sense);
+        // назва для екранного диктора: текст кнопки, а в кнопки-іконки — підказка
+        let name = match (&self.text, &self.tooltip) {
+            (Some(t), _) if !t.text().is_empty() => t.text().to_string(),
+            (_, Some(tip)) => tip.clone(),
+            _ => String::new(),
+        };
+        let enabled = self.enabled;
+        let toggled = matches!(self.kind, Kind::Toggled | Kind::DangerOn);
+        resp.widget_info(|| {
+            if toggled {
+                WidgetInfo::selected(WidgetType::Button, enabled, true, &name)
+            } else {
+                WidgetInfo::labeled(WidgetType::Button, enabled, &name)
+            }
+        });
         let hovered = resp.hovered() && self.enabled;
         let (fill, stroke, fg) = colors(self.kind, hovered);
         if ui.is_rect_visible(rect) {
@@ -197,10 +212,10 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
             let f = if hovered { ACCENT_HOVER } else { ACCENT_STRONG };
             (f, ACCENT_STRONG, WHITE)
         }
-        Kind::Danger => (if hovered { rgba(239, 91, 96, 0.12) } else { Color32::TRANSPARENT }, DANGER, DANGER),
+        Kind::Danger => (if hovered { alpha(DANGER, 0.12) } else { Color32::TRANSPARENT }, DANGER, DANGER),
         Kind::DangerOn => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Ghost => (if hovered { RAISED } else { Color32::TRANSPARENT }, Color32::TRANSPARENT, TEXT),
-        Kind::Warn => (if hovered { rgba(245, 165, 36, 0.12) } else { Color32::TRANSPARENT }, WARN, WARN),
+        Kind::Warn => (if hovered { alpha(WARN, 0.12) } else { Color32::TRANSPARENT }, WARN, WARN),
         Kind::Update => (ACCENT_SOFT, ACCENT, ACCENT),
         Kind::Toggled => (ACCENT_SOFT, ACCENT, TEXT),
         Kind::Done => (Color32::TRANSPARENT, OK, OK),
@@ -209,6 +224,19 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
 
 /// Повзунок із заливкою доріжки кольором `fill`. Повертає відповідь (змінено — `changed()`).
 pub fn slider(ui: &mut Ui, value: &mut f32, min: f32, max: f32, fill: Color32, width: f32) -> Response {
+    slider_named(ui, "", value, min, max, fill, width)
+}
+
+/// Повзунок з назвою для екранного диктора.
+pub fn slider_named(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    fill: Color32,
+    width: f32,
+) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width.max(40.0), 18.0), Sense::click_and_drag());
     let thumb = 16.0;
     let track = Rect::from_min_max(pos2(rect.left(), rect.center().y - 3.0), pos2(rect.right(), rect.center().y + 3.0));
@@ -252,6 +280,8 @@ pub fn slider(ui: &mut Ui, value: &mut f32, min: f32, max: f32, fill: Color32, w
             p.circle_stroke(pos2(cx, rect.center().y), thumb / 2.0 + 2.0, Stroke::new(2.0_f32, ACCENT));
         }
     }
+    let v = *value as f64;
+    resp.widget_info(|| WidgetInfo::slider(true, v, name));
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -312,6 +342,7 @@ pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown
             ui.painter().rect_filled(rect, radius(R_SM), RAISED);
         }
         ui.painter().text(rect.right_center() - vec2(S1, 0.0), Align2::RIGHT_CENTER, text.clone(), font(FS_SM), TEXT);
+        resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, format!("{text}, ввести значення")));
         let resp = resp.on_hover_cursor(CursorIcon::Text).on_hover_text("Клікніть, щоб ввести значення");
         if resp.clicked() {
             let start = match shown {
@@ -342,7 +373,7 @@ pub fn slider_row(
         let (r, _) = ui.allocate_exact_size(vec2(label_w, 18.0), Sense::hover());
         ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, font(FS_SM), MUTED);
         let w = ui.available_width() - 48.0 - S2;
-        changed |= slider(ui, value, 0.0, max, fill, w).changed();
+        changed |= slider_named(ui, label, value, 0.0, max, fill, w).changed();
         changed |= value_box(ui, id, value, 0.0, max, shown, 48.0);
     });
     changed
@@ -400,13 +431,18 @@ pub fn check(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
         *value = !*value;
         resp.mark_changed();
     }
+    let on = *value;
+    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
     let b = Rect::from_min_size(pos2(rect.left(), rect.center().y - 8.0), Vec2::splat(16.0));
     let p = ui.painter();
     if *value {
         p.rect_filled(b, CornerRadius::same(4), ACCENT_STRONG);
         icons::image("check", 14.0, WHITE).paint_at(ui, b.shrink(1.0));
     } else {
-        p.rect(b, CornerRadius::same(4), RAISED, Stroke::new(1.0_f32, LINE_STRONG), StrokeKind::Inside);
+        p.rect(b, CornerRadius::same(4), RAISED, Stroke::new(1.0_f32, LINE_FIELD), StrokeKind::Inside);
+    }
+    if resp.has_focus() {
+        p.rect_stroke(b.expand(2.0), CornerRadius::same(6), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
     }
     p.text(pos2(b.right() + S2, rect.center().y), Align2::LEFT_CENTER, text, font(FS_MD), TEXT);
     resp.on_hover_cursor(CursorIcon::PointingHand)

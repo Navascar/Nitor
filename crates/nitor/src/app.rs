@@ -856,11 +856,7 @@ pub fn readable_text(c: Rgb) -> egui::Color32 {
         if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
     };
     let l = 0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2);
-    if (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) {
-        egui::Color32::from_rgb(0x0b, 0x0d, 0x10)
-    } else {
-        egui::Color32::WHITE
-    }
+    if (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) { nitor_ui::theme::INK } else { nitor_ui::theme::WHITE }
 }
 
 pub fn c32(c: Rgb) -> egui::Color32 {

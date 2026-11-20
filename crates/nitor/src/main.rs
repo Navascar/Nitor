@@ -201,8 +201,10 @@ impl eframe::App for App {
         self.show_menu(ctx);
         self.show_toast(ctx);
         self.screenshot(ctx);
-        // живі кольори приладів і DMX-монітор — ~15 разів на секунду
-        ctx.request_repaint_after(Duration::from_millis(66));
+        // живі кольори приладів і DMX-монітор — ~15 разів на секунду; згорнуте вікно малювати
+        // нема чого (світло рахує потік рушія), лише раз на секунду перевіряємо стан
+        let minimized = ctx.input(|i| i.viewport().minimized == Some(true));
+        ctx.request_repaint_after(Duration::from_millis(if minimized { 1000 } else { 66 }));
     }
 }
 

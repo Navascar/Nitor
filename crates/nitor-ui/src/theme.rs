@@ -13,6 +13,8 @@ pub const SURFACE: Color32 = Color32::from_rgb(0x17, 0x1a, 0x21);
 pub const RAISED: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2c);
 pub const LINE: Color32 = Color32::from_rgb(0x2b, 0x30, 0x3b);
 pub const LINE_STRONG: Color32 = Color32::from_rgb(0x3d, 0x44, 0x52);
+/// межа полів вводу, списків і чекбоксів: ≥ 3:1 на BG, SURFACE і RAISED (WCAG 1.4.11)
+pub const LINE_FIELD: Color32 = Color32::from_rgb(0x70, 0x78, 0x88);
 pub const TEXT: Color32 = Color32::from_rgb(0xe6, 0xe8, 0xee);
 /// ≥ 4.5:1 на BG, SURFACE і RAISED
 pub const MUTED: Color32 = Color32::from_rgb(0x9a, 0xa1, 0xae);
@@ -33,6 +35,8 @@ pub const WARN: Color32 = Color32::from_rgb(0xf5, 0xa5, 0x24);
 pub const OK: Color32 = Color32::from_rgb(0x3e, 0xcf, 0x8e);
 pub const WHITE: Color32 = Color32::WHITE;
 pub const TOAST_ERR_BG: Color32 = Color32::from_rgb(0x3a, 0x1f, 0x22);
+/// найтемніше: текст на світлих кольорах, «вимкнене» світло, тло монітора
+pub const INK: Color32 = Color32::from_rgb(0x0b, 0x0d, 0x10);
 
 // типографічна шкала
 pub const FS_XS: f32 = 11.0;
@@ -80,6 +84,11 @@ pub fn radius(r: u8) -> CornerRadius {
 /// Напівпрозорий колір із RGB 0..255 і альфою 0..1.
 pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(r, g, b, (a * 255.0).round() as u8)
+}
+
+/// Колір токена з прозорістю 0..1.
+pub fn alpha(c: Color32, a: f32) -> Color32 {
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * 255.0).round() as u8)
 }
 
 fn read_font(paths: &[&str]) -> Option<Vec<u8>> {
@@ -172,8 +181,8 @@ pub fn apply(ctx: &egui::Context) {
         let w = &mut v.widgets;
         for (st, fill, line) in [
             (&mut w.noninteractive, SURFACE, LINE),
-            (&mut w.inactive, RAISED, LINE),
-            (&mut w.hovered, RAISED, LINE_STRONG),
+            (&mut w.inactive, RAISED, LINE_FIELD),
+            (&mut w.hovered, RAISED, MUTED),
             (&mut w.active, RAISED, ACCENT),
             (&mut w.open, RAISED, LINE_STRONG),
         ] {

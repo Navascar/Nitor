@@ -61,7 +61,40 @@ fn open_serial(port: &str, baud: u32, stop_bits: serialport::StopBits) -> Result
         .stop_bits(stop_bits)
         .timeout(Duration::from_secs(1))
         .open()
-        .map_err(|e| err!("{e}"))
+        .map_err(|e| err!("{}: {}", port.trim(), serial_text(&e)))
+}
+
+/// Помилка послідовного порту українською.
+fn serial_text(e: &serialport::Error) -> String {
+    use serialport::ErrorKind as K;
+    match e.kind() {
+        K::NoDevice => "порт не знайдено або його зайняла інша програма".into(),
+        K::InvalidInput => "неправильні параметри порту".into(),
+        K::Io(std::io::ErrorKind::PermissionDenied) => "порт зайнятий іншою програмою".into(),
+        K::Io(kind) => crate::error::io_text(&std::io::Error::from(kind)),
+        K::Unknown => format!("невідома помилка порту ({})", e.description),
+    }
+}
+
+/// Помилка USB українською.
+fn usb_text(e: rusb::Error) -> &'static str {
+    use rusb::Error as E;
+    match e {
+        E::Access => "немає доступу до пристрою (потрібен драйвер WinUSB)",
+        E::NoDevice => "пристрій від'єднано",
+        E::NotFound => "пристрій не знайдено",
+        E::Busy => "пристрій зайнятий іншою програмою",
+        E::Timeout => "пристрій не відповідає",
+        E::Pipe => "пристрій відхилив запит (можливо, встановлено не той драйвер)",
+        E::Io => "помилка обміну даними з пристроєм",
+        E::NotSupported => "драйвер пристрою не підтримує цю операцію (потрібен WinUSB)",
+        E::Overflow => "пристрій надіслав забагато даних",
+        E::InvalidParam => "неправильний параметр запиту",
+        E::Interrupted => "операцію перервано",
+        E::NoMem => "недостатньо пам'яті",
+        E::BadDescriptor => "пристрій повідомив пошкоджений опис",
+        E::Other => "невідома помилка USB",
+    }
 }
 
 pub struct EnttecPro {
@@ -97,9 +130,9 @@ impl Driver for OpenDmx {
     }
     fn send(&mut self, frame: &Frame) -> Result<()> {
         let ser = self.ser.as_mut().ok_or_else(|| err!("порт закрито"))?;
-        ser.set_break().map_err(|e| err!("{e}"))?;
+        ser.set_break().map_err(|e| err!("{}", serial_text(&e)))?;
         std::thread::sleep(Duration::from_micros(176)); // break ≥ 88 мкс
-        ser.clear_break().map_err(|e| err!("{e}"))?;
+        ser.clear_break().map_err(|e| err!("{}", serial_text(&e)))?;
         std::thread::sleep(Duration::from_micros(12)); // MAB ≥ 8 мкс
         let mut data = Vec::with_capacity(DMX_CHANNELS + 1);
         data.push(0);
@@ -231,16 +264,16 @@ pub struct UdmxDevice {
 /// Контекст libusb (один на програму). Без доступу до USB — зрозуміла помилка, а не збій.
 fn usb() -> Result<rusb::Context> {
     use rusb::UsbContext as _;
-    static CTX: std::sync::OnceLock<std::result::Result<rusb::Context, String>> = std::sync::OnceLock::new();
-    let ctx = CTX.get_or_init(|| rusb::Context::new().map_err(|e| e.to_string())).clone();
-    let ctx = ctx.map_err(|e| err!("не знайдено бібліотеку libusb: {e}"))?;
+    static CTX: std::sync::OnceLock<std::result::Result<rusb::Context, rusb::Error>> = std::sync::OnceLock::new();
+    let ctx = CTX.get_or_init(rusb::Context::new).clone();
+    let ctx = ctx.map_err(|_| err!("не знайдено бібліотеку libusb"))?;
     let _ = ctx.devices(); // перевірка, що контекст працює
     Ok(ctx)
 }
 
 fn udmx_list() -> Result<Vec<(rusb::Device<rusb::Context>, UdmxDevice)>> {
     use rusb::UsbContext as _;
-    let devices = usb()?.devices().map_err(|e| err!("не знайдено бібліотеку libusb: {e}"))?;
+    let devices = usb()?.devices().map_err(|e| err!("не вдалося отримати список USB-пристроїв: {}", usb_text(e)))?;
     let mut out = vec![];
     for dev in devices.iter() {
         let Ok(desc) = dev.device_descriptor() else { continue };
@@ -293,7 +326,7 @@ impl Udmx {
                 frame,
                 Duration::from_millis(500),
             )
-            .map_err(|e| err!("{e}"))?;
+            .map_err(|e| err!("{}", usb_text(e)))?;
         if written != DMX_CHANNELS {
             bail!("uDMX прийняв {written} з {DMX_CHANNELS} байт");
         }
@@ -308,7 +341,7 @@ impl Driver for Udmx {
             bail!("uDMX не знайдено");
         }
         let (dev, info) = &devices[self.index.min(devices.len() - 1)];
-        let handle = dev.open().map_err(|e| err!("не вдалося відкрити uDMX: {e}"))?;
+        let handle = dev.open().map_err(|e| err!("не вдалося відкрити uDMX: {}", usb_text(e)))?;
         let _ = handle.set_active_configuration(1); // на деяких драйверах вже налаштовано
         self.dev = Some(handle);
         // пробна відправка: якщо драйвер не той, помилка буде тут, а не в циклі

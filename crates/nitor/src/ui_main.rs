@@ -53,7 +53,9 @@ impl App {
                     ui.spacing_mut().item_spacing.x = S3;
                     ui.set_min_height(CONTROL_H);
                     ui.label(RichText::new("Nitor").font(bold(FS_XL)));
-                    self.output_pill(ui);
+                    // праві кнопки розкладаються першими; індикатор виходу займає те, що лишилося,
+                    // і обрізає текст, щоб на вузькому вікні нічого не накладалося
+                    let narrow = ui.ctx().screen_rect().width() < 1100.0;
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S3;
                         let h = self.v.hotkeys.clone();
@@ -106,17 +108,23 @@ impl App {
                         let mut m = self.v.show.master as f32;
                         let id = Id::new("master");
                         let mut changed = widgets::value_box(ui, id, &mut m, 0.0, 255.0, Shown::Pct, 44.0);
-                        changed |= widgets::slider(ui, &mut m, 0.0, 255.0, ACCENT, 180.0).changed();
+                        let sw = if narrow { 120.0 } else { 180.0 };
+                        changed |= widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
                         ui.label(RichText::new("Майстер").size(FS_MD));
                         if changed {
                             self.send(Command::SetMaster(m as u8));
                         }
+                        ui.add_space(S3);
+                        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                            let room = ui.available_width();
+                            self.output_pill(ui, room);
+                        });
                     });
                 });
             });
     }
 
-    fn output_pill(&mut self, ui: &mut Ui) {
+    fn output_pill(&mut self, ui: &mut Ui, room: f32) {
         let o = &self.v.output;
         let status =
             if o.ok && o.paused { "пауза, світло вимкнене".to_string() } else { o.status.clone() };
@@ -135,12 +143,26 @@ impl App {
         } else {
             o.status.clone()
         };
-        let mut job = egui::text::LayoutJob::simple_singleline(text, font(FS_SM), TEXT);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(380.0);
+        let chrome = S3 * 2.0 + 8.0 + S2;
+        // без місця для тексту лишається лише кольорова крапка стану
+        let text_room = (room - chrome).min(380.0);
+        let show_text = text_room >= 48.0;
+        let mut job = egui::text::LayoutJob::simple_singleline(text.clone(), font(FS_SM), TEXT);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(text_room.max(1.0));
         let g = ui.fonts(|f| f.layout_job(job));
-        let w = S3 * 2.0 + 8.0 + S2 + g.size().x;
+        let w = if show_text { chrome + g.size().x } else { S3 * 2.0 + 8.0 };
         let (r, resp) = ui.allocate_exact_size(vec2(w, CONTROL_H_SM), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Вихід DMX: {text}")));
+        let tip = if show_text { tip } else { format!("{text}\n{tip}") };
         let p = ui.painter();
+        if resp.has_focus() {
+            p.rect_stroke(
+                r.expand(2.0),
+                egui::CornerRadius::same(255),
+                Stroke::new(2.0_f32, ACCENT),
+                StrokeKind::Outside,
+            );
+        }
         p.rect(
             r,
             egui::CornerRadius::same(255),
@@ -150,7 +172,9 @@ impl App {
         );
         let dot = if o.ok { OK } else { DANGER };
         p.circle_filled(pos2(r.left() + S3 + 4.0, r.center().y), 4.0, dot);
-        p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
+        if show_text {
+            p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
+        }
         // індикатор виходу — одразу до вибору DMX-виходу
         if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             self.open_settings(Some(crate::dialogs::Tab::Output));
@@ -265,12 +289,39 @@ impl App {
     }
 
     // --------------------------------------------------------------- прилади --
+    /// Заголовок панелі з кнопками праворуч. Якщо кнопки не вміщаються поруч із назвою,
+    /// вони переходять у рядок під нею (ширину кнопок пам'ятаємо з попереднього кадру).
     fn panel_head(ui: &mut Ui, title: &str, right: impl FnOnce(&mut Ui)) {
-        ui.horizontal(|ui| {
-            ui.set_min_height(CONTROL_H_SM);
-            widgets::h2(ui, title);
-            ui.with_layout(Layout::right_to_left(Align::Center), right);
-        });
+        let id = ui.id().with(("panel-head", title));
+        let right_w: f32 = ui.data(|d| d.get_temp(id)).unwrap_or(0.0);
+        let title_w = widgets::text_width(ui, title, bold(FS_LG));
+        let fits = title_w + S4 + right_w <= ui.available_width();
+        let row = |ui: &mut Ui, right: Box<dyn FnOnce(&mut Ui) + '_>| -> f32 {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.scope(right).response.rect.width()).inner
+        };
+        let used = if fits {
+            ui.horizontal(|ui| {
+                ui.set_min_height(CONTROL_H_SM);
+                widgets::h2(ui, title);
+                row(ui, Box::new(right))
+            })
+            .inner
+        } else {
+            ui.horizontal(|ui| {
+                ui.set_min_height(CONTROL_H_SM);
+                widgets::h2(ui, title);
+            });
+            ui.allocate_ui_with_layout(
+                vec2(ui.available_width(), CONTROL_H_SM),
+                Layout::left_to_right(Align::Center),
+                |ui| row(ui, Box::new(right)),
+            )
+            .inner
+        };
+        if (used - right_w).abs() > 0.5 {
+            ui.data_mut(|d| d.insert_temp(id, used));
+            ui.ctx().request_repaint();
+        }
         ui.add_space(S3 - S2);
     }
 
@@ -355,6 +406,12 @@ impl App {
             (RAISED, LINE)
         };
         p.rect(rect, radius(R_LG), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
+        if resp.has_focus() {
+            p.rect_stroke(rect.expand(2.0), radius(R_LG + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
+        }
+        let end_addr = self.v.end(f);
+        let label = format!("{}, DMX {}–{}", f.name, f.address, end_addr);
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &label));
         let n = self.v.segs(f);
         let live = self.v.live.get(&f.id).cloned().unwrap_or_default();
         let paint = |c: Option<&[u8; 4]>| {
@@ -367,7 +424,7 @@ impl App {
         let mut lamp_bottom;
         if n > 1 {
             let bar = Rect::from_min_size(pos2(inner.left(), inner.top() + S2), vec2(inner.width(), 32.0));
-            p.rect_filled(bar, radius(R_SM), Color32::from_rgb(5, 6, 8));
+            p.rect_filled(bar, radius(R_SM), INK);
             let cells = bar.shrink(3.0);
             let cw = (cells.width() - 3.0 * (n as f32 - 1.0)) / n as f32;
             for k in 0..n {
@@ -584,6 +641,7 @@ impl App {
                     vec2(32.0, 32.0),
                 );
                 let resp = ui.interact(r, Id::new(("swatch", i)), Sense::click()).on_hover_text(*hex);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Колір {hex}")));
                 ui.painter().rect(
                     r,
                     radius(R_SM),
@@ -591,11 +649,11 @@ impl App {
                     Stroke::new(1.0_f32, rgba(0, 0, 0, 0.4)),
                     StrokeKind::Inside,
                 );
-                if resp.hovered() {
+                if resp.hovered() || resp.has_focus() {
                     ui.painter().rect_stroke(
                         r.expand(1.0),
                         radius(R_SM),
-                        Stroke::new(2.0_f32, TEXT),
+                        Stroke::new(2.0_f32, if resp.has_focus() { ACCENT } else { TEXT }),
                         StrokeKind::Outside,
                     );
                 }
@@ -832,7 +890,14 @@ impl App {
         let colors = self.v.show.static_colors.clone();
         let w = ui.available_width();
         let gap = S2;
-        let cols = (((w + gap) / (92.0 + gap)).floor() as usize).max(1);
+        // плитка не вужча за найдовше слово в назвах, щоб слова не рвалися посередині
+        let word_w = colors
+            .iter()
+            .flat_map(|c| c.name.split_whitespace())
+            .map(|word| widgets::text_width(ui, word, bold(FS_XS)))
+            .fold(0.0_f32, f32::max);
+        let min_w = (word_w + 2.0 * S1).max(92.0);
+        let cols = (((w + gap) / (min_w + gap)).floor() as usize).max(1);
         let cw = (w - gap * (cols as f32 - 1.0)) / cols as f32;
         let rows = colors.len().div_ceil(cols);
         let (area, _) = ui.allocate_exact_size(vec2(w, (rows as f32 * (48.0 + gap) - gap).max(0.0)), Sense::hover());
@@ -842,10 +907,19 @@ impl App {
                 vec2(cw, 48.0),
             );
             let resp = ui.interact(r, Id::new(("static", i)), Sense::click()).on_hover_text(&c.name);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &c.name));
             let with_w = c.w.is_some_and(|w| w > 0);
             let rr = if resp.is_pointer_button_down_on() { r.shrink(1.0) } else { r };
             paint_static_chip(ui, rr, c.hex, with_w, R_MD);
             ui.painter().rect_stroke(rr, radius(R_MD), Stroke::new(1.0_f32, rgba(0, 0, 0, 0.4)), StrokeKind::Inside);
+            if resp.has_focus() {
+                ui.painter().rect_stroke(
+                    r.expand(2.0),
+                    radius(R_MD + 2),
+                    Stroke::new(2.0_f32, ACCENT),
+                    StrokeKind::Outside,
+                );
+            }
             let fg = readable_text(c.hex);
             if with_w {
                 ui.painter().text(
@@ -856,12 +930,12 @@ impl App {
                     fg.gamma_multiply(0.75),
                 );
             }
-            let long = c.name.chars().count() > 10;
+            let long = widgets::text_width(ui, &c.name, bold(FS_SM)) > r.width() - 2.0 * S1;
             let mut job = egui::text::LayoutJob::simple(
                 c.name.clone(),
                 bold(if long { FS_XS } else { FS_SM }),
                 fg,
-                rr.width() - 2.0 * S1,
+                r.width() - 2.0 * S1,
             );
             job.wrap.max_rows = 2;
             job.halign = Align::Center;
@@ -968,7 +1042,7 @@ impl App {
             changed = true;
         }
         ui.add_space(S3 - S2);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let flash = self.flashing("effApply");
             let kind = if flash {
                 Kind::Done
@@ -1053,7 +1127,7 @@ impl App {
                     p.rect_filled(
                         Rect::from_min_max(pos2(r.left(), r.bottom() - fill_h), r.max),
                         egui::CornerRadius::same(3),
-                        rgba(79, 140, 255, 0.35),
+                        alpha(ACCENT, 0.35),
                     );
                     p.text(
                         pos2(r.center().x, r.top() + 2.0),
