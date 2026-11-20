@@ -183,6 +183,9 @@ impl App {
     }
 
     /// Перехід від вікна запуску до вікна програми.
+    /// Перетворює вікно запуску на головне. Поки система не змінить розмір вікна, малюємо лише
+    /// тло (див. `main_window_ready`): інакше Windows розтягує кадр, намальований у маленькому
+    /// вікні, на весь новий розмір — інтерфейс на мить стає збільшеним і напівпрозорим.
     pub fn open_main_window(&mut self, ctx: &egui::Context) {
         let size = vec2(1400.0, 900.0);
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
@@ -194,6 +197,23 @@ impl App {
         let pos = ((monitor - size) / 2.0).max(vec2(0.0, 0.0));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos.to_pos2()));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.main_pending = Some((size, std::time::Instant::now() + std::time::Duration::from_millis(700)));
+    }
+
+    /// `false`, поки вікно ще не набуло розміру головного: тоді цей кадр — суцільне тло.
+    pub fn main_window_ready(&mut self, ctx: &egui::Context) -> bool {
+        let Some((size, deadline)) = self.main_pending else { return true };
+        let now = ctx.input(|i| i.viewport().inner_rect).map(|r| r.size());
+        let resized = now.is_some_and(|s| (s.x - size.x).abs() <= 2.0 && (s.y - size.y).abs() <= 2.0);
+        if resized || std::time::Instant::now() >= deadline {
+            // розмір уже правильний: цей кадр — ще тло, наступний — інтерфейс у новому розмірі
+            self.main_pending = None;
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ctx, |_| {});
+        false
     }
 }
 

@@ -180,6 +180,9 @@ impl eframe::App for App {
             self.splash = None;
             self.open_main_window(ctx);
         }
+        if !self.main_window_ready(ctx) {
+            return;
+        }
 
         // закриття вікна (хрестик, Alt+F4) — лише після підтвердження
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {

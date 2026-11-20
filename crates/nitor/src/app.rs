@@ -194,6 +194,8 @@ pub struct App {
     pub pending_text_op: Option<(egui::Id, TextOp, u8)>,
     /// вікно запуску (поки воно є, програма ще не відкрита)
     pub splash: Option<crate::splash::Splash>,
+    /// вікно запуску щойно стало головним: розмір вікна, якого чекаємо, і крайній строк
+    pub main_pending: Option<(egui::Vec2, std::time::Instant)>,
     /// інша копія програми просить показати вікно
     pub show_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// інсталятор просить завершити роботу
@@ -245,6 +247,7 @@ impl App {
             wheel: None,
             pending_text_op: None,
             splash: None,
+            main_pending: None,
             show_request: Default::default(),
             quit_request: Default::default(),
             shot_frame: None,
