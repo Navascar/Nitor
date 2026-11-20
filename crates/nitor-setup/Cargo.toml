@@ -1,0 +1,49 @@
+[package]
+name = "nitor-setup"
+description = "Встановлення й видалення Nitor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "Nitor-Setup"
+path = "src/main.rs"
+
+[dependencies]
+nitor-core.workspace = true
+nitor-ui.workspace = true
+log.workspace = true
+flate2.workspace = true
+serde_json.workspace = true
+egui = "0.32.3"
+eframe = { version = "0.32.3", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "x11", "wayland"] }
+egui_extras = { version = "0.32.3", features = ["svg", "image"] }
+wgpu = { version = "25.0.2", default-features = false, features = ["dx12", "vulkan", "gles", "metal", "wgsl"] }
+image = { version = "0.25.9", default-features = false, features = ["png", "ico"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Storage_EnhancedStorage",
+] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[build-dependencies]
+flate2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

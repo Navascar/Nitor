@@ -9,15 +9,15 @@ mod art;
 mod core;
 mod dialogs;
 mod hotkeys;
-mod icons;
+
 mod logging;
 mod menus;
 mod paths;
 mod splash;
-mod theme;
+
 mod ui_main;
 mod update;
-mod widgets;
+
 mod winshell;
 
 use std::path::PathBuf;
@@ -130,13 +130,14 @@ fn main() {
         options,
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            theme::install_fonts(&cc.egui_ctx);
-            theme::apply(&cc.egui_ctx);
+            nitor_ui::theme::install_fonts(&cc.egui_ctx);
+            nitor_ui::theme::apply(&cc.egui_ctx);
             let mut app = App::new(core2, updater2);
             if with_splash {
                 app.splash = Some(splash::Splash::new());
             }
             winshell::listen_show(app.show_request.clone(), cc.egui_ctx.clone());
+            winshell::listen_quit(app.quit_request.clone(), cc.egui_ctx.clone());
             Ok(Box::new(app))
         }),
     );
@@ -157,6 +158,12 @@ impl eframe::App for App {
         // інсталятор оновлення запущено — програма завершується, світло не гасне
         if self.updater.info().status == update::Status::Restarting && !self.quitting {
             log::info!("Оновлення: перезапуск");
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        if self.quit_request.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            log::info!("Інсталятор просить завершити роботу");
             self.quitting = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;

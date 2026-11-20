@@ -1,0 +1,10 @@
+[package]
+name = "nitor-ui"
+description = "Дизайн-система Nitor для egui: токени, шрифти, кнопки, повзунки, іконки"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+egui = "0.32.3"

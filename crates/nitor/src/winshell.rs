@@ -61,13 +61,22 @@ mod imp {
 
     /// Слухає запити «покажи вікно» від інших копій.
     pub fn listen_show(flag: Arc<AtomicBool>, ctx: egui::Context) {
-        let name = wide(r"Local\Nitor.Show");
+        listen(r"Local\Nitor.Show", flag, ctx);
+    }
+
+    /// Слухає запит інсталятора «заверши роботу» (встановлення або видалення поверх запущеної програми).
+    pub fn listen_quit(flag: Arc<AtomicBool>, ctx: egui::Context) {
+        listen(r"Local\Nitor.Quit", flag, ctx);
+    }
+
+    fn listen(event: &str, flag: Arc<AtomicBool>, ctx: egui::Context) {
+        let name = wide(event);
         let h = unsafe { CreateEventW(std::ptr::null(), 0, 0, name.as_ptr()) };
         if h.is_null() {
             return;
         }
         let h = h as usize;
-        let _ = std::thread::Builder::new().name("show-request".into()).spawn(move || {
+        let _ = std::thread::Builder::new().name("event".into()).spawn(move || {
             loop {
                 if unsafe { WaitForSingleObject(h as HANDLE, INFINITE) } == WAIT_OBJECT_0 {
                     flag.store(true, Ordering::Relaxed);
@@ -101,6 +110,8 @@ mod imp {
     pub fn signal_existing() {}
 
     pub fn listen_show(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
+
+    pub fn listen_quit(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
 
     pub fn set_app_id() {}
 }

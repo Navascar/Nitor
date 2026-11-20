@@ -1,0 +1,14 @@
+[package]
+name = "nitor-library"
+description = "Збирає бібліотеку приладів Nitor з Open Fixture Library і QLC+"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde_json.workspace = true
+flate2.workspace = true
+roxmltree = "0.20"
+regex = "1"

@@ -7,9 +7,9 @@ use std::time::Instant;
 use egui::{Align, Layout, RichText, Sense, Stroke, vec2};
 
 use crate::app::App;
-use crate::theme::*;
 use crate::update::{SplashPhase, Status, decide, progress_percent, short_notes};
-use crate::widgets::{Kind, btn};
+use nitor_ui::theme::*;
+use nitor_ui::widgets::{Kind, btn};
 
 pub const WIDTH: f32 = 560.0;
 

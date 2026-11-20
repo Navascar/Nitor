@@ -7,8 +7,8 @@ use nitor_core::engine::ColorValues;
 
 use crate::app::{Act, App, TextOp, c32};
 use crate::hotkeys::short_key;
-use crate::icons;
-use crate::theme::*;
+use nitor_ui::icons;
+use nitor_ui::theme::*;
 
 #[derive(Clone, Debug)]
 pub enum Item {

@@ -10,8 +10,8 @@ use nitor_core::{Command, DMX_CHANNELS};
 
 use crate::app::{Act, App, cap};
 use crate::hotkeys::{self, Entry};
-use crate::theme::*;
-use crate::widgets::{self, Kind, Shown, btn, icon_btn};
+use nitor_ui::theme::*;
+use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -1368,7 +1368,7 @@ impl App {
             widgets::hline(ui);
             ui.add_space(S3 - S2);
             let (r, resp) = ui.allocate_exact_size(vec2(w, 22.0), Sense::click());
-            crate::icons::image("wrench", 18.0, MUTED)
+            nitor_ui::icons::image("wrench", 18.0, MUTED)
                 .paint_at(ui, Rect::from_min_size(pos2(r.left(), r.center().y - 9.0), vec2(18.0, 18.0)));
             ui.painter().text(
                 pos2(r.left() + 18.0 + S2, r.center().y),
@@ -1595,7 +1595,7 @@ fn kbd(ui: &mut Ui, text: &str) {
 fn lib_image(ui: &Ui, r: Rect, fx: &LibModel) {
     ui.painter().rect_filled(r, radius(R_SM), Color32::from_rgb(0x0b, 0x0d, 0x11));
     let uri = format!("bytes://art/{}/{}.svg", fx.m, fx.n);
-    let img = crate::icons::svg(uri, crate::art::svg(fx));
+    let img = nitor_ui::icons::svg(uri, crate::art::svg(fx));
     // 240 × 96 у центрі
     let scale = (r.width() / 240.0).min(r.height() / 96.0);
     let size = vec2(240.0 * scale, 96.0 * scale);

@@ -11,10 +11,10 @@ use nitor_core::{Command, EffectKind, Engine, Rgb};
 
 use crate::app::{Act, App, Pane, c32, cap, readable_text, speed_from_slider};
 use crate::hotkeys::short_key;
-use crate::icons;
 use crate::menus::{fmt_num, paint_static_chip};
-use crate::theme::*;
-use crate::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
+use nitor_ui::icons;
+use nitor_ui::theme::*;
+use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
 
 const SLIDERS: [(&str, &str, Color32); 8] = [
     ("r", "Червоний", Color32::from_rgb(0xff, 0x4d, 0x4d)),
