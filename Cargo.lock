@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "nitor"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "arboard",
  "eframe",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-core"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "flate2",
  "indexmap",
@@ -1988,7 +1988,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-library"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "flate2",
  "regex",
@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-setup"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "eframe",
  "egui",
@@ -2018,7 +2018,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-ui"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "egui",
 ]
