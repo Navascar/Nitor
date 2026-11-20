@@ -360,7 +360,6 @@ pub fn input(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response
 
 /// Ціле число в полі вводу (як `<input type=number>`).
 pub fn number(ui: &mut Ui, value: &mut i64, min: i64, max: i64, width: f32) -> Response {
-    
     ui.add_sized(vec2(width, CONTROL_H), egui::DragValue::new(value).range(min..=max).speed(0.2))
 }
 

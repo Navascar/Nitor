@@ -13,10 +13,12 @@ mod icons;
 mod logging;
 mod menus;
 mod paths;
+mod splash;
 mod theme;
 mod ui_main;
 mod update;
 mod widgets;
+mod winshell;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -82,6 +84,12 @@ fn main() {
         }
         std::process::exit(code);
     }
+    // одна копія програми: друга лише показує вікно першої
+    let Some(_guard) = winshell::single_instance() else {
+        winshell::signal_existing();
+        return;
+    };
+    winshell::set_app_id();
     logging::init(paths::log_path(), args.verbose);
     log::info!("Nitor {} запускається, налаштування: {}", nitor_core::VERSION, args.config.display());
     std::panic::set_hook(Box::new(|info| log::error!("Збій: {info}")));
@@ -89,16 +97,22 @@ fn main() {
     let engine = nitor_core::Engine::load(&args.config);
     let core = core::Core::start(engine);
     let updater = update::Updater::new();
+    updater.start();
+    // вікно запуску — одразу; у режимі знімка екрана — одразу вікно програми
+    let with_splash = (std::env::var_os("NITOR_SCREENSHOT").is_none()
+        || std::env::var_os("NITOR_SCREENSHOT_SPLASH").is_some())
+        && std::env::var_os("NITOR_NO_SPLASH").is_none();
 
     let icon = image::load_from_memory(include_bytes!("../../../assets/icon.ico"))
         .ok()
         .map(|i| i.into_rgba8())
         .map(|i| egui::IconData { width: i.width(), height: i.height(), rgba: i.into_raw() });
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Nitor")
-        .with_app_id("Nitor")
-        .with_inner_size([1400.0, 900.0])
-        .with_min_inner_size([900.0, 600.0]);
+    let mut viewport = egui::ViewportBuilder::default().with_title("Nitor").with_app_id("Nitor");
+    viewport = if with_splash {
+        viewport.with_inner_size([splash::WIDTH, 220.0]).with_decorations(false).with_resizable(false)
+    } else {
+        viewport.with_inner_size([1400.0, 900.0]).with_min_inner_size([900.0, 600.0])
+    };
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
@@ -106,9 +120,11 @@ fn main() {
         viewport,
         renderer: eframe::Renderer::Wgpu,
         persist_window: false,
+        centered: true,
         ..Default::default()
     };
     let core2 = core.clone();
+    let updater2 = updater.clone();
     let result = eframe::run_native(
         "Nitor",
         options,
@@ -116,14 +132,20 @@ fn main() {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::install_fonts(&cc.egui_ctx);
             theme::apply(&cc.egui_ctx);
-            Ok(Box::new(App::new(core2, updater)))
+            let mut app = App::new(core2, updater2);
+            if with_splash {
+                app.splash = Some(splash::Splash::new());
+            }
+            winshell::listen_show(app.show_request.clone(), cc.egui_ctx.clone());
+            Ok(Box::new(app))
         }),
     );
     if let Err(e) = result {
         log::error!("Не вдалося відкрити вікно: {e}");
     }
-    // програма завершується: світло гасне
-    core.shutdown(true);
+    // програма завершується: світло гасне (крім перезапуску для оновлення)
+    let updating = updater.info().status == update::Status::Restarting;
+    core.shutdown(!updating);
     log::info!("Nitor завершено");
 }
 
@@ -131,6 +153,26 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh();
         self.pending_menu = None;
+
+        // інсталятор оновлення запущено — програма завершується, світло не гасне
+        if self.updater.info().status == update::Status::Restarting && !self.quitting {
+            log::info!("Оновлення: перезапуск");
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        if self.show_request.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        if self.splash.is_some() {
+            if !self.splash_frame(ctx) {
+                self.screenshot(ctx);
+                return;
+            }
+            self.splash = None;
+            self.open_main_window(ctx);
+        }
 
         // закриття вікна (хрестик, Alt+F4) — лише після підтвердження
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {

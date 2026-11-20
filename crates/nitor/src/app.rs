@@ -192,6 +192,10 @@ pub struct App {
     pub quitting: bool,
     pub wheel: Option<egui::TextureHandle>,
     pub pending_text_op: Option<(egui::Id, TextOp, u8)>,
+    /// вікно запуску (поки воно є, програма ще не відкрита)
+    pub splash: Option<crate::splash::Splash>,
+    /// інша копія програми просить показати вікно
+    pub show_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl App {
@@ -236,6 +240,8 @@ impl App {
             quitting: false,
             wheel: None,
             pending_text_op: None,
+            splash: None,
+            show_request: Default::default(),
         };
         app.sync_effect_draft();
         let warning = app.core.lock().engine.load_warning.clone();

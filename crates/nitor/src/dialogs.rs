@@ -431,10 +431,9 @@ impl App {
         });
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
         let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
-        if !(close || esc_close)
-            && self.settings.is_none() {
-                self.settings = Some(st);
-            }
+        if !(close || esc_close) && self.settings.is_none() {
+            self.settings = Some(st);
+        }
     }
 
     fn tab_output(&mut self, ui: &mut Ui, st: &mut SettingsState) {
@@ -590,15 +589,14 @@ impl App {
                 }
                 let mut addr = f.address as i64;
                 let ar = widgets::number(ui, &mut addr, 1, 512, cols[1]);
-                if (ar.changed() && !ar.dragged() || ar.drag_stopped())
-                    && addr != f.address as i64 {
-                        acts.push(Command::UpdateFixture {
-                            id: f.id.clone(),
-                            name: None,
-                            address: Some(addr as u16),
-                            profile: None,
-                        });
-                    }
+                if (ar.changed() && !ar.dragged() || ar.drag_stopped()) && addr != f.address as i64 {
+                    acts.push(Command::UpdateFixture {
+                        id: f.id.clone(),
+                        name: None,
+                        address: Some(addr as u16),
+                        profile: None,
+                    });
+                }
                 let mut prof = f.profile.clone();
                 if self.profile_select(ui, ("patch-prof", &f.id), &mut prof, f, None, cols[2]) {
                     acts.push(Command::UpdateFixture {
