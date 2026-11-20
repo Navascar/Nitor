@@ -112,7 +112,7 @@ jobs:
             $env:NITOR_SCREENSHOT = "$pwd\shots\app-$shot.png"
             $env:NITOR_SCREENSHOT_ACTS = "selectAll,$shot"
             $p = Start-Process "$app\nitor.exe" -PassThru
-            if (-not $p.WaitForExit(60000)) { $p.Kill(); "$shot: вікно не закрилося"; exit 1 }
+            if (-not $p.WaitForExit(60000)) { $p.Kill(); "${shot}: вікно не закрилося"; exit 1 }
             "{0,-10} {1}" -f $shot, (Test-Path "shots\app-$shot.png")
           }
           Remove-Item Env:NITOR_SCREENSHOT_ACTS
