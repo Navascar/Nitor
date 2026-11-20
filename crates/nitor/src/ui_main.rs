@@ -1040,7 +1040,7 @@ impl App {
                 let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (ch + gap)), Sense::hover());
                 let p = ui.painter();
                 let clip = ui.clip_rect();
-                for i in 0..512 {
+                for (i, &v) in self.v.dmx.iter().enumerate() {
                     let r = Rect::from_min_size(
                         pos2(area.left() + (i % cols) as f32 * (cw + gap), area.top() + (i / cols) as f32 * (ch + gap)),
                         vec2(cw, ch),
@@ -1048,7 +1048,6 @@ impl App {
                     if !clip.intersects(r) {
                         continue;
                     }
-                    let v = self.v.dmx[i];
                     p.rect_filled(r, egui::CornerRadius::same(3), RAISED);
                     let fill_h = v as f32 / 255.0 * r.height();
                     p.rect_filled(
