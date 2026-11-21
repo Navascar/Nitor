@@ -42,6 +42,12 @@ pub struct ConfigFile {
     pub static_colors: Vec<StaticColor>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub hotkeys: IndexMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub groups: IndexMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub operator: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<String>,
 }
 
 impl ConfigFile {
@@ -128,6 +134,9 @@ impl Engine {
         self.output_cfg = cfg.output;
         self.show.master = cfg.master;
         self.hotkeys = check_hotkeys(cfg.hotkeys).unwrap_or_default();
+        self.show.groups = self.check_groups(cfg.groups).unwrap_or_default();
+        self.operator = cfg.operator;
+        self.pin = cfg.pin.filter(|p| p.contains(':'));
     }
 
     /// Налаштування для запису: лише власні профілі та профілі моделей, якими користуються прилади.
@@ -152,6 +161,9 @@ impl Engine {
             scenes: self.show.scenes.clone(),
             static_colors: self.show.static_colors.clone(),
             hotkeys: self.hotkeys.clone(),
+            groups: self.show.groups.clone(),
+            operator: self.operator,
+            pin: self.pin.clone(),
         }
     }
 

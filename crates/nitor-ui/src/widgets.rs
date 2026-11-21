@@ -381,9 +381,15 @@ pub fn slider_row(
 
 /// Однорядкове поле вводу на всю ширину з підказкою.
 pub fn input(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response {
+    input_secret(ui, text, hint, width, false)
+}
+
+/// Поле вводу; `secret` — ховає символи (PIN).
+pub fn input_secret(ui: &mut Ui, text: &mut String, hint: &str, width: f32, secret: bool) -> Response {
     ui.add_sized(
         vec2(width, CONTROL_H),
         TextEdit::singleline(text)
+            .password(secret)
             .hint_text(RichText::new(hint).color(MUTED))
             .margin(vec2(S2, 8.0))
             .vertical_align(egui::Align::Center),

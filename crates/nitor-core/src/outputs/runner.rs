@@ -10,6 +10,9 @@ use crate::{DMX_CHANNELS, Result};
 
 pub type Frame = [u8; DMX_CHANNELS];
 
+/// Як часто пробувати знову відкрити пристрій, якого немає.
+const RETRY: Duration = Duration::from_secs(1);
+
 /// Драйвер одного типу виходу.
 pub trait Driver: Send {
     /// Відкрити пристрій або сокет. Помилка — текст для індикатора виходу.
@@ -47,6 +50,8 @@ pub struct OutputInfo {
     pub frames: u64,
     /// Відправку призупинено: кадр порожній.
     pub paused: bool,
+    /// Вихід працював, але зв'язок зник (наприклад, висмикнули USB): відтоді.
+    pub lost_since: Option<Instant>,
 }
 
 struct Shared {
@@ -89,7 +94,12 @@ impl Output {
             changed: Condvar::new(),
             stop: AtomicBool::new(false),
             info: Mutex::new(OutputInfo {
-                kind, ok: false, status: "Зупинено".into(), frames: 0, paused: false
+                kind,
+                ok: false,
+                status: "Зупинено".into(),
+                frames: 0,
+                paused: false,
+                lost_since: None,
             }),
         });
         let s = shared.clone();
@@ -146,7 +156,12 @@ fn run(s: &Shared, mut driver: Box<dyn Driver>, timing: Timing) {
                     let mut info = s.info.lock().unwrap();
                     info.ok = true;
                     info.status = driver.status();
-                    log::info!("Вихід {} відкрито", info.kind);
+                    match info.lost_since.take() {
+                        Some(t) => {
+                            log::info!("Вихід {} відновлено, зв'язку не було {} с", info.kind, t.elapsed().as_secs())
+                        }
+                        None => log::info!("Вихід {} відкрито", info.kind),
+                    }
                 }
                 Err(e) => {
                     let status = format!("Помилка: {e}");
@@ -157,7 +172,7 @@ fn run(s: &Shared, mut driver: Box<dyn Driver>, timing: Timing) {
                     }
                     info.status = status;
                     drop(info);
-                    s.wait_stop(Duration::from_secs(2));
+                    s.wait_stop(RETRY);
                     continue;
                 }
             }
@@ -203,6 +218,7 @@ fn run(s: &Shared, mut driver: Box<dyn Driver>, timing: Timing) {
                 log::warn!("Помилка відправки {}: {e}", info.kind);
                 info.status = format!("Помилка: {e}");
                 info.ok = false;
+                info.lost_since = Some(Instant::now());
                 ok = false;
                 sent = None; // після перепідключення порожній кадр — знову кілька разів
                 drop(info);
@@ -285,5 +301,45 @@ mod tests {
         let info = out.info();
         assert!(!info.ok);
         assert_eq!(info.status, "Помилка: немає пристрою");
+    }
+
+    /// Перша відправка падає (висмикнули USB), друге відкриття — теж, далі пристрій знову є.
+    struct Flaky(u32, u32, Arc<Mutex<Vec<Frame>>>);
+    impl Driver for Flaky {
+        fn open(&mut self) -> Result<()> {
+            self.1 += 1;
+            if self.1 == 2 {
+                return Err(crate::Error("немає пристрою".into()));
+            }
+            Ok(())
+        }
+        fn send(&mut self, frame: &Frame) -> Result<()> {
+            self.0 += 1;
+            if self.0 == 1 {
+                return Err(crate::Error("пристрій від'єднано".into()));
+            }
+            self.2.lock().unwrap().push(*frame);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn reconnects_and_resends_current_frame() {
+        let sent = Arc::new(Mutex::new(vec![]));
+        let mut out = Output::start(
+            "test",
+            Box::new(Flaky(0, 0, sent.clone())),
+            Timing { refresh_hz: 50.0, ..Default::default() },
+        );
+        let mut f = [0u8; DMX_CHANNELS];
+        f[0] = 77;
+        out.set_frame(&f);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(out.info().lost_since.is_some(), "розрив видно в індикаторі");
+        std::thread::sleep(RETRY + Duration::from_millis(300));
+        let info = out.info();
+        assert!(info.ok && info.lost_since.is_none(), "зв'язок відновився");
+        assert!(sent.lock().unwrap().iter().any(|x| x[0] == 77), "після повернення йде поточний кадр");
+        out.stop();
     }
 }

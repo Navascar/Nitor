@@ -67,7 +67,8 @@ pub struct MenuState {
 impl App {
     /// Запит меню з елемента інтерфейсу; найглибший елемент виграє (його обробник — першим).
     pub fn want_menu(&mut self, items: Vec<Item>) {
-        if self.pending_menu.is_none() {
+        // у режимі оператора контекстних меню немає: через них можна редагувати
+        if self.pending_menu.is_none() && !self.v.operator {
             self.pending_menu = Some(items);
         }
     }
@@ -280,6 +281,17 @@ impl App {
         m.push(item("plus", "Зберегти нову сцену…", Act::AskNewScene));
         m.push(item("upload", "Відкрити сцену з файлу…", Act::OpenSceneFile));
         m
+    }
+
+    pub fn group_menu(&self, name: &str) -> Vec<Item> {
+        vec![
+            Item::Title(format!("Група · {name}")),
+            item("refresh", "Замінити вибраними приладами", Act::SaveGroup(name.into())).disabled(self.sel.is_empty()),
+            item("edit", "Перейменувати…", Act::AskRenameGroup(name.into())),
+            item("trash", "Видалити групу", Act::DeleteGroup(name.into())).danger(),
+            Item::Sep,
+            item("plus", "Нова група з вибраних…", Act::AskNewGroup).disabled(self.sel.is_empty()),
+        ]
     }
 
     /// Меню для текстових полів: вирізати / копіювати / вставити / виділити все.

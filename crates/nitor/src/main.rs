@@ -1,6 +1,6 @@
 //! Nitor — керування RGB-прожекторами через uDMX та інші DMX-інтерфейси.
 //!
-//! `nitor [--config шлях] [--check] [-v]`
+//! `nitor [--config шлях] [--check] [--reset-pin] [-v]`
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -29,22 +29,25 @@ use app::{Act, App, TextOp};
 struct Args {
     config: PathBuf,
     check: bool,
+    reset_pin: bool,
     verbose: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { config: paths::config_path(), check: false, verbose: false };
+    let mut a = Args { config: paths::config_path(), check: false, reset_pin: false, verbose: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--config" => a.config = it.next().map(PathBuf::from).ok_or("--config потребує шляху")?,
             "--check" => a.check = true,
+            "--reset-pin" => a.reset_pin = true,
             "-v" | "--verbose" => a.verbose = true,
             "-h" | "--help" => {
                 return Err("Nitor — керування RGB-прожекторами через DMX\n\n\
-                     nitor [--config шлях/до/config.json] [--check] [-v]\n\n  \
+                     nitor [--config шлях/до/config.json] [--check] [--reset-pin] [-v]\n\n  \
                      --config  файл налаштувань (типово %LOCALAPPDATA%\\Nitor\\config.json)\n  \
                      --check   перевірити підключення uDMX\n  \
+                     --reset-pin  скинути PIN і вийти з режиму оператора\n  \
                      -v        докладний журнал"
                     .into());
             }
@@ -84,6 +87,25 @@ fn main() {
             println!("{l}");
         }
         std::process::exit(code);
+    }
+    if args.reset_pin {
+        attach_console();
+        // запущена програма перезаписала б файл своїми налаштуваннями
+        let Some(_guard) = winshell::single_instance() else {
+            println!("Спершу закрийте Nitor, потім повторіть команду.");
+            std::process::exit(1);
+        };
+        let mut e = nitor_core::Engine::load(&args.config);
+        e.pin = None;
+        e.operator = false;
+        match e.save(0.0) {
+            Ok(()) => println!("PIN скинуто, режим оператора вимкнено."),
+            Err(err) => {
+                println!("Не вдалося зберегти налаштування: {err}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
     // попередження про другу копію — окремо, для знімка екрана в CI
     if std::env::var_os("NITOR_SCREENSHOT_ALREADY").is_some() {
@@ -180,6 +202,7 @@ fn main() {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh();
+        self.flash_release(ctx);
         self.pending_menu = None;
 
         // інсталятор оновлення запущено — програма завершується, світло не гасне
@@ -222,7 +245,11 @@ impl eframe::App for App {
 
         self.text_ops(ctx);
         self.topbar(ctx);
-        self.main_layout(ctx);
+        if self.v.operator {
+            self.operator_layout(ctx);
+        } else {
+            self.main_layout(ctx);
+        }
         self.dialogs(ctx);
         self.hotkeys(ctx);
         if let Some(items) = self.pending_menu.take() {
@@ -295,6 +322,14 @@ impl App {
             let Some(combo) = hotkeys::combo(key, mods) else { continue };
             let Some(action) = hotkeys::action_for(&self.v.hotkeys, &combo) else { continue };
             if repeat && action != "undo" && action != "redo" {
+                continue;
+            }
+            // у режимі оператора — без скасування й налаштувань
+            if self.v.operator && matches!(action.as_str(), "undo" | "redo" | "settings") {
+                continue;
+            }
+            if action == "flash" {
+                self.flash_color(app::FLASH_WHITE, app::FlashHold::Key(key));
                 continue;
             }
             self.run_hotkey(ctx, &action);

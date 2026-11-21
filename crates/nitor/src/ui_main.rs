@@ -9,9 +9,10 @@ use nitor_core::engine::{ColorValues, EffectPatch};
 use nitor_core::fixtures::programs;
 use nitor_core::{Command, EffectKind, Engine, Rgb};
 
-use crate::app::{Act, App, Pane, c32, cap, readable_text, speed_from_slider};
+use crate::app::{Act, App, FLASH_WHITE, FlashHold, Pane, c32, cap, readable_text, speed_from_slider};
 use crate::hotkeys::short_key;
 use crate::menus::{fmt_num, paint_static_chip};
+use nitor_core::engine::{FlashSource, StaticSource};
 use nitor_ui::icons;
 use nitor_ui::theme::*;
 use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
@@ -60,8 +61,18 @@ impl App {
                         ui.spacing_mut().item_spacing.x = S3;
                         let h = self.v.hotkeys.clone();
                         let k = |id: &str| short_key(&h, id).map(|k| format!(" — {k}")).unwrap_or_default();
-                        if icon_btn("settings").kind(Kind::Ghost).tip("Налаштування").show(ui).clicked() {
-                            self.open_settings(None);
+                        let op = self.v.operator;
+                        if op {
+                            self.exit_operator_button(ui);
+                        } else {
+                            if icon_btn("settings").kind(Kind::Ghost).tip("Налаштування").show(ui).clicked()
+                            {
+                                self.open_settings(None);
+                            }
+                            if icon_btn("lock").kind(Kind::Ghost).tip("Режим оператора").show(ui).clicked()
+                            {
+                                self.act(ui.ctx(), Act::AskOperator);
+                            }
                         }
                         let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
                         if icon_btn("bulbOff")
@@ -72,6 +83,14 @@ impl App {
                         {
                             self.send(Command::Blackout(None));
                         }
+                        let r = btn("Спалах")
+                            .icon("sun")
+                            .kind(if self.v.flashing { Kind::Toggled } else { Kind::Normal })
+                            .tip(format!("Повний білий, поки кнопку тримають{}", k("flash")))
+                            .show(ui);
+                        if r.is_pointer_button_down_on() {
+                            self.flash_color(FLASH_WHITE, FlashHold::Pointer);
+                        }
                         let on = self.v.strobe.on;
                         let can = on || !self.v.strobe_fixtures.is_empty();
                         let tip = if !can {
@@ -79,13 +98,14 @@ impl App {
                         } else {
                             format!("{}{}", if on { "Вимкнути строб" } else { "Строб" }, k("strobe"))
                         };
-                        if btn("Строб")
-                            .icon("bolt")
-                            .kind(if on { Kind::Toggled } else { Kind::Normal })
-                            .enabled(can)
-                            .tip(tip)
-                            .show(ui)
-                            .clicked()
+                        if !op
+                            && btn("Строб")
+                                .icon("bolt")
+                                .kind(if on { Kind::Toggled } else { Kind::Normal })
+                                .enabled(can)
+                                .tip(tip)
+                                .show(ui)
+                                .clicked()
                         {
                             self.toggle_strobe();
                         }
@@ -103,7 +123,9 @@ impl App {
                         {
                             self.clear_colors();
                         }
-                        self.update_button(ui);
+                        if !op {
+                            self.update_button(ui);
+                        }
                         // майстер — праворуч від індикатора, перед кнопками
                         let mut m = self.v.show.master as f32;
                         let id = Id::new("master");
@@ -126,8 +148,14 @@ impl App {
 
     fn output_pill(&mut self, ui: &mut Ui, room: f32) {
         let o = &self.v.output;
-        let status =
-            if o.ok && o.paused { "пауза, світло вимкнене".to_string() } else { o.status.clone() };
+        let status = match o.lost_since {
+            Some(t) if !o.ok => {
+                let s = t.elapsed().as_secs();
+                format!("від'єднано · {}:{:02}", s / 60, s % 60)
+            }
+            _ if o.ok && o.paused => "пауза, світло вимкнене".to_string(),
+            _ => o.status.clone(),
+        };
         let names = |k: &str| match k {
             "udmx" => "uDMX",
             "none" => "Симулятор",
@@ -176,7 +204,7 @@ impl App {
             p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
         }
         // індикатор виходу — одразу до вибору DMX-виходу
-        if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !self.v.operator {
             self.open_settings(Some(crate::dialogs::Tab::Output));
         }
     }
@@ -356,6 +384,7 @@ impl App {
             });
             return Rect::NOTHING;
         }
+        self.groups_row(ui);
         // сітка: auto-fill minmax(100px, 1fr), бари — на дві колонки
         let w = ui.available_width();
         let gap = S2;
@@ -833,11 +862,8 @@ impl App {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S1;
                 let bw = ui.available_width() - 2.0 * (CONTROL_H_SM + S1);
-                let r = btn(name.clone()).icon("play").min_width(bw).left().tip(name.clone()).show(ui);
-                if r.clicked() {
-                    let fade = self.scene_fade;
-                    self.send(Command::RecallScene { name: name.clone(), fade });
-                }
+                let r = btn(name.clone()).icon("play").min_width(bw).left().tip(scene_tip(&name)).show(ui);
+                self.scene_button(&r, &name);
                 if r.secondary_clicked() {
                     let m = self.scene_menu(Some(&name));
                     self.want_menu(m);
@@ -851,6 +877,157 @@ impl App {
             });
         }
         Rect::from_min_max(start, pos2(start.x + w, ui.cursor().min.y))
+    }
+
+    fn scene_button(&mut self, r: &egui::Response, name: &str) {
+        if ui_alt(r) {
+            if r.is_pointer_button_down_on() {
+                self.flash_start(FlashSource::Scene(name.into()), FlashHold::Pointer);
+            }
+        } else if r.clicked() {
+            let fade = self.scene_fade;
+            self.send(Command::RecallScene { name: name.into(), fade });
+        }
+    }
+
+    /// Групи — рядок кнопок над приладами.
+    fn groups_row(&mut self, ui: &mut Ui) {
+        let groups: Vec<(String, usize, bool)> = self
+            .v
+            .show
+            .groups
+            .iter()
+            .map(|(n, ids)| (n.clone(), ids.len(), !ids.is_empty() && ids.iter().all(|i| self.sel.contains(i))))
+            .collect();
+        if groups.is_empty() && self.v.operator {
+            return;
+        }
+        let shift = ui.input(|i| i.modifiers.shift);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(S1, S1);
+            for (name, n, on) in groups {
+                let r = btn(name.clone())
+                    .small()
+                    .icon("users")
+                    .kind(if on { Kind::Toggled } else { Kind::Normal })
+                    .tip(format!("Приладів: {n}. Shift + клік — додати до вибору"))
+                    .show(ui);
+                if r.clicked() {
+                    self.pick_group(&name, shift);
+                }
+                if r.secondary_clicked() {
+                    let m = self.group_menu(&name);
+                    self.want_menu(m);
+                }
+            }
+            if !self.v.operator
+                && btn("Група")
+                    .small()
+                    .icon("plus")
+                    .enabled(!self.sel.is_empty())
+                    .tip("Зберегти вибрані прилади як групу")
+                    .show(ui)
+                    .clicked()
+            {
+                self.act(ui.ctx(), Act::AskNewGroup);
+            }
+        });
+        ui.add_space(S3 - S2);
+    }
+
+    /// Вихід з режиму оператора: з PIN — через вікно, без PIN — утриманням кнопки 3 с.
+    fn exit_operator_button(&mut self, ui: &mut Ui) {
+        const HOLD: f32 = 3.0;
+        if self.v.has_pin {
+            if btn("Вийти").icon("lock").tip("Вийти з режиму оператора").show(ui).clicked() {
+                self.act(ui.ctx(), Act::AskExitOperator);
+            }
+            return;
+        }
+        let held = self.exit_hold.map_or(0.0, |t| t.elapsed().as_secs_f32());
+        let label =
+            if held > 0.0 { format!("Вийти · {}", (HOLD - held).ceil().max(1.0)) } else { "Вийти".into() };
+        let r = btn(label).icon("lock").tip("Утримуйте 3 секунди, щоб вийти з режиму оператора").show(ui);
+        if !r.is_pointer_button_down_on() {
+            self.exit_hold = None;
+        } else if self.exit_hold.is_none() {
+            self.exit_hold = Some(std::time::Instant::now());
+        } else if held >= HOLD {
+            self.exit_hold = None;
+            self.send(Command::Operator { on: false, pin: String::new() });
+        }
+        if self.exit_hold.is_some() {
+            ui.ctx().request_repaint();
+        }
+    }
+
+    /// Екран оператора: групи, статичні кольори, сцени. Без патчу, налаштувань і редагування.
+    pub fn operator_layout(&mut self, ctx: &egui::Context) {
+        self.static_editing = false;
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ctx, |ui| {
+            let full = ui.max_rect();
+            let cols = if full.width() > 900.0 { 3 } else { 1 };
+            let w = full.width() / cols as f32;
+            let col =
+                |i: usize| Rect::from_min_size(pos2(full.left() + w * i as f32, full.top()), vec2(w, full.height()));
+            for i in 1..cols {
+                ui.painter().vline(col(i).left(), full.y_range(), Stroke::new(1.0_f32, LINE));
+            }
+            let groups = |app: &mut App, ui: &mut Ui| {
+                let target =
+                    if app.sel.is_empty() { "Для всіх приладів" } else { "Для вибраних" };
+                Self::panel_head(ui, "Групи", |ui| {
+                    ui.label(widgets::muted(target));
+                });
+                if app.v.show.groups.is_empty() {
+                    ui.label(widgets::muted("Груп немає — кольори й сцени діють на всі прилади"));
+                } else {
+                    app.groups_row(ui);
+                    if !app.sel.is_empty() && btn("Усі прилади").small().show(ui).clicked() {
+                        app.sel.clear();
+                    }
+                }
+            };
+            let colors = |app: &mut App, ui: &mut Ui| {
+                Self::panel_head(ui, "Статичні кольори", |_| {});
+                app.static_grid(ui);
+            };
+            let scenes = |app: &mut App, ui: &mut Ui| {
+                Self::panel_head(ui, "Сцени", |_| {});
+                let names: Vec<String> = app.v.show.scenes.keys().cloned().collect();
+                if names.is_empty() {
+                    ui.label(widgets::muted("Збережених сцен немає"));
+                }
+                let bw = ui.available_width();
+                for name in names {
+                    let r = btn(name.clone()).icon("play").min_width(bw).left().tip(scene_tip(&name)).show(ui);
+                    app.scene_button(&r, &name);
+                }
+            };
+            if cols == 3 {
+                self.column(ui, col(0), "op-groups", |a, ui| {
+                    groups(a, ui);
+                    Rect::NOTHING
+                });
+                self.column(ui, col(1), "op-colors", |a, ui| {
+                    colors(a, ui);
+                    Rect::NOTHING
+                });
+                self.column(ui, col(2), "op-scenes", |a, ui| {
+                    scenes(a, ui);
+                    Rect::NOTHING
+                });
+            } else {
+                self.column(ui, full, "op-all", |a, ui| {
+                    groups(a, ui);
+                    ui.add_space(S5);
+                    colors(a, ui);
+                    ui.add_space(S5);
+                    scenes(a, ui);
+                    Rect::NOTHING
+                });
+            }
+        });
     }
 
     // ------------------------------------------- статичні кольори й ефекти --
@@ -906,7 +1083,9 @@ impl App {
                 pos2(area.left() + (i % cols) as f32 * (cw + gap), area.top() + (i / cols) as f32 * (48.0 + gap)),
                 vec2(cw, 48.0),
             );
-            let resp = ui.interact(r, Id::new(("static", i)), Sense::click()).on_hover_text(&c.name);
+            let resp = ui
+                .interact(r, Id::new(("static", i)), Sense::click())
+                .on_hover_text(format!("{}\nAlt + утримання — спалах цим кольором", c.name));
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &c.name));
             let with_w = c.w.is_some_and(|w| w > 0);
             let rr = if resp.is_pointer_button_down_on() { r.shrink(1.0) } else { r };
@@ -955,6 +1134,11 @@ impl App {
                 if dresp.clicked() {
                     self.send(Command::DeleteStaticColor { index: i });
                     return;
+                }
+            } else if ui.input(|i| i.modifiers.alt) {
+                // Alt + утримання — «Спалах» цим кольором
+                if resp.is_pointer_button_down_on() {
+                    self.flash_color(StaticSource::Index(i), FlashHold::Pointer);
                 }
             } else if resp.clicked() {
                 let ids = self.sel.clone();
@@ -1252,6 +1436,15 @@ fn paint_swatch(p: &egui::Painter, r: Rect, sw: Swatch, gradient: bool) {
 }
 
 /// Значення числа з плаваючою крапкою для підказки.
+fn scene_tip(name: &str) -> String {
+    format!("{name}\nAlt + утримання — спалах цією сценою")
+}
+
+/// Alt затиснуто під час взаємодії з кнопкою.
+fn ui_alt(r: &egui::Response) -> bool {
+    r.ctx.input(|i| i.modifiers.alt)
+}
+
 pub fn _fmt(v: f64) -> String {
     fmt_num(v)
 }

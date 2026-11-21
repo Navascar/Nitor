@@ -2,7 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use nitor_core::engine::{ColorValues, Command, EffectPatch, ProfileSpec, STROBE_LEVEL, StaticSource, StrobeState};
+use nitor_core::engine::{
+    ColorValues, Command, EffectPatch, FlashSource, ProfileSpec, STROBE_LEVEL, StaticSource, StrobeState,
+};
 use nitor_core::fixtures::{Model, default_profiles, model_profiles, preset_level, segment_count};
 use nitor_core::{EffectKind, Engine, Rgb, library, scene_file, userdata};
 use serde_json::json;
@@ -697,4 +699,69 @@ fn userdata_apply() {
     std::fs::write(&p, full_config().to_string()).unwrap();
     assert!(userdata::apply(&p, &parts(&userdata::Part::ALL)).unwrap());
     assert!(!p.exists());
+}
+
+#[test]
+fn flash_overrides_and_restores() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "Dim+RGB (4 кан.)", 1);
+    let b = add(&mut e, "Dim+RGB (4 кан.)", 5);
+    ok(&mut e, hex(&[&a, &b], "#ff0000"));
+    ok(&mut e, Command::SetMaster(51));
+    let before = e.render(0.0);
+    assert_eq!(&before[0..4], &[51, 255, 0, 0]);
+    let white = StaticSource::Custom { hex: Rgb(255, 255, 255), hex_w: None, w: 0 };
+    ok(&mut e, Command::Flash(Some(FlashSource::Color { ids: ids(&[&a]), source: white })));
+    let f = e.render(0.0);
+    assert_eq!(&f[0..4], &[255, 255, 255, 255], "спалах — повний білий без майстра");
+    assert_eq!(&f[4..8], &before[4..8], "інші прилади без змін");
+    ok(&mut e, Command::Blackout(Some(true)));
+    assert!(e.render(0.0)[0..8].iter().all(|&v| v == 0), "Blackout перекриває спалах");
+    ok(&mut e, Command::Blackout(Some(false)));
+    ok(&mut e, Command::Flash(None));
+    assert_eq!(e.render(0.0), before, "відпустили — все як було");
+    assert_eq!(e.can_undo(), Some("blackout"), "спалах у скасування не потрапляє");
+    assert!(e.to_config().fixtures.iter().all(|f| (f.r, f.g) == (255, 0)), "у файл спалах не потрапляє");
+}
+
+#[test]
+fn flash_scene_and_groups() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "Dim+RGB (4 кан.)", 1);
+    ok(&mut e, hex(&[&a], "#0000ff"));
+    ok(&mut e, Command::SaveScene { name: "синя".into(), with_effect: false });
+    ok(&mut e, hex(&[&a], "#00ff00"));
+    ok(&mut e, effect(EffectKind::Rainbow, &[&a]));
+    ok(&mut e, Command::Flash(Some(FlashSource::Scene("синя".into()))));
+    assert_eq!(&e.render(3.0)[0..4], &[255, 0, 0, 255], "сцена поверх ефекту");
+    ok(&mut e, Command::Flash(None));
+    assert_eq!(e.show.effect.kind, EffectKind::Rainbow, "ефект лишився");
+
+    let mut g = indexmap::IndexMap::new();
+    g.insert(" Сцена ".to_string(), ids(&[&a, &a, "немає"]));
+    ok(&mut e, Command::SetGroups(g));
+    assert_eq!(e.show.groups["Сцена"], ids(&[&a]), "без повторів і зниклих приладів");
+    ok(&mut e, Command::DeleteFixture { id: a.clone() });
+    assert!(e.show.groups["Сцена"].is_empty());
+    ok(&mut e, Command::Undo);
+    assert_eq!(e.show.groups["Сцена"], ids(&[&a]), "скасування повертає прилад і в групу");
+}
+
+#[test]
+fn operator_pin() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let mut e = Engine::load(&path);
+    assert!(e.handle(Command::SetPin("12".into()), 0.0).is_err(), "закороткий PIN");
+    ok(&mut e, Command::SetPin("1234".into()));
+    ok(&mut e, Command::Operator { on: true, pin: String::new() });
+    assert!(e.handle(Command::Operator { on: false, pin: "0000".into() }, 0.0).is_err());
+    assert!(e.operator);
+    e.save(0.0).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("1234"), "PIN не зберігається відкритим текстом");
+    let mut e = Engine::load(&path);
+    assert!(e.operator, "після перезапуску — знову режим оператора");
+    ok(&mut e, Command::Operator { on: false, pin: "1234".into() });
+    assert!(!e.operator);
 }

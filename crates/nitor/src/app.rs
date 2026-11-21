@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::{Duration, Instant};
 
 use egui::Context;
-use nitor_core::engine::{ColorValues, EffectPatch, Live, Show, StaticSource, StrobeState};
+use nitor_core::engine::{ColorValues, EffectPatch, FlashSource, Live, Show, StaticSource, StrobeState};
 use nitor_core::fixtures::{Fixture, Segs, segment_count};
 use nitor_core::library::Recent;
 use nitor_core::outputs::{OutputConfig, OutputInfo, SerialPortInfo, UdmxDevice};
@@ -31,6 +31,9 @@ pub struct View {
     pub strobe_fixtures: Vec<String>,
     pub overlaps: Vec<(String, String)>,
     pub output: OutputInfo,
+    pub flashing: bool,
+    pub operator: bool,
+    pub has_pin: bool,
 }
 
 impl View {
@@ -148,8 +151,28 @@ pub enum Act {
     OpenSettings(Option<crate::dialogs::Tab>),
     TextOp(egui::Id, TextOp),
     ResetKeys,
+    AskNewGroup,
+    SaveGroup(String),
+    AskRenameGroup(String),
+    RenameGroup(String, String),
+    DeleteGroup(String),
+    AskOperator,
+    EnterOperator(String),
+    AskExitOperator,
+    ExitOperator(String),
     Quit,
 }
+
+/// Чим тримають «Спалах»: клавішею чи кнопкою миші.
+#[derive(Clone, Copy, PartialEq)]
+pub enum FlashHold {
+    Key(egui::Key),
+    Pointer,
+}
+
+/// Повний білий «Спалаху» за замовчуванням (і RGB, і W).
+pub const FLASH_WHITE: StaticSource =
+    StaticSource::Custom { hex: Rgb(255, 255, 255), hex_w: Some(Rgb(255, 255, 255)), w: 255 };
 
 #[derive(Clone, Copy, Debug)]
 pub enum TextOp {
@@ -204,6 +227,9 @@ pub struct App {
     pub quit_request: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// кадр, на якому зробити знімок (режим NITOR_SCREENSHOT)
     pub shot_frame: Option<u64>,
+    pub flash_hold: Option<FlashHold>,
+    /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
+    pub exit_hold: Option<Instant>,
 }
 
 impl App {
@@ -254,6 +280,8 @@ impl App {
             show_request: Default::default(),
             quit_request: Default::default(),
             shot_frame: None,
+            flash_hold: None,
+            exit_hold: None,
         };
         app.sync_effect_draft();
         let warning = app.core.lock().engine.load_warning.clone();
@@ -462,6 +490,58 @@ impl App {
         }
         let ids = self.sel.clone();
         self.send(Command::Strobe { on: Some(on), ids });
+    }
+
+    /// «Спалах» натиснули: на вибрані прилади (або всі), поки не відпустять.
+    pub fn flash_start(&mut self, src: FlashSource, hold: FlashHold) {
+        if self.flash_hold.is_none() && self.send(Command::Flash(Some(src))) {
+            self.flash_hold = Some(hold);
+        }
+    }
+
+    pub fn flash_color(&mut self, source: StaticSource, hold: FlashHold) {
+        let ids = self.sel.clone();
+        self.flash_start(FlashSource::Color { ids, source }, hold);
+    }
+
+    /// Відпускання «Спалаху»: клавішу відпустили, кнопку миші відпустили або вікно втратило фокус.
+    pub fn flash_release(&mut self, ctx: &Context) {
+        let Some(hold) = self.flash_hold else { return };
+        let up = ctx.input(|i| {
+            !i.focused
+                || match hold {
+                    FlashHold::Pointer => !i.pointer.any_down(),
+                    FlashHold::Key(k) => i.events.iter().any(|e| {
+                        matches!(e, egui::Event::Key { key, physical_key, pressed: false, .. }
+                            if physical_key.unwrap_or(*key) == k)
+                    }),
+                }
+        });
+        if up {
+            self.flash_hold = None;
+            self.send(Command::Flash(None));
+        }
+    }
+
+    /// Групи з однією зміною (додати, перейменувати, видалити).
+    fn set_groups(&mut self, f: impl FnOnce(&mut indexmap::IndexMap<String, Vec<String>>)) {
+        let mut g = self.v.show.groups.clone();
+        f(&mut g);
+        self.send(Command::SetGroups(g));
+    }
+
+    /// Клік по групі виділяє її прилади; Shift + клік додає їх до виділення.
+    pub fn pick_group(&mut self, name: &str, add: bool) {
+        let ids = self.v.show.groups.get(name).cloned().unwrap_or_default();
+        if !add {
+            self.sel.clear();
+        }
+        for id in ids {
+            if !self.sel.contains(&id) {
+                self.sel.retain(|s| s.split('#').next() != Some(&id));
+                self.sel.push(id);
+            }
+        }
     }
 
     pub fn undo(&mut self, redo: bool) {
@@ -691,6 +771,62 @@ impl App {
                 self.pending_text_op = Some((id, op, 2));
             }
             Act::ResetKeys => self.save_keys(indexmap::IndexMap::new()),
+            Act::AskNewGroup => {
+                if self.sel.is_empty() {
+                    self.toast("Спершу виберіть прилади для групи", false);
+                } else {
+                    self.ui_dlg = Some(UiDlg::prompt("Назва групи", "", Act::SaveGroup(String::new())));
+                }
+            }
+            Act::SaveGroup(name) => {
+                let ids = self.sel_fixtures();
+                if !name.trim().is_empty() {
+                    self.set_groups(|g| {
+                        g.insert(name.trim().into(), ids);
+                    });
+                }
+            }
+            Act::AskRenameGroup(name) => {
+                self.ui_dlg =
+                    Some(UiDlg::prompt("Нова назва групи", &name, Act::RenameGroup(name.clone(), String::new())));
+            }
+            Act::RenameGroup(old, new) => {
+                let new = new.trim().to_string();
+                if !new.is_empty() && new != old {
+                    self.set_groups(|g| {
+                        if let Some(i) = g.get_index_of(&old) {
+                            let ids = g.shift_remove(&old).unwrap_or_default();
+                            g.shift_insert(i.min(g.len()), new, ids);
+                        }
+                    });
+                }
+            }
+            Act::DeleteGroup(name) => self.set_groups(|g| {
+                g.shift_remove(&name);
+            }),
+            Act::AskOperator => {
+                let mut d = UiDlg::prompt("Увімкнути режим оператора", "", Act::EnterOperator(String::new()));
+                d.text = "Лишаться сцени, статичні кольори, групи й майстер. PIN — від 4 до 8 цифр. \
+                          Без PIN вийти можна, утримуючи кнопку виходу 3 секунди."
+                    .into();
+                d.ok = "Увімкнути".into();
+                self.ui_dlg = Some(d);
+            }
+            Act::EnterOperator(pin) => {
+                if self.send(Command::SetPin(pin)) {
+                    self.sel.clear();
+                    self.send(Command::Operator { on: true, pin: String::new() });
+                }
+            }
+            Act::AskExitOperator => {
+                let mut d = UiDlg::prompt("Вийти з режиму оператора", "", Act::ExitOperator(String::new()));
+                d.text = "Введіть PIN.".into();
+                d.ok = "Вийти".into();
+                self.ui_dlg = Some(d);
+            }
+            Act::ExitOperator(pin) => {
+                self.send(Command::Operator { on: false, pin });
+            }
             Act::Quit => self.quit(ctx),
         }
     }
@@ -843,6 +979,9 @@ pub fn snapshot(core: &Core) -> View {
         strobe_fixtures: e.strobe_fixtures(),
         overlaps: e.overlaps(),
         output: s.output.info(),
+        flashing: !e.flash.is_empty(),
+        operator: e.operator,
+        has_pin: e.pin.is_some(),
     }
 }
 

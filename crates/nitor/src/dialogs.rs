@@ -296,7 +296,10 @@ impl App {
             }
             if let Some(text) = d.input.as_mut() {
                 let w = ui.available_width();
-                let r = widgets::input(ui, text, "", w);
+                let secret = matches!(d.on_ok, Act::EnterOperator(_) | Act::ExitOperator(_));
+                let hint =
+                    if matches!(d.on_ok, Act::EnterOperator(_)) { "PIN (необов'язково)" } else { "" };
+                let r = widgets::input_secret(ui, text, hint, w, secret);
                 if !d.focused {
                     r.request_focus();
                     if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), r.id) {
@@ -335,6 +338,10 @@ impl App {
                     (Act::AddStatic { hex, w, .. }, Some(name)) => Act::AddStatic { name, hex, w },
                     (Act::RenameStatic(i, _), Some(name)) => Act::RenameStatic(i, name),
                     (Act::SaveScene(_), Some(name)) => Act::SaveScene(name),
+                    (Act::SaveGroup(_), Some(name)) => Act::SaveGroup(name),
+                    (Act::RenameGroup(old, _), Some(name)) => Act::RenameGroup(old, name),
+                    (Act::EnterOperator(_), Some(pin)) => Act::EnterOperator(pin),
+                    (Act::ExitOperator(_), Some(pin)) => Act::ExitOperator(pin),
                     (a, _) => a,
                 };
                 self.act(ctx, act);

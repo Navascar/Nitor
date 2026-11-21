@@ -157,6 +157,8 @@ pub struct Show {
     pub profiles: Profiles,
     /// Профілі, що належать моделям приладів (обираються разом із приладом, не в меню).
     pub device_profiles: BTreeSet<String>,
+    /// Групи приладів: назва → прилади. Група — збережене виділення.
+    pub groups: IndexMap<String, Vec<String>>,
 }
 
 impl Default for Show {
@@ -170,6 +172,7 @@ impl Default for Show {
             static_colors: default_static_colors(),
             profiles: default_profiles(),
             device_profiles: BTreeSet::new(),
+            groups: IndexMap::new(),
         }
     }
 }
@@ -179,6 +182,17 @@ impl Default for Show {
 pub struct StrobeState {
     pub on: bool,
     pub ids: Vec<String>,
+}
+
+/// Що показує «Спалах», поки його тримають.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlashSource {
+    /// Колір на вибрані прилади (порожньо — на всі).
+    Color {
+        ids: Vec<String>,
+        source: StaticSource,
+    },
+    Scene(String),
 }
 
 /// Значення для `SetColor`: лише задані поля змінюються.
@@ -366,6 +380,16 @@ pub enum Command {
         name: Option<String>,
     },
     SetOutput(OutputConfig),
+    /// `Some` — «Спалах» натиснули, `None` — відпустили.
+    Flash(Option<FlashSource>),
+    SetGroups(IndexMap<String, Vec<String>>),
+    /// Режим оператора: вмикається одразу, вимикається лише з правильним PIN (якщо його задано).
+    Operator {
+        on: bool,
+        pin: String,
+    },
+    /// Новий PIN режиму оператора; порожній — без PIN.
+    SetPin(String),
 }
 
 impl Command {
@@ -399,6 +423,10 @@ impl Command {
             Command::DeleteScene { .. } => "delete_scene",
             Command::ImportScene { .. } => "import_scene",
             Command::SetOutput(_) => "set_output",
+            Command::Flash(_) => "flash",
+            Command::SetGroups(_) => "set_groups",
+            Command::Operator { .. } => "operator",
+            Command::SetPin(_) => "set_pin",
         }
     }
 
@@ -413,6 +441,9 @@ impl Command {
                 | Command::SetOutput(_)
                 | Command::Strobe { .. }
                 | Command::SetHotkeys(_)
+                | Command::Flash(_)
+                | Command::Operator { .. }
+                | Command::SetPin(_)
         )
     }
 
@@ -474,6 +505,7 @@ impl Command {
             "delete_static_color" => "видалення кольору",
             "rename_static_color" => "перейменування кольору",
             "reset_static_colors" => "скидання кольорів",
+            "set_groups" => "зміну груп",
             _ => "дію",
         }
     }
@@ -498,6 +530,12 @@ pub struct Engine {
     /// `SetOutput` змінив вихід — програма має перевідкрити його.
     pub output_changed: bool,
     pub strobe: StrobeState,
+    /// «Спалах»: прилади, що зараз показують інший стан (без майстра й ефекту). Не зберігається.
+    pub flash: IndexMap<String, Fixture>,
+    /// Режим оператора: лише сцени, кольори, групи й майстер. Зберігається.
+    pub operator: bool,
+    /// PIN виходу з режиму оператора: `сіль:sha256`; `None` — без PIN.
+    pub pin: Option<String>,
     /// Власні гарячі клавіші: дія → комбінації; стандартні — в інтерфейсі.
     pub hotkeys: IndexMap<String, Vec<String>>,
     /// Повідомлення для інтерфейсу про проблему з налаштуваннями.
@@ -531,6 +569,11 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
 }
 
+fn pin_hash(salt: &str, pin: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(format!("{salt}:{pin}")).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn truncate_chars(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
@@ -556,6 +599,9 @@ impl Engine {
             output_cfg: OutputConfig::default(),
             output_changed: false,
             strobe: StrobeState::default(),
+            flash: IndexMap::new(),
+            operator: false,
+            pin: None,
             hotkeys: IndexMap::new(),
             load_warning: None,
             universe: [0; DMX_CHANNELS],
@@ -802,6 +848,10 @@ impl Engine {
             Command::DeleteFixture { id } => {
                 self.show.fixtures.retain(|f| f.id != id);
                 self.show.effect.ids.retain(|i| *i != id);
+                for ids in self.show.groups.values_mut() {
+                    ids.retain(|i| *i != id);
+                }
+                self.flash.shift_remove(&id);
             }
             Command::MoveFixture { id, delta } => {
                 let i = self.fx_index(&id)?;
@@ -873,7 +923,87 @@ impl Engine {
                 self.output_cfg = cfg;
                 self.output_changed = true;
             }
+            Command::Flash(src) => self.flash_cmd(src, now)?,
+            Command::SetGroups(groups) => self.show.groups = self.check_groups(groups)?,
+            Command::Operator { on, pin } => {
+                if !on && !self.pin_ok(&pin) {
+                    bail!("неправильний PIN");
+                }
+                self.operator = on;
+            }
+            Command::SetPin(pin) => {
+                let pin = pin.trim();
+                self.pin = if pin.is_empty() {
+                    None
+                } else {
+                    if !(4..=8).contains(&pin.len()) || !pin.chars().all(|c| c.is_ascii_digit()) {
+                        bail!("PIN — від 4 до 8 цифр");
+                    }
+                    let salt = new_id();
+                    Some(format!("{salt}:{}", pin_hash(&salt, pin)))
+                };
+            }
         }
+        Ok(())
+    }
+
+    /// PIN правильний (або його не задано).
+    pub fn pin_ok(&self, pin: &str) -> bool {
+        match self.pin.as_deref().and_then(|p| p.split_once(':')) {
+            None => true,
+            Some((salt, hash)) => pin_hash(salt, pin.trim()) == hash,
+        }
+    }
+
+    /// Групи: до 32, назви до 40 символів, лише наявні прилади без повторів.
+    pub(crate) fn check_groups(&self, raw: IndexMap<String, Vec<String>>) -> Result<IndexMap<String, Vec<String>>> {
+        let mut out = IndexMap::new();
+        for (name, ids) in raw {
+            let name = truncate_chars(name.trim(), 40);
+            if name.is_empty() {
+                bail!("назва групи не може бути порожньою");
+            }
+            let mut v: Vec<String> = vec![];
+            for id in ids {
+                if self.fixture(&id).is_some() && !v.contains(&id) {
+                    v.push(id);
+                }
+            }
+            out.insert(name, v);
+        }
+        if out.len() > 32 {
+            bail!("забагато груп (максимум 32)");
+        }
+        Ok(out)
+    }
+
+    /// «Спалах»: стан цілей рахується тими самими командами (колір чи сцена) на копії приладів,
+    /// а шоу лишається незмінним — після відпускання все як було.
+    fn flash_cmd(&mut self, src: Option<FlashSource>, now: f64) -> Result<()> {
+        self.flash.clear();
+        let Some(src) = src else { return Ok(()) };
+        let saved = (self.show.fixtures.clone(), self.show.effect.clone(), self.fade.take());
+        let targets: Vec<String> = match &src {
+            FlashSource::Color { ids, .. } if !ids.is_empty() => {
+                ids.iter().map(|i| i.split('#').next().unwrap_or("").to_string()).collect()
+            }
+            FlashSource::Color { .. } => self.show.fixtures.iter().map(|f| f.id.clone()).collect(),
+            FlashSource::Scene(name) => {
+                self.show.scenes.get(name).map(|s| s.fixtures.keys().cloned().collect()).unwrap_or_default()
+            }
+        };
+        let r = match src {
+            FlashSource::Color { ids, source } => self.static_color(&ids, source).map(|()| {
+                for f in self.show.fixtures.iter_mut().filter(|f| targets.contains(&f.id)) {
+                    f.dimmer = 255; // спалах — на повну яскравість
+                }
+            }),
+            FlashSource::Scene(name) => self.recall_scene(&name, 0.0, now),
+        };
+        let flashed = std::mem::replace(&mut self.show.fixtures, saved.0);
+        (self.show.effect, self.fade) = (saved.1, saved.2);
+        r?;
+        self.flash = flashed.into_iter().filter(|f| targets.contains(&f.id)).map(|f| (f.id.clone(), f)).collect();
         Ok(())
     }
 
@@ -1269,6 +1399,10 @@ impl Engine {
         let programs = programs();
         for fx in &self.show.fixtures {
             let Some(channels) = self.show.profiles.get(&fx.profile) else { continue };
+            // «Спалах» перекриває стан приладу, ефект і майстер (але не Blackout)
+            let over = self.flash.get(&fx.id);
+            let fx = over.unwrap_or(fx);
+            let master = if over.is_some() && !self.show.blackout { 1.0 } else { master };
             if channels.is_empty() {
                 continue;
             }
@@ -1302,8 +1436,8 @@ impl Engine {
                 .map(|k| {
                     let c = fx.seg_color(k);
                     match pixel.get(&(fx.id.as_str(), k)) {
-                        Some(&p) => effect_color(eff, p, count, t, c),
-                        None => c,
+                        Some(&p) if over.is_none() => effect_color(eff, p, count, t, c),
+                        _ => c,
                     }
                 })
                 .collect();
