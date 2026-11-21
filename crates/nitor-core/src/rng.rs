@@ -1,18 +1,18 @@
-//! Генератор випадкових чисел, сумісний з `random.Random` Python (MT19937).
+//! Генератор випадкових чисел MT19937 для ефекту «Випадкові кольори».
 //!
-//! Ефект «Випадкові кольори» має давати ті самі кольори, що й Nitor 1.x, — це перевіряють
-//! золоті тести. Реалізовано лише те, що потрібно: `Random(seed)`, `random()`, `choice()`.
+//! Один і той самий seed дає ту саму послідовність кольорів. Реалізовано лише потрібне:
+//! `new(seed)`, `random()`, `choice()`.
 
 const N: usize = 624;
 const M: usize = 397;
 
-pub struct PyRandom {
+pub struct Rng {
     mt: [u32; N],
     index: usize,
 }
 
-impl PyRandom {
-    /// `random.Random(seed)` для цілого seed.
+impl Rng {
+    /// Генератор із цілим seed.
     pub fn new(seed: u64) -> Self {
         let mut key: Vec<u32> = Vec::new();
         let mut n = seed;
@@ -23,7 +23,7 @@ impl PyRandom {
         if key.is_empty() {
             key.push(0);
         }
-        let mut r = PyRandom { mt: [0; N], index: N };
+        let mut r = Rng { mt: [0; N], index: N };
         r.init_by_array(&key);
         r
     }
@@ -121,23 +121,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_python() {
-        // python3 -c "import random; r=random.Random(42); print(r.random(), r.random())"
-        let mut r = PyRandom::new(42);
+    fn known_sequence() {
+        let mut r = Rng::new(42);
         assert_eq!(r.random(), 0.6394267984578837);
         assert_eq!(r.random(), 0.025010755222666936);
-        // python3 -c "import random; print(random.Random(0).random())"
-        assert_eq!(PyRandom::new(0).random(), 0.8444218515250481);
-        // python3 -c "import random; print(random.Random(2**40+5).random())"
-        assert_eq!(PyRandom::new((1 << 40) + 5).random(), PY_BIG);
+        assert_eq!(Rng::new(0).random(), 0.8444218515250481);
+        assert_eq!(Rng::new((1 << 40) + 5).random(), BIG);
     }
 
-    const PY_BIG: f64 = 0.5043802970418443;
+    const BIG: f64 = 0.5043802970418443;
 
     #[test]
-    fn choice_matches_python() {
-        // python3 -c "import random; r=random.Random(7); print([r.choice([1,2,3,4,5]) for _ in range(8)])"
-        let mut r = PyRandom::new(7);
+    fn choice_known_sequence() {
+        let mut r = Rng::new(7);
         let items = [1, 2, 3, 4, 5];
         let got: Vec<i32> = (0..8).map(|_| *r.choice(&items)).collect();
         assert_eq!(got, [3, 2, 4, 1, 1, 5, 1, 3]);

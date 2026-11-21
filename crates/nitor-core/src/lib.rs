@@ -11,7 +11,7 @@ pub mod error;
 pub mod fixtures;
 pub mod library;
 pub mod outputs;
-pub mod pyrandom;
+pub mod rng;
 pub mod scene_file;
 pub mod userdata;
 

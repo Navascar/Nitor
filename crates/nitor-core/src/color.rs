@@ -1,4 +1,4 @@
-//! Кольори: RGB із записом `#rrggbb` і перетворення HSV → RGB (як `colorsys` у Python).
+//! Кольори: RGB із записом `#rrggbb` і перетворення HSV → RGB.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
