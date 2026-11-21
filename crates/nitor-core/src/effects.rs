@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::Rgb;
 use crate::color::hsv_to_rgb;
 use crate::fixtures::Color;
-use crate::pyrandom::PyRandom;
+use crate::rng::Rng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -105,8 +105,8 @@ fn lerp(c1: Rgb, c2: Rgb, t: f64) -> Color {
     Color::rgb(l(c1.0, c2.0), l(c1.1, c2.1), l(c1.2, c2.2))
 }
 
-/// Залишок як `%` у Python (знак дільника).
-fn pymod(a: f64, b: f64) -> f64 {
+/// Залишок зі знаком дільника (завжди невід'ємний для b > 0).
+fn floor_mod(a: f64, b: f64) -> f64 {
     a.rem_euclid(b)
 }
 
@@ -124,13 +124,13 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: C
     match effect.kind {
         EffectKind::None => base,
         EffectKind::Rainbow => {
-            let (r, g, b) = hsv_to_rgb(pymod(phase, 1.0), 1.0, 1.0);
+            let (r, g, b) = hsv_to_rgb(floor_mod(phase, 1.0), 1.0, 1.0);
             Color::rgb(r * 255.0, g * 255.0, b * 255.0)
         }
         EffectKind::Fade => {
             let default = [Rgb(255, 0, 0), Rgb(0, 255, 0), Rgb(0, 0, 255)];
             let pal: &[Rgb] = if palette.is_empty() { &default } else { palette };
-            let pos = pymod(phase, 1.0) * pal.len() as f64;
+            let pos = floor_mod(phase, 1.0) * pal.len() as f64;
             let i = (pos.trunc() as usize) % pal.len();
             let frac = pos - pos.trunc();
             let frac = 0.5 - 0.5 * (std::f64::consts::PI * frac).cos(); // м'які переходи
@@ -138,8 +138,8 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: C
         }
         EffectKind::Chase => {
             // «голова» пробігає по приладах, позаду — згасаючий хвіст
-            let head = pymod(t * speed * fc, fc);
-            let dist = pymod(head - fi, fc);
+            let head = floor_mod(t * speed * fc, fc);
+            let dist = floor_mod(head - fi, fc);
             let k = (1.0 - dist / (fc * 0.35 * spread + 0.6).max(1.0)).max(0.0);
             let src =
                 if palette.is_empty() { base } else { rgbc(palette[((t * speed).trunc() as usize) % palette.len()]) };
@@ -151,14 +151,14 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: C
             src.scaled(k)
         }
         EffectKind::Strobe => {
-            let on = pymod(phase, 1.0) < 0.2;
+            let on = floor_mod(phase, 1.0) < 0.2;
             let src =
                 if palette.is_empty() { base } else { rgbc(palette[((t * speed).trunc() as usize) % palette.len()]) };
             if on { src } else { src.scaled(0.0) }
         }
         EffectKind::Random => {
             let step = (t * speed + offset).trunc() as u64;
-            let mut rng = PyRandom::new(step * 7919 + index as u64 * 104729);
+            let mut rng = Rng::new(step * 7919 + index as u64 * 104729);
             if palette.is_empty() {
                 let (r, g, b) = hsv_to_rgb(rng.random(), 1.0, 1.0);
                 Color::rgb(r * 255.0, g * 255.0, b * 255.0)

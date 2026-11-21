@@ -116,12 +116,6 @@ fn run_install(job: &Shared, sc: Shortcuts) -> Result<String, String> {
     if !sys::close_app(20) {
         return Err("Не вдалося закрити Nitor. Закрийте програму й спробуйте ще раз.".into());
     }
-    if install::has_legacy(&app_dir) {
-        step(job, "Видалення попередньої версії Nitor", 0.25);
-        for p in install::remove_legacy(&app_dir) {
-            note(job, format!("Не вдалося видалити {}", p.display()));
-        }
-    }
     step(job, "Копіювання файлів", 0.5);
     install::install_files(&app_dir, &app, &setup)?;
     let exe = app_dir.join(APP_EXE);

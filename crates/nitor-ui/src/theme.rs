@@ -1,4 +1,4 @@
-//! Дизайн-система: ті самі токени, що й у Nitor 1.x (`style.css`): кольори, шрифти, відступи, радіуси.
+//! Дизайн-система: токени кольорів, шрифтів, відступів і радіусів.
 //!
 //! Один основний (синій) колір дії на екрані; червоний — лише небезпечні дії; контраст тексту ≥ 4.5:1.
 
@@ -95,7 +95,7 @@ fn read_font(paths: &[&str]) -> Option<Vec<u8>> {
     paths.iter().find_map(|p| std::fs::read(p).ok())
 }
 
-/// Шрифти: системний Segoe UI на Windows (як `system-ui` у 1.x), інакше вбудований.
+/// Шрифти: системний Segoe UI на Windows (`system-ui`), інакше вбудований.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());

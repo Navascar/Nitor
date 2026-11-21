@@ -60,8 +60,8 @@ fn usable(roles: &[String]) -> bool {
     (has("r") && has("g") && has("b")) || has("w")
 }
 
-/// Ціле як `int()` у Python: число — з відкиданням дробової частини, рядок — розбір.
-fn py_int(v: &Value) -> i64 {
+/// Ціле: число — з відкиданням дробової частини, рядок — розбір.
+fn as_int(v: &Value) -> i64 {
     match v {
         Value::Number(n) => n.as_i64().unwrap_or_else(|| n.as_f64().unwrap_or(0.0).trunc() as i64),
         Value::String(s) => s.trim().parse().unwrap_or(0),
@@ -73,7 +73,7 @@ fn py_int(v: &Value) -> i64 {
 /// defaultValue: число, «50%» або «x%».
 fn ofl_value(v: &Value) -> i64 {
     if v.is_number() {
-        return py_int(v);
+        return as_int(v);
     }
     static PCT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([\d.]+)%").unwrap());
     let s = match v {
@@ -98,7 +98,7 @@ fn ofl_caps(ch: &Value) -> Vec<Value> {
 }
 
 fn range0(c: &Value) -> i64 {
-    c.get("dmxRange").and_then(|r| r.get(0)).map(py_int).unwrap_or(0)
+    c.get("dmxRange").and_then(|r| r.get(0)).map(as_int).unwrap_or(0)
 }
 
 fn s<'a>(c: &'a Value, k: &str) -> Option<&'a str> {
@@ -169,14 +169,14 @@ fn ofl_pixel_count(fx: &Value, repeat: Option<&Value>) -> usize {
             .count();
     }
     if let Some(pc) = m.get("pixelCount").and_then(Value::as_array) {
-        let mut v: Vec<i64> = pc.iter().map(py_int).collect();
+        let mut v: Vec<i64> = pc.iter().map(as_int).collect();
         v.extend([1, 1, 1]);
         return (v[0] * v[1] * v[2]).max(0) as usize;
     }
     1
 }
 
-/// Файли `тека/*.ext`, відсортовані як `sorted(root.glob(...))` у Python (за частинами шляху).
+/// Файли `тека/*.ext`, відсортовані за частинами шляху.
 fn glob2(root: &Path, ext: &str) -> Vec<PathBuf> {
     let mut out = vec![];
     let Ok(dirs) = std::fs::read_dir(root) else { return out };
@@ -518,7 +518,7 @@ mod tests {
     fn roles() {
         assert_eq!(fixed(0), "zero");
         assert_eq!(fixed(300), "=255");
-        assert_eq!(ofl_value(&json!("50%")), 127, "як round(50 * 2.55) у Python");
+        assert_eq!(ofl_value(&json!("50%")), 127, "round(50 * 2.55)");
         assert_eq!(ofl_value(&json!(17.9)), 17);
         let strobe = json!({"capabilities": [
             {"dmxRange": [0, 9], "type": "ShutterStrobe", "shutterEffect": "Closed"},
