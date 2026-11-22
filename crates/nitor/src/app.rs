@@ -138,6 +138,9 @@ pub enum Act {
     CopyColor,
     PasteColor,
     AddPaletteColor,
+    /// Зберегти колір першого вибраного приладу в палітру.
+    SaveColor,
+    AskDeleteColor(usize),
     ClearPalette,
     RecallScene {
         name: String,
@@ -822,6 +825,21 @@ impl App {
             Act::PasteColor => {
                 if let Some((hex, w)) = self.color_clipboard {
                     self.set_color(ColorValues { hex: Some(hex), w: Some(w), ..Default::default() });
+                }
+            }
+            Act::SaveColor => match self.first_sel_color().filter(|(c, w)| *c != Rgb::BLACK || *w > 0) {
+                None => self.toast("Спершу виберіть прилад із кольором", false),
+                Some((hex, w)) => {
+                    if self.send(Command::AddStaticColor { name: String::new(), hex, w }) {
+                        self.toast("Колір збережено в палітру", true);
+                    }
+                }
+            },
+            Act::AskDeleteColor(i) => {
+                if let Some(c) = self.v.show.static_colors.get(i) {
+                    let t = format!("Видалити колір «{}» з палітри?", c.name);
+                    let cmd = Act::Cmd(Command::DeleteStaticColor { index: i });
+                    self.ui_dlg = Some(UiDlg::confirm(&t, "", "Видалити", true, cmd));
                 }
             }
             Act::AddPaletteColor => {

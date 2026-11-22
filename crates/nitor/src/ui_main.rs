@@ -596,6 +596,13 @@ impl App {
             return Rect::NOTHING;
         }
         self.groups_row(ui);
+        let desc = self.sel_description();
+        ui.label(widgets::muted(if desc.is_empty() {
+            "Нічого не вибрано".into()
+        } else {
+            format!("Вибрано {desc}")
+        }));
+        ui.add_space(S2);
         // сітка: auto-fill minmax(100px, 1fr), бари — на дві колонки
         let w = ui.available_width();
         let gap = S2;
@@ -767,7 +774,6 @@ impl App {
         // «Пресети» є, щойно в шоу є прилад із вбудованими програмами (а не лише коли його вибрано)
         let bars = !self.v.preset_fixtures.is_empty();
         let show_presets = bars && self.pane == Pane::Presets;
-        let desc = self.sel_description();
         ui.horizontal(|ui| {
             ui.set_min_height(CONTROL_H_SM);
             if bars {
@@ -801,13 +807,6 @@ impl App {
             } else {
                 widgets::h2(ui, "Колір");
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(widgets::muted(if desc.is_empty() {
-                    "Нічого не вибрано".into()
-                } else {
-                    format!("Вибрано {desc}")
-                }));
-            });
         });
         ui.add_space(S3 - S2);
         if show_presets {
@@ -1262,7 +1261,8 @@ impl App {
         let (cell, gap) = (32.0, S2);
         let w = ui.available_width();
         let cols = (((w + gap) / (cell + gap)).floor() as usize).max(1);
-        let rows = colors.len().div_ceil(cols);
+        // остання клітинка — «+»: зберегти колір вибраного приладу
+        let rows = (colors.len() + 1).div_ceil(cols);
         let (grid, _) = ui.allocate_exact_size(
             vec2(cols as f32 * (cell + gap) - gap, rows as f32 * (cell + gap) - gap),
             Sense::hover(),
@@ -1312,6 +1312,37 @@ impl App {
                 let m = self.static_menu(i);
                 self.want_menu(m);
             }
+            resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+        }
+        let i = colors.len();
+        let r = Rect::from_min_size(
+            pos2(grid.left() + (i % cols) as f32 * (cell + gap), grid.top() + (i / cols) as f32 * (cell + gap)),
+            vec2(cell, cell),
+        );
+        let can = self.first_sel_color().is_some_and(|(c, w)| c != Rgb::BLACK || w > 0);
+        let sense = if can { Sense::click() } else { Sense::hover() };
+        let tip = if can {
+            "Зберегти колір вибраного приладу в палітру"
+        } else {
+            "Виберіть прилад, щоб зберегти його колір"
+        };
+        let resp = ui.interact(r, Id::new("swatch-add"), sense).on_hover_text(tip);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, can, "Зберегти колір у палітру"));
+        let a = if can { 1.0 } else { 0.45 };
+        let hot = resp.hovered() && can;
+        ui.painter().rect(
+            r,
+            radius(R_SM),
+            if hot { RAISED } else { Color32::TRANSPARENT },
+            Stroke::new(1.0_f32, if hot { LINE_STRONG } else { LINE_FIELD }.gamma_multiply(a)),
+            StrokeKind::Inside,
+        );
+        nitor_ui::icons::image("plus", 16.0, TEXT.gamma_multiply(a))
+            .paint_at(ui, Rect::from_center_size(r.center(), vec2(16.0, 16.0)));
+        if resp.clicked() {
+            self.act(ui.ctx(), Act::SaveColor);
+        }
+        if can {
             resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
     }

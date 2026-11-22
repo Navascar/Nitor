@@ -146,6 +146,28 @@ fn static_color_stops_effect_and_uses_white_channel() {
     );
     assert!(!e.show.effect.ids.contains(&rgb) && e.show.effect.kind == EffectKind::Rainbow);
     assert_eq!(&e.render(0.0)[0..4], &[255, 255, 0, 0]);
+
+    // збережений колір — у кінці палітри; повтор і видалення стандартного — помилки
+    let n = e.show.static_colors.len();
+    ok(&mut e, Command::AddStaticColor { name: "Мій".into(), hex: Rgb(0x12, 0x34, 0x56), w: 0 });
+    assert_eq!(e.show.static_colors[n].name, "Мій");
+    assert!(e.handle(Command::AddStaticColor { name: "".into(), hex: Rgb(0x12, 0x34, 0x56), w: 0 }, 0.0).is_err());
+    assert!(e.handle(Command::DeleteStaticColor { index: 0 }, 0.0).is_err());
+    ok(&mut e, Command::DeleteStaticColor { index: n });
+    assert_eq!(e.show.static_colors.len(), n);
+}
+
+#[test]
+fn saved_colors_survive_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("config.json");
+    let mut e = Engine::load(&p);
+    let n = e.show.static_colors.len();
+    ok(&mut e, Command::AddStaticColor { name: "Мій".into(), hex: Rgb(1, 2, 3), w: 0 });
+    e.save(0.0).unwrap();
+    let e = Engine::load(&p);
+    assert_eq!(e.show.static_colors.len(), n + 1, "стандартні не дублюються, свій лишився");
+    assert_eq!(e.show.static_colors[n].hex, Rgb(1, 2, 3));
 }
 
 #[test]

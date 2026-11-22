@@ -172,6 +172,7 @@ impl App {
         };
         m.push(item("sun", "Яскравість 100%", dim(255)).disabled(!has));
         m.push(item("half", "Яскравість 50%", dim(128)).disabled(!has));
+        m.push(item("plus", "Зберегти колір у палітру", Act::SaveColor).disabled(cur.is_none()));
         m.push(Item::Sep);
         m.push(
             item("eraser", if has { "Очистити вибрані" } else { "Очистити все" }, Act::Clear)
@@ -195,6 +196,14 @@ impl App {
         ];
         if !self.sel.is_empty() {
             m.push(item("circle", "Застосувати до всіх приладів", Act::StaticTo { index: i, ids: vec![] }));
+        }
+        m.push(Item::Sep);
+        m.push(
+            item("plus", "Зберегти колір вибраного приладу", Act::SaveColor).disabled(self.first_sel_color().is_none()),
+        );
+        // стандартні кольори лишаються; видаляються лише збережені користувачем
+        if i >= nitor_core::engine::default_static_colors().len() {
+            m.push(item("trash", "Видалити колір з палітри", Act::AskDeleteColor(i)).danger());
         }
         m.push(Item::Sep);
         m.push(

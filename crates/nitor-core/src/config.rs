@@ -137,8 +137,15 @@ impl Engine {
             }
         }
         self.show.scenes = cfg.scenes;
-        // набір кольорів не редагується: завжди стандартний (новіші версії можуть його розширити)
-        self.show.static_colors = default_static_colors();
+        // палітра — завжди стандартний набір (новіші версії можуть його розширити) і після нього
+        // кольори, які зберіг користувач; кольори старого стандартного набору вже є серед стандартних
+        let mut colors = default_static_colors();
+        for c in cfg.static_colors {
+            if colors.len() < crate::engine::STATIC_COLORS_MAX && !colors.iter().any(|d| d.hex == c.hex && d.w == c.w) {
+                colors.push(c);
+            }
+        }
+        self.show.static_colors = colors;
         self.prefs = cfg.prefs.clamped();
         self.output_cfg = cfg.output;
         self.show.master = cfg.master;

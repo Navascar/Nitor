@@ -25,6 +25,8 @@ pub const UNDO_LIMIT: usize = 100;
 pub const UNDO_MERGE_S: f64 = 1.0;
 /// Найбільша частота мерехтіння «Спалаху», Гц.
 pub const FLASH_RATE_MAX: f64 = 25.0;
+/// Найбільше кольорів у палітрі (стандартні + збережені користувачем).
+pub const STATIC_COLORS_MAX: usize = 48;
 /// Ключі стану приладу, що зберігаються в сцені й плавно змінюються під час кросфейду.
 pub const STATE_KEYS: [&str; 7] = ["r", "g", "b", "w", "a", "uv", "dimmer"];
 
@@ -335,6 +337,16 @@ pub enum Command {
         ids: Vec<String>,
         source: StaticSource,
     },
+    /// Зберегти колір у палітру (після стандартних).
+    AddStaticColor {
+        name: String,
+        hex: Rgb,
+        w: u8,
+    },
+    /// Видалити збережений користувачем колір (стандартні не видаляються).
+    DeleteStaticColor {
+        index: usize,
+    },
     SetMaster(u8),
     SetHotkeys(IndexMap<String, Vec<String>>),
     Blackout(Option<bool>),
@@ -415,6 +427,8 @@ impl Command {
             Command::Preset { .. } => "preset",
             Command::Clear { .. } => "clear",
             Command::StaticColor { .. } => "static_color",
+            Command::AddStaticColor { .. } => "add_static_color",
+            Command::DeleteStaticColor { .. } => "delete_static_color",
             Command::SetMaster(_) => "set_master",
             Command::SetHotkeys(_) => "set_hotkeys",
             Command::Blackout(_) => "blackout",
@@ -507,6 +521,8 @@ impl Command {
             "clear" => "очищення",
             "preset" => "пресет",
             "set_master" => "зміну майстра",
+            "add_static_color" => "збереження кольору",
+            "delete_static_color" => "видалення кольору",
             "blackout" => "Blackout",
             "set_effect" => "зміну ефекту",
             "add_fixture" => "додавання приладу",
@@ -848,6 +864,25 @@ impl Engine {
             Command::Preset { ids, n, speed } => self.preset(&ids, n, speed)?,
             Command::Clear { ids } => self.clear(&ids),
             Command::StaticColor { ids, source } => self.static_color(&ids, source)?,
+            Command::AddStaticColor { name, hex, w } => {
+                if self.show.static_colors.len() >= STATIC_COLORS_MAX {
+                    bail!("у палітрі вже {STATIC_COLORS_MAX} кольорів");
+                }
+                let (w, hex_w) = if w > 0 { (Some(w), Some(hex)) } else { (None, None) };
+                if self.show.static_colors.iter().any(|c| c.hex == hex && c.w == w) {
+                    bail!("такий колір уже є в палітрі");
+                }
+                let name = name.trim();
+                let name = if name.is_empty() { hex.hex() } else { truncate_chars(name, 40) };
+                self.show.static_colors.push(StaticColor { name, hex, hex_w, w });
+            }
+            Command::DeleteStaticColor { index } => {
+                self.static_at(index)?;
+                if index < default_static_colors().len() {
+                    bail!("стандартний колір не можна видалити");
+                }
+                self.show.static_colors.remove(index);
+            }
             Command::SetMaster(v) => self.show.master = v,
             Command::SetHotkeys(h) => self.hotkeys = check_hotkeys(h)?,
             Command::Blackout(on) => self.show.blackout = on.unwrap_or(!self.show.blackout),
