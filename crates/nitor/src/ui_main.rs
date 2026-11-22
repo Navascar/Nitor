@@ -52,6 +52,15 @@ impl App {
                     ui.spacing_mut().item_spacing.x = S3;
                     ui.set_min_height(CONTROL_H);
                     let narrow = ui.ctx().screen_rect().width() < 1100.0;
+                    // майстер — зліва, дії — справа
+                    let mut m = self.v.show.master as f32;
+                    ui.label(RichText::new("Майстер").size(FS_MD));
+                    let sw = if narrow { 120.0 } else { 200.0 };
+                    let mut changed = widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
+                    changed |= widgets::value_box(ui, Id::new("master"), &mut m, 0.0, 255.0, Shown::Pct, 44.0);
+                    if changed {
+                        self.send(Command::SetMaster(m as u8));
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S3;
                         let h = self.v.hotkeys.clone();
@@ -103,15 +112,6 @@ impl App {
                         if !op {
                             self.update_button(ui);
                         }
-                        let mut m = self.v.show.master as f32;
-                        let id = Id::new("master");
-                        let mut changed = widgets::value_box(ui, id, &mut m, 0.0, 255.0, Shown::Pct, 44.0);
-                        let sw = if narrow { 120.0 } else { 180.0 };
-                        changed |= widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
-                        ui.label(RichText::new("Майстер").size(FS_MD));
-                        if changed {
-                            self.send(Command::SetMaster(m as u8));
-                        }
                     });
                 });
             });
@@ -122,7 +122,7 @@ impl App {
     pub fn title_bar(&mut self, ctx: &egui::Context) {
         let max = ctx.input(|i| i.viewport().maximized == Some(true));
         egui::TopBottomPanel::top("titlebar")
-            .exact_height(48.0)
+            .exact_height(56.0)
             .frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin {
                 left: S4 as i8,
                 right: S2 as i8,
@@ -140,9 +140,14 @@ impl App {
                     ui.spacing_mut().item_spacing.x = S3;
                     ui.add(
                         egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
-                            .fit_to_exact_size(vec2(24.0, 24.0)),
+                            .fit_to_exact_size(vec2(32.0, 32.0)),
                     );
-                    ui.label(RichText::new("Nitor").font(bold(FS_LG)));
+                    // назва й версія — однією лінією по низу літер
+                    ui.spacing_mut().item_spacing.x = S2;
+                    ui.label(RichText::new("Nitor").font(bold(22.0)));
+                    ui.label(RichText::new(format!("v{}", nitor_core::VERSION)).size(FS_SM).color(MUTED));
+                    ui.add_space(S3);
+                    ui.spacing_mut().item_spacing.x = S3;
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S1;
                         if icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked() {
@@ -1241,15 +1246,33 @@ impl App {
     // ------------------------------------------------------- ефекти й сцени --
     /// Права колонка: «Ефекти» і «Сцени» в обраному порядку. Повертає прямокутник сцен (для меню).
     fn side_panel(&mut self, ui: &mut Ui) -> Rect {
+        // кожен блок — окрема картка, щоб «Ефекти» і «Сцени» не зливалися в одне
+        let card = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
+            egui::Frame::new()
+                .fill(SURFACE)
+                .stroke(Stroke::new(1.0_f32, LINE))
+                .corner_radius(radius(R_LG))
+                .inner_margin(egui::Margin::same(S4 as i8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    add(ui)
+                })
+                .response
+                .rect
+        };
         if self.v.prefs.scenes_first {
-            let r = self.scenes_block(ui);
-            ui.add_space(S5);
-            self.effects_block(ui);
+            let r = card(ui, &mut |ui| {
+                self.scenes_block(ui);
+            });
+            ui.add_space(S4);
+            card(ui, &mut |ui| self.effects_block(ui));
             r
         } else {
-            self.effects_block(ui);
-            ui.add_space(S5);
-            let r = self.scenes_block(ui);
+            card(ui, &mut |ui| self.effects_block(ui));
+            ui.add_space(S4);
+            let r = card(ui, &mut |ui| {
+                self.scenes_block(ui);
+            });
             Rect::from_min_max(r.min, pos2(r.right(), r.bottom() + 400.0))
         }
     }
@@ -1445,22 +1468,23 @@ impl App {
         ui.add_space(S3 - S2);
         let hz = speed_from_slider(self.eff.speed);
         let mut changed = false;
-        ui.horizontal(|ui| {
-            ui.label(widgets::muted("Швидкість"));
-        });
-        ui.horizontal(|ui| {
-            let r = widgets::slider(ui, &mut self.eff.speed, 1.0, 100.0, ACCENT, w - 52.0 - S2)
-                .on_hover_text(format!("{hz:.2} Гц"));
-            changed |= r.changed();
-            changed |= widgets::value_box(ui, Id::new("effSpeed"), &mut self.eff.speed, 1.0, 100.0, Shown::Pct, 52.0);
-        });
-        ui.add_space(S3 - S2);
-        ui.label(widgets::muted("Розкид фази"));
-        ui.horizontal(|ui| {
-            changed |= widgets::slider(ui, &mut self.eff.spread, 0.0, 100.0, ACCENT, w - 52.0 - S2).changed();
-            changed |= widgets::value_box(ui, Id::new("effSpread"), &mut self.eff.spread, 0.0, 100.0, Shown::Pct, 52.0);
-        });
-        ui.add_space(S3 - S2);
+        // підпис і повзунок — щільно, рядок лише заввишки з повзунок
+        let compact = |ui: &mut Ui, label: &str, id: &str, v: &mut f32, min: f32, tip: Option<String>| -> bool {
+            widgets::field_label(ui, label);
+            ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
+                let r = widgets::slider_named(ui, label, v, min, 100.0, ACCENT, w - 52.0 - S2);
+                let r = match tip {
+                    Some(t) => r.on_hover_text(t),
+                    None => r,
+                };
+                r.changed() | widgets::value_box(ui, Id::new(id), v, min, 100.0, Shown::Pct, 52.0)
+            })
+            .inner
+        };
+        changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")));
+        ui.add_space(S2);
+        changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None);
+        ui.add_space(S2);
         ui.horizontal(|ui| {
             ui.label(widgets::muted("Палітра"));
             let mut remove = None;
@@ -1538,7 +1562,12 @@ impl App {
             }
         }
         ui.add_space(S3 - S2);
-        ui.horizontal_wrapped(|ui| {
+        // «Запустити» — на всю ширину, «Зупинити» — значком праворуч, щоб обидві вміщалися в картці
+        ui.allocate_ui_with_layout(vec2(w, CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
+            if icon_btn("stop").key(short_key(&self.v.hotkeys, "effectStop")).tip("Зупинити ефект").show(ui).clicked()
+            {
+                self.send(Command::SetEffect(EffectPatch { kind: Some(EffectKind::None), ..Default::default() }));
+            }
             let flash = self.flashing("effApply");
             let kind = if flash {
                 Kind::Done
@@ -1552,11 +1581,8 @@ impl App {
             } else {
                 ("play", "Запустити на вибраних")
             };
-            if btn(label).icon(icon).kind(kind).show(ui).clicked() {
+            if btn(label).icon(icon).kind(kind).full_width().show(ui).clicked() {
                 self.act(ui.ctx(), Act::RunEffectSelected);
-            }
-            if btn("Зупинити").icon("stop").key(short_key(&self.v.hotkeys, "effectStop")).show(ui).clicked() {
-                self.send(Command::SetEffect(EffectPatch { kind: Some(EffectKind::None), ..Default::default() }));
             }
         });
         if changed {
