@@ -185,6 +185,13 @@ jobs:
           name: windows-check
           path: shots
 
+      - name: Інсталятор для ручної перевірки
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nitor-Setup
+          path: Nitor-Setup.exe
+          retention-days: 14
+
       - name: Знімки в журнал (base64, для перегляду без артефактів)
         if: always()
         shell: pwsh
