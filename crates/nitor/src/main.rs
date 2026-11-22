@@ -158,9 +158,12 @@ fn main() {
     viewport = if splash_now {
         viewport.with_inner_size([splash::WIDTH, splash_h]).with_decorations(false).with_resizable(false)
     } else {
+        // своя панель вікна (як у вікні запуску й інсталятора); одразу на весь екран
         viewport
             .with_inner_size(main_size)
             .with_min_inner_size([900.0_f32.min(main_size.x), 600.0_f32.min(main_size.y)])
+            .with_decorations(false)
+            .with_maximized(true)
     };
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
@@ -243,6 +246,8 @@ impl eframe::App for App {
         }
 
         self.text_ops(ctx);
+        self.window_edges(ctx);
+        self.title_bar(ctx);
         self.topbar(ctx);
         if self.v.operator {
             self.operator_layout(ctx);

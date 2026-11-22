@@ -268,11 +268,12 @@ impl App {
     pub fn open_main_window(&mut self, ctx: &egui::Context) {
         let monitor = ctx.input(|i| i.viewport().monitor_size);
         let size = main_size(monitor);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+        // рамки немає й тут: своя панель вікна; розмір `size` — для відновлення з розгорнутого
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(900.0, 600.0)));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(centered(ctx, size)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         self.main_pending = Some((size, std::time::Instant::now() + std::time::Duration::from_millis(700)));
     }
@@ -281,7 +282,8 @@ impl App {
     pub fn main_window_ready(&mut self, ctx: &egui::Context) -> bool {
         let Some((size, deadline)) = self.main_pending else { return true };
         let now = ctx.input(|i| i.viewport().inner_rect).map(|r| r.size());
-        let resized = now.is_some_and(|s| (s.x - size.x).abs() <= 2.0 && (s.y - size.y).abs() <= 2.0);
+        // вікно розгортається на весь екран: досить, що воно вже не розміру вікна запуску
+        let resized = now.is_some_and(|s| s.x >= size.x - 2.0 && s.y >= size.y.min(600.0) - 2.0);
         if resized || std::time::Instant::now() >= deadline {
             // розмір уже правильний: цей кадр — ще тло, наступний — інтерфейс у новому розмірі
             self.main_pending = None;

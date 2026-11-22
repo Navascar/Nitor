@@ -51,10 +51,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = S3;
                     ui.set_min_height(CONTROL_H);
-                    ui.label(RichText::new("Nitor").font(bold(FS_XL)));
                     let narrow = ui.ctx().screen_rect().width() < 1100.0;
-                    // праві кнопки розкладаються першими; DMX-вихід — одразу біля назви програми,
-                    // у місці, що лишилося (текст обрізається, щоб на вузькому вікні нічого не накладалося)
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S3;
                         let h = self.v.hotkeys.clone();
@@ -115,14 +112,111 @@ impl App {
                         if changed {
                             self.send(Command::SetMaster(m as u8));
                         }
-                        ui.add_space(S3);
+                    });
+                });
+            });
+    }
+
+    /// Панель вікна, як у вікні запуску й інсталятора: логотип, «Nitor», DMX-вихід поруч,
+    /// «Згорнути», «Розгорнути», «Закрити». Вікно перетягується за панель, подвійний клік — розгорнути.
+    pub fn title_bar(&mut self, ctx: &egui::Context) {
+        let max = ctx.input(|i| i.viewport().maximized == Some(true));
+        egui::TopBottomPanel::top("titlebar")
+            .exact_height(48.0)
+            .frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin {
+                left: S4 as i8,
+                right: S2 as i8,
+                top: 0,
+                bottom: 0,
+            }))
+            .show(ctx, |ui| {
+                let drag = ui.interact(ui.max_rect(), Id::new("title-drag"), Sense::click_and_drag());
+                if drag.double_clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+                } else if drag.drag_started_by(egui::PointerButton::Primary) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = S3;
+                    ui.add(
+                        egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
+                            .fit_to_exact_size(vec2(24.0, 24.0)),
+                    );
+                    ui.label(RichText::new("Nitor").font(bold(FS_LG)));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = S1;
+                        if icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        let tip = if max { "Відновити" } else { "Розгорнути" };
+                        if window_button(ui, tip, |p, c| {
+                            let s = Stroke::new(1.5_f32, TEXT);
+                            if max {
+                                // два вікна одне за одним
+                                p.rect_stroke(
+                                    Rect::from_center_size(c + vec2(-1.5, 1.5), vec2(9.0, 9.0)),
+                                    1.0,
+                                    s,
+                                    StrokeKind::Middle,
+                                );
+                                p.line_segment([c + vec2(-3.0, -4.5), c + vec2(4.5, -4.5)], s);
+                                p.line_segment([c + vec2(4.5, -4.5), c + vec2(4.5, 3.0)], s);
+                            } else {
+                                p.rect_stroke(Rect::from_center_size(c, vec2(11.0, 11.0)), 1.0, s, StrokeKind::Middle);
+                            }
+                        }) {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+                        }
+                        if window_button(ui, "Згорнути", |p, c| {
+                            p.hline(c.x - 6.0..=c.x + 6.0, c.y, Stroke::new(2.0_f32, TEXT));
+                        }) {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                        // DMX-вихід — одразу біля назви програми, у місці, що лишилося
+                        // (текст обрізається, щоб на вузькому вікні нічого не накладалося)
                         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            let room = ui.available_width().min(360.0);
+                            let room = (ui.available_width() - S4).min(360.0);
                             self.output_pill(ui, room);
                         });
                     });
                 });
             });
+    }
+
+    /// Вікно без системної рамки: його краї тягнуть, щоб змінити розмір (коли воно не розгорнуте).
+    pub fn window_edges(&mut self, ctx: &egui::Context) {
+        use egui::viewport::ResizeDirection as D;
+        let (max, pos, pressed, screen) = ctx.input(|i| {
+            (i.viewport().maximized == Some(true), i.pointer.hover_pos(), i.pointer.primary_pressed(), i.screen_rect())
+        });
+        let Some(p) = pos else { return };
+        if max {
+            return;
+        }
+        let e = 5.0;
+        let (l, r, t, b) =
+            (p.x <= screen.left() + e, p.x >= screen.right() - e, p.y <= screen.top() + e, p.y >= screen.bottom() - e);
+        let dir = match (l, r, t, b) {
+            (true, _, true, _) => D::NorthWest,
+            (_, true, true, _) => D::NorthEast,
+            (true, _, _, true) => D::SouthWest,
+            (_, true, _, true) => D::SouthEast,
+            (true, ..) => D::West,
+            (_, true, ..) => D::East,
+            (_, _, true, _) => D::North,
+            (.., true) => D::South,
+            _ => return,
+        };
+        let cursor = match dir {
+            D::North | D::South => egui::CursorIcon::ResizeVertical,
+            D::East | D::West => egui::CursorIcon::ResizeHorizontal,
+            D::NorthWest | D::SouthEast => egui::CursorIcon::ResizeNwSe,
+            _ => egui::CursorIcon::ResizeNeSw,
+        };
+        ctx.set_cursor_icon(cursor);
+        if pressed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+        }
     }
 
     /// «Спалах»: тримати — повне світло; стрілка поруч — постійне світло чи мерехтіння з частотою.
@@ -1638,3 +1732,17 @@ pub fn _fmt(v: f64) -> String {
 
 #[allow(dead_code)]
 fn _unused(_: &Engine) {}
+
+/// Кнопка панелі вікна (як «Згорнути» в інсталяторі): значок малюється сам. `true` — натиснуто.
+fn window_button(ui: &mut Ui, tip: &str, paint: impl FnOnce(&egui::Painter, Pos2)) -> bool {
+    let (r, resp) = ui.allocate_exact_size(vec2(CONTROL_H, CONTROL_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
+    if resp.hovered() {
+        ui.painter().rect_filled(r, radius(R_MD), RAISED);
+    }
+    if resp.has_focus() {
+        ui.painter().rect_stroke(r.expand(2.0), radius(R_MD + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
+    }
+    paint(ui.painter(), r.center());
+    resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
