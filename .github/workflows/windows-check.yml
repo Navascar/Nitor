@@ -1,13 +1,10 @@
-# Перевірка на справжній Windows (гілки, крім main, і вручну): збірка, тихе встановлення,
+# Перевірка на справжній Windows — лише вручну (Actions → Windows check → Run workflow): збірка, тихе встановлення,
 # ярлики й ідентифікатор програми, вікно програми й вікно запуску, одна копія, повторне встановлення
 # поверх відкритої програми, вибіркове видалення даних.
 # Знімки вікон — в артефакті windows-check і в журналі рядками SHOT|назва|base64.
 name: Windows check
 
 on:
-  push:
-    branches-ignore: [main]
-    paths-ignore: ['.claude/**', 'CLAUDE.md', '.mcp.json', '**/*.md']
   workflow_dispatch:
 
 permissions:

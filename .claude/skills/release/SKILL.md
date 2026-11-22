@@ -1,6 +1,6 @@
 ---
 name: release
-description: Випустити нову версію Nitor — версія, CHANGELOG, тести, перевірка на Windows, злиття в main і перевірка релізу на GitHub.
+description: Випустити нову версію Nitor — версія, CHANGELOG, злиття в main і перевірка релізу на GitHub. Тести й перевірка на Windows — лише на прохання користувача.
 disable-model-invocation: true
 ---
 
@@ -20,26 +20,18 @@ disable-model-invocation: true
 3. Оновіть `version` у `[workspace.package]` кореневого `Cargo.toml` (і `Cargo.lock` — `cargo check`).
 4. Додайте на початок `CHANGELOG.md` розділ `## X.Y.Z`: короткі пункти українською для користувача — що змінилося
    й що це дає, без технічних подробиць. Цей текст стане описом релізу й вікном «Що нового».
-5. Перевірки:
-   ```bash
-   cargo fmt --all --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo test --workspace
-   ```
+5. Закомітьте й запуште гілку: `git push -u origin <гілка>`.
 
-## 2. Перевірка на Windows
+## 2. Перевірки — лише на прохання користувача
 
-1. Закомітьте й запуште гілку: `git push -u origin <гілка>`.
-2. Дочекайтеся `Windows check` для цього коміту:
-   ```bash
-   gh run list -R Navascar/Nitor -b <гілка> -L 1 --json databaseId,status,conclusion,headSha
-   ```
-   Якщо щось упало — `gh run view <id> --log-failed`. Знімки вікон — рядки `SHOT|назва|base64` у журналі.
+Користувач вирішив: перед випуском перевірок не чекаємо. Тести (`cargo fmt --all --check`, `cargo clippy …`,
+`cargo test --workspace`), `Tests & Release` чи `Windows check` вручну (Run workflow) — тільки якщо він попросив.
+Збірка релізу все одно падає, якщо код не компілюється, — тоді релізу просто не буде.
 
 ## 3. Підтвердження
 
-Покажіть користувачу підсумок (версія, пункти CHANGELOG, результати тестів і Windows check) і **спитайте, чи
-випускати**. Без явного «так» у `main` не пушити.
+Покажіть користувачу підсумок (версія, пункти CHANGELOG) і **спитайте, чи випускати**. Без явного «так» у `main`
+не пушити.
 
 ## 4. Випуск
 
@@ -48,7 +40,7 @@ git fetch --depth=50 origin main
 git checkout main && git merge --ff-only <гілка>
 git push origin main
 ```
-Дочекайтеся `Tests & Release` для цього коміту й перевірте реліз:
+Дочекайтеся `Tests & Release` (лише збірка, ~10 хв) для цього коміту й перевірте реліз:
 ```bash
 gh api repos/Navascar/Nitor/releases/latest -q '"\(.tag_name) " + ([.assets[].name] | join(", "))'
 ```

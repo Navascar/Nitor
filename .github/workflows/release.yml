@@ -1,11 +1,11 @@
-# Тести на кожен push; якщо версія у Cargo.toml (workspace) нова — створюється реліз.
+# Push у main з новою версією в Cargo.toml (workspace) — одразу збірка й реліз, без попередніх тестів.
+# Тести (fmt, clippy, test) — лише вручну: Actions → Tests & Release → Run workflow.
 # Програма Nitor бачить новий реліз і пропонує користувачу оновитися (завантажує Nitor-Setup.exe).
 name: Tests & Release
 
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,8 +31,7 @@ jobs:
       - run: cargo test --workspace
 
   release:
-    needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
