@@ -135,10 +135,7 @@ impl<'a> Btn<'a> {
             .as_ref()
             .filter(|t| !t.text().is_empty())
             .map(|t| t.clone().into_galley(ui, Some(egui::TextWrapMode::Truncate), f32::INFINITY, font.clone()));
-        let kbd = self.kbd.as_ref().map(|k| {
-            let g = ui.fonts(|f| f.layout_no_wrap(k.clone(), mono(FS_XS), TEXT));
-            (g.size().x + 2.0 * S1).max(16.0)
-        });
+        let kbd = self.kbd.as_ref().map(|k| kbd_width(ui, k, FS_XS));
         let kbd_w = kbd.map_or(0.0, |w| w + gap);
         let mut w = match (&galley, self.icon) {
             (None, Some(_)) if kbd.is_some() => pad * 2.0 + isz + kbd_w,
@@ -203,7 +200,7 @@ impl<'a> Btn<'a> {
                     Stroke::new(1.0_f32, fg.gamma_multiply(0.45)),
                     StrokeKind::Inside,
                 );
-                p.text(kr.center(), Align2::CENTER_CENTER, k, mono(FS_XS), fg.gamma_multiply(0.85));
+                kbd_label(ui, kr, k, FS_XS, fg.gamma_multiply(0.85));
             }
             if let Some(name) = self.icon {
                 let r = Rect::from_min_size(pos2(x, rect.center().y - isz / 2.0), Vec2::splat(isz));
@@ -248,6 +245,37 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
         Kind::Toggled => (ACCENT_SOFT, ACCENT, TEXT),
         Kind::Done => (Color32::TRANSPARENT, OK, OK),
     }
+}
+
+/// Клавіші, які показуються значком: у шрифтах Windows може не бути символів «⌫» і «↵».
+fn kbd_icon(key: &str) -> Option<&'static str> {
+    match key {
+        "Backspace" => Some("backspace"),
+        "Enter" => Some("enter"),
+        _ => None,
+    }
+}
+
+/// Ширина підпису клавіші разом із рамкою.
+pub fn kbd_width(ui: &Ui, key: &str, size: f32) -> f32 {
+    let w = match kbd_icon(key) {
+        Some(_) => size + 3.0,
+        None => ui.fonts(|f| f.layout_no_wrap(key.to_string(), mono(size), TEXT).size().x),
+    };
+    (w + 2.0 * S1).max(16.0)
+}
+
+/// Підпис клавіші по центру рамки `r`: за самими літерами, а не за висотою рядка шрифту
+/// (у Cascadia й Consolas рядок вищий за літери, і текст здавався піднятим).
+pub fn kbd_label(ui: &Ui, r: Rect, key: &str, size: f32, color: Color32) {
+    if let Some(name) = kbd_icon(key) {
+        let s = size + 3.0;
+        icons::image(name, s, color).paint_at(ui, Rect::from_center_size(r.center(), Vec2::splat(s)));
+        return;
+    }
+    let g = ui.fonts(|f| f.layout_no_wrap(key.to_string(), mono(size), color));
+    let ink = if g.mesh_bounds.is_positive() { g.mesh_bounds } else { g.rect };
+    ui.painter().galley(r.center() - ink.center().to_vec2(), g, color);
 }
 
 /// Повзунок із заливкою доріжки кольором `fill`. Повертає відповідь (змінено — `changed()`).

@@ -10,6 +10,8 @@ use egui::{Color32, Image, ImageSource, Vec2};
 pub const PATHS: &[(&str, &str)] = &[
     ("plus", "M12 5v14M5 12h14"),
     ("chevronDown", "M6 9l6 6 6-6"),
+    ("backspace", "M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM18 9l-6 6M12 9l6 6"),
+    ("enter", "M9 10l-5 5 5 5M20 4v7a4 4 0 0 1-4 4H4"),
     ("x", "M6 6l12 12M18 6L6 18"),
     ("eraser", "M20 20H9L4 15a2 2 0 0 1 0-2.8L13.2 3a2 2 0 0 1 2.8 0l4.9 4.9a2 2 0 0 1 0 2.8L12 19.6M8 10.5l6.5 6.5"),
     (

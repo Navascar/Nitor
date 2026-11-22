@@ -223,7 +223,8 @@ impl App {
                                 } else {
                                     "Оновити"
                                 };
-                                update = btn(label).kind(Kind::Primary).show(ui).clicked();
+                                let key = (phase == SplashPhase::Update).then(|| "Enter".to_string());
+                                update = btn(label).kind(Kind::Primary).key(key).show(ui).clicked();
                                 close = btn("Закрити").show(ui).clicked();
                             },
                         );

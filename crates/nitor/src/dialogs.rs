@@ -154,7 +154,7 @@ fn dialog_head(ui: &mut Ui, title: &str) -> bool {
     ui.horizontal(|ui| {
         ui.label(RichText::new(title).font(bold(FS_LG)));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            close = icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked();
+            close = icon_btn("x").kind(Kind::Ghost).key(Some("Esc".into())).tip("Закрити").show(ui).clicked();
         });
     });
     ui.add_space(S4 - S2);
@@ -336,11 +336,11 @@ impl App {
             let w = ui.available_width();
             ui.allocate_ui_with_layout(vec2(w, CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
                 let kind = if d.danger { Kind::DangerOn } else { Kind::Primary };
-                if btn(d.ok.clone()).kind(kind).show(ui).clicked() {
+                if btn(d.ok.clone()).kind(kind).key(Some("Enter".into())).show(ui).clicked() {
                     result = Some(true);
                 }
                 if let Some(c) = &d.cancel {
-                    if btn(c.clone()).show(ui).clicked() {
+                    if btn(c.clone()).key(Some("Esc".into())).show(ui).clicked() {
                         result = Some(false);
                     }
                 }
@@ -388,7 +388,7 @@ impl App {
                     .enabled(u.blocked.is_none() && u.available)
                     .show(ui)
                     .clicked();
-                later |= btn("Пізніше").show(ui).clicked();
+                later |= btn("Пізніше").key(Some("Esc".into())).show(ui).clicked();
             });
         });
         if install {
@@ -1134,7 +1134,7 @@ impl App {
             ui.add_space(S3);
             ui.horizontal(|ui| {
                 submit |= btn("Додати").primary().show(ui).clicked();
-                close |= btn("Скасувати").show(ui).clicked();
+                close |= btn("Скасувати").key(Some("Esc".into())).show(ui).clicked();
             });
         });
         let esc = esc && self.lib.is_none() && self.modes.is_none();
@@ -1752,12 +1752,12 @@ fn notes_box(ui: &mut Ui, text: &str) {
 }
 
 fn kbd(ui: &mut Ui, text: &str) {
-    let w = widgets::text_width(ui, text, mono(FS_SM)) + 2.0 * S2;
+    let w = widgets::kbd_width(ui, text, FS_SM) + 2.0 * S1;
     let (r, _) = ui.allocate_exact_size(vec2(w, CONTROL_H_SM), Sense::hover());
     let p = ui.painter();
     p.rect(r, radius(R_SM), RAISED, Stroke::new(1.0_f32, LINE_STRONG), StrokeKind::Inside);
     p.hline(r.x_range(), r.bottom() - 1.0, Stroke::new(2.0_f32, LINE_STRONG));
-    p.text(r.center(), Align2::CENTER_CENTER, text, mono(FS_SM), TEXT);
+    widgets::kbd_label(ui, r.translate(vec2(0.0, -1.0)), text, FS_SM, TEXT);
 }
 
 fn lib_image(ui: &Ui, r: Rect, fx: &LibModel) {

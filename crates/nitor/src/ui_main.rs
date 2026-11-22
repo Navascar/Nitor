@@ -548,11 +548,11 @@ impl App {
                 ui.set_min_height(CONTROL_H_SM);
                 widgets::h2(ui, title);
             });
-            ui.allocate_ui_with_layout(
-                vec2(ui.available_width(), CONTROL_H_SM),
-                Layout::left_to_right(Align::Center),
-                |ui| row(ui, Box::new(right)),
-            )
+            // кнопки під назвою — від лівого краю, як і решта панелі
+            let w = if right_w > 0.0 { right_w.min(ui.available_width()) } else { ui.available_width() };
+            ui.allocate_ui_with_layout(vec2(w, CONTROL_H_SM), Layout::left_to_right(Align::Center), |ui| {
+                row(ui, Box::new(right))
+            })
             .inner
         };
         if (used - right_w).abs() > 0.5 {

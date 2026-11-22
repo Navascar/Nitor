@@ -94,8 +94,8 @@ impl eframe::App for Already {
                 egui::Frame::new().inner_margin(egui::Margin::symmetric(24, 14)).show(ui, |ui| {
                     ui.allocate_ui_with_layout(vec2(w - 48.0, CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        show = btn("Перейти до Nitor").kind(Kind::Primary).show(ui).clicked();
-                        close = btn("Закрити").show(ui).clicked();
+                        show = btn("Перейти до Nitor").kind(Kind::Primary).key(Some("Enter".into())).show(ui).clicked();
+                        close = btn("Закрити").key(Some("Esc".into())).show(ui).clicked();
                     });
                 });
             },
