@@ -105,17 +105,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force upd | Out-Null
           '{"tag_name": "v9.9.9", "body": "## 9.9.9\n- Перевірка вікна запуску", "html_url": "https://github.com/Navascar/Nitor/releases",
-            "assets": [{"name": "Nitor-Setup.exe", "browser_download_url": "http://127.0.0.1:8977/Nitor-Setup.exe"}]}' |
+            "assets": [{"name": "Nitor-Setup.exe", "browser_download_url": "https://example.invalid/Nitor-Setup.exe"}]}' |
             Set-Content upd\latest.json -Encoding UTF8
-          $srv = Start-Process python -ArgumentList '-m', 'http.server', '8977', '--directory', 'upd' -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 2
-          $env:NITOR_UPDATE_API = 'http://127.0.0.1:8977/latest.json'
+          $env:NITOR_UPDATE_API = "$pwd\upd\latest.json"
           $env:NITOR_UPDATE_ALLOW = '1'
           $env:NITOR_SCREENSHOT = "$pwd\shots\splash-update.png"
           $env:NITOR_SCREENSHOT_SPLASH = '1'
           $p = Start-Process (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.exe') -PassThru
           if (-not $p.WaitForExit(60000)) { $p.Kill() }
-          Stop-Process -Id $srv.Id -Force
           Select-String -Path (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.log') -Pattern 'Вікно запуску' -Encoding UTF8 | Select-Object -Last 3
           if (-not (Select-String -Path (Join-Path $env:LOCALAPPDATA 'Nitor\nitor.log') -Pattern 'Вікно запуску: Update' -Quiet)) { exit 1 }
 

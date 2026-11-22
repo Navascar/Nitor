@@ -10,3 +10,7 @@ rust-version.workspace = true
 egui = "0.32.3"
 # той самий розбирач шрифтів, що в egui: перевірка системного шрифту перед використанням
 ab_glyph = "0.2.32"
+# вибір рушія малювання вікна (render.rs): DirectX 12 / Vulkan, запасний — GL (у т.ч. програмний)
+eframe = { version = "0.32.3", default-features = false, features = ["wgpu", "glow"] }
+wgpu = { version = "25.0.2", default-features = false, features = ["dx12", "vulkan", "gles", "metal", "wgsl"] }
+log.workspace = true

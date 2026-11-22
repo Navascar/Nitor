@@ -1416,6 +1416,103 @@ impl App {
     }
 
     // ------------------------------------------------------ властивості приладу --
+    /// Тест каналів у властивостях приладу: значення каналів вручну й збереження їх як профілю.
+    /// `true` — натиснули «Зберегти профіль і призначити».
+    fn channel_test(
+        &mut self,
+        ui: &mut Ui,
+        p: &mut PropsState,
+        ch: &[String],
+        start: i64,
+        w: f32,
+        raw_cmds: &mut Vec<Command>,
+    ) -> bool {
+        let mut save = false;
+        ui.add_space(S3 - S2);
+        ui.horizontal(|ui| {
+            ui.label(widgets::muted("Каналів для тесту"));
+            widgets::number(ui, &mut p.test_count, 1, 64, 72.0);
+            if btn("Усі на 0").small().show(ui).clicked() {
+                for (i, row) in p.test_rows.iter_mut().enumerate() {
+                    let addr = start as u16 + i as u16;
+                    if addr as usize > DMX_CHANNELS {
+                        break; // рядки за межами всесвіту не показані — і не надсилаються
+                    }
+                    row.1 = 0.0;
+                    raw_cmds.push(Command::RawSet { address: addr, value: 0 });
+                }
+            }
+            if btn("Скинути тест").small().tip("Повернути керування програмі").show(ui).clicked()
+            {
+                raw_cmds.push(Command::RawClear(Some(self.tested.iter().copied().collect())));
+                self.tested.clear();
+            }
+        });
+        // рядки тесту: попередні значення лишаються, нові — з профілю
+        let count = p.test_count.clamp(1, 64) as usize;
+        while p.test_rows.len() < count {
+            let i = p.test_rows.len();
+            let addr = start as usize + i;
+            let mut role = ch.get(i).cloned().unwrap_or_else(|| "zero".into());
+            let mut value = self.v.dmx.get(addr.wrapping_sub(1)).copied().unwrap_or(0) as f32;
+            if let Some(v) = nitor_core::fixtures::fixed_value(&role) {
+                value = v as f32;
+                role = "fixed".into();
+            }
+            if !TEST_ROLES.iter().any(|(k, _)| *k == role) {
+                role = "zero".into();
+            }
+            p.test_rows.push((role, value));
+        }
+        p.test_rows.truncate(count);
+        ui.add_space(S3 - S2);
+        egui::ScrollArea::vertical().id_salt("test-rows").max_height(300.0).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = S1;
+            for (i, row) in p.test_rows.iter_mut().enumerate() {
+                let addr = start as u16 + i as u16;
+                if addr as usize > DMX_CHANNELS {
+                    break;
+                }
+                ui.horizontal(|ui| {
+                    let live = self.tested.contains(&addr);
+                    let (r, _) = ui.allocate_exact_size(vec2(96.0, CONTROL_H_SM), Sense::hover());
+                    let g1 = format!("CH{}", i + 1);
+                    let w1 = widgets::text_width(ui, &g1, bold(FS_SM));
+                    ui.painter().text(
+                        r.left_center(),
+                        Align2::LEFT_CENTER,
+                        &g1,
+                        bold(FS_SM),
+                        if live { ACCENT } else { TEXT },
+                    );
+                    ui.painter().text(
+                        pos2(r.left() + w1, r.center().y),
+                        Align2::LEFT_CENTER,
+                        format!(" · DMX {addr}"),
+                        font(FS_SM),
+                        MUTED,
+                    );
+                    let opts: Vec<(String, String)> =
+                        TEST_ROLES.iter().map(|(k, l)| (k.to_string(), l.to_string())).collect();
+                    widgets::select(ui, ("test-role", i), &mut row.0, &opts, 160.0);
+                    let sw = ui.available_width() - 40.0 - S2;
+                    if widgets::slider(ui, &mut row.1, 0.0, 255.0, ACCENT, sw).changed() {
+                        self.tested.insert(addr);
+                        raw_cmds.push(Command::RawSet { address: addr, value: row.1 as u8 });
+                    }
+                    ui.label(RichText::new(format!("{}", row.1 as u8)).size(FS_SM));
+                });
+            }
+        });
+        ui.add_space(S3 - S2);
+        ui.horizontal(|ui| {
+            widgets::input(ui, &mut p.test_prof_name, "Назва профілю", w - 280.0);
+            save = btn("Зберегти профіль і призначити").show(ui).clicked();
+        });
+        ui.add_space(S3 - S2);
+        save
+    }
+
     fn props_channels(&self, p: &PropsState) -> Vec<String> {
         match &p.device {
             Some(d) if d.0 == p.profile => d.1.clone(),
@@ -1554,85 +1651,7 @@ impl App {
                 }
             }
             if p.test_open {
-                ui.add_space(S3 - S2);
-                ui.horizontal(|ui| {
-                    ui.label(widgets::muted("Каналів для тесту"));
-                    widgets::number(ui, &mut p.test_count, 1, 64, 72.0);
-                    if btn("Усі на 0").small().show(ui).clicked() {
-                        for (i, row) in p.test_rows.iter_mut().enumerate() {
-                            row.1 = 0.0;
-                            let addr = start as u16 + i as u16;
-                            raw_cmds.push(Command::RawSet { address: addr, value: 0 });
-                        }
-                    }
-                    if btn("Скинути тест").small().tip("Повернути керування програмі").show(ui).clicked()
-                    {
-                        raw_cmds.push(Command::RawClear(Some(self.tested.iter().copied().collect())));
-                        self.tested.clear();
-                    }
-                });
-                // рядки тесту: попередні значення лишаються, нові — з профілю
-                let count = p.test_count.clamp(1, 64) as usize;
-                while p.test_rows.len() < count {
-                    let i = p.test_rows.len();
-                    let addr = start as usize + i;
-                    let mut role = ch.get(i).cloned().unwrap_or_else(|| "zero".into());
-                    let mut value = self.v.dmx.get(addr.wrapping_sub(1)).copied().unwrap_or(0) as f32;
-                    if let Some(v) = nitor_core::fixtures::fixed_value(&role) {
-                        value = v as f32;
-                        role = "fixed".into();
-                    }
-                    if !TEST_ROLES.iter().any(|(k, _)| *k == role) {
-                        role = "zero".into();
-                    }
-                    p.test_rows.push((role, value));
-                }
-                p.test_rows.truncate(count);
-                ui.add_space(S3 - S2);
-                egui::ScrollArea::vertical().id_salt("test-rows").max_height(300.0).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = S1;
-                    for (i, row) in p.test_rows.iter_mut().enumerate() {
-                        let addr = start as u16 + i as u16;
-                        if addr as usize > DMX_CHANNELS {
-                            break;
-                        }
-                        ui.horizontal(|ui| {
-                            let live = self.tested.contains(&addr);
-                            let (r, _) = ui.allocate_exact_size(vec2(96.0, CONTROL_H_SM), Sense::hover());
-                            let g1 = format!("CH{}", i + 1);
-                            let w1 = widgets::text_width(ui, &g1, bold(FS_SM));
-                            ui.painter().text(
-                                r.left_center(),
-                                Align2::LEFT_CENTER,
-                                &g1,
-                                bold(FS_SM),
-                                if live { ACCENT } else { TEXT },
-                            );
-                            ui.painter().text(
-                                pos2(r.left() + w1, r.center().y),
-                                Align2::LEFT_CENTER,
-                                format!(" · DMX {addr}"),
-                                font(FS_SM),
-                                MUTED,
-                            );
-                            let opts: Vec<(String, String)> =
-                                TEST_ROLES.iter().map(|(k, l)| (k.to_string(), l.to_string())).collect();
-                            widgets::select(ui, ("test-role", i), &mut row.0, &opts, 160.0);
-                            let sw = ui.available_width() - 40.0 - S2;
-                            if widgets::slider(ui, &mut row.1, 0.0, 255.0, ACCENT, sw).changed() {
-                                self.tested.insert(addr);
-                                raw_cmds.push(Command::RawSet { address: addr, value: row.1 as u8 });
-                            }
-                            ui.label(RichText::new(format!("{}", row.1 as u8)).size(FS_SM));
-                        });
-                    }
-                });
-                ui.add_space(S3 - S2);
-                ui.horizontal(|ui| {
-                    widgets::input(ui, &mut p.test_prof_name, "Назва профілю", w - 280.0);
-                    test_save = btn("Зберегти профіль і призначити").show(ui).clicked();
-                });
-                ui.add_space(S3 - S2);
+                test_save = self.channel_test(ui, &mut p, &ch, start, w, &mut raw_cmds);
             }
             widgets::hline(ui);
             ui.add_space(S3);

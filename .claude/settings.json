@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/after_edit.py\"",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && out=$(cargo fmt --all 2>&1) || { printf '%s\\n' \"$out\" | tail -c 1500 >&2; exit 2; }",
             "timeout": 60
           }
         ]

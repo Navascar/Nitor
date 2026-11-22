@@ -15,11 +15,9 @@ nitor-core.workspace = true
 nitor-ui.workspace = true
 log.workspace = true
 flate2.workspace = true
-serde_json.workspace = true
 egui = "0.32.3"
 eframe = { version = "0.32.3", default-features = false, features = ["wgpu", "glow", "default_fonts", "accesskit", "x11", "wayland"] }
 egui_extras = { version = "0.32.3", features = ["svg", "image"] }
-wgpu = { version = "25.0.2", default-features = false, features = ["dx12", "vulkan", "gles", "metal", "wgsl"] }
 image = { version = "0.25.9", default-features = false, features = ["png", "ico"] }
 
 [target.'cfg(windows)'.dependencies]

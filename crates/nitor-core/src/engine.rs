@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::effects::{Effect, EffectKind, PALETTE_MAX, SPEED_MAX, SPEED_MIN, beat_pulse, effect_color};
 use crate::fixtures::{
-    COLOR_KEYS, Color, Fixture, Model, Profiles, Segs, default_profiles, find_overlaps, has_presets, model_profiles,
-    preset_count, preset_level, programs, render_fixture, segment_count, validate_fixture, validate_profile,
+    Color, Fixture, Model, Profiles, Segs, default_profiles, find_overlaps, has_presets, model_profiles, preset_count,
+    preset_level, programs, render_fixture, segment_count, validate_fixture, validate_profile,
 };
 use crate::library::{RECENT_LIMIT, Recent};
 use crate::outputs::OutputConfig;
@@ -1498,11 +1498,6 @@ impl Engine {
         self.live = live;
         uni
     }
-
-    /// Показ кольору програми на плитці приладу.
-    pub fn program_color(n: u8) -> [u8; 3] {
-        programs().get((n as usize).wrapping_sub(1)).map_or([200, 200, 200], program_rgb)
-    }
 }
 
 /// Приблизний колір програми для превʼю на плитці приладу.
@@ -1522,11 +1517,6 @@ fn program_rgb(p: &crate::fixtures::Program) -> [u8; 3] {
         }
     }
     if p.group == "sound" { [255, 120, 255] } else { [200, 200, 200] }
-}
-
-/// Колірні ключі приладу, наявні в профілі (для слайдерів інтерфейсу).
-pub fn color_roles(channels: &[String]) -> Vec<&'static str> {
-    COLOR_KEYS.iter().copied().filter(|k| channels.iter().any(|c| c == k)).collect()
 }
 
 impl From<String> for Error {

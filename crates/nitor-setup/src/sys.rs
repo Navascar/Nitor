@@ -6,13 +6,7 @@ use std::path::{Path, PathBuf};
 pub const APP_ID: &str = "Navascar.Nitor";
 pub const UNINST_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor";
 
-/// Тека програми: `%LOCALAPPDATA%\Nitor`.
-pub fn app_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("NITOR_HOME") {
-        return PathBuf::from(d);
-    }
-    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Nitor")
-}
+pub use nitor_core::app_dir;
 
 pub struct RegInfo<'a> {
     pub version: &'a str,

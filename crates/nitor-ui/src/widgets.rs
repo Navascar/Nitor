@@ -83,10 +83,6 @@ impl<'a> Btn<'a> {
         self.small = true;
         self
     }
-    pub fn small_if(mut self, yes: bool) -> Self {
-        self.small = yes;
-        self
-    }
     pub fn enabled(mut self, e: bool) -> Self {
         self.enabled = e;
         self
@@ -368,10 +364,6 @@ impl Shown {
             _ => v.round() as i64,
         }
     }
-}
-
-pub fn shown_text(v: f32, max: f32, shown: Shown) -> String {
-    format!("{}{}", shown.number(v, max), shown.unit())
 }
 
 /// Число біля повзунка: клік відкриває поле, куди можна вписати значення (у відсотках — для

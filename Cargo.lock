@@ -2161,11 +2161,9 @@ dependencies = [
  "nitor-core",
  "nitor-ui",
  "rfd",
- "serde",
  "serde_json",
  "ureq",
  "wasapi",
- "wgpu",
  "windows-sys 0.59.0",
  "winresource",
 ]
@@ -2208,9 +2206,7 @@ dependencies = [
  "log",
  "nitor-core",
  "nitor-ui",
- "serde_json",
  "tempfile",
- "wgpu",
  "windows 0.58.0",
  "winreg",
  "winresource",
@@ -2221,7 +2217,10 @@ name = "nitor-ui"
 version = "2.2.3"
 dependencies = [
  "ab_glyph",
+ "eframe",
  "egui",
+ "log",
+ "wgpu",
 ]
 
 [[package]]

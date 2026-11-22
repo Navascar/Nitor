@@ -30,7 +30,7 @@ pub fn run() {
         viewport = viewport.with_icon(icon);
     }
     let mut options = eframe::NativeOptions { viewport, persist_window: false, centered: true, ..Default::default() };
-    crate::set_renderer(&mut options);
+    nitor_ui::render::set_renderer(&mut options);
     let _ = eframe::run_native(
         "Nitor",
         options,

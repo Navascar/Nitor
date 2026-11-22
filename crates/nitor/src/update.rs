@@ -80,18 +80,11 @@ pub fn progress_percent(text: &str) -> Option<u32> {
     Some(n.min(100))
 }
 
-fn api_url() -> String {
-    std::env::var("NITOR_UPDATE_API")
-        .unwrap_or_else(|_| format!("https://api.github.com/repos/{}/releases/latest", nitor_core::GITHUB_REPO))
-}
-
-fn agent(timeout: Duration, url: &str) -> ureq::Agent {
-    // локальний сервер (перевірка) — без проксі
-    let local = url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost");
+fn agent(timeout: Duration) -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
         .timeout(timeout)
-        .try_proxy_from_env(!local)
+        .try_proxy_from_env(true)
         .user_agent(&format!("Nitor/{}", nitor_core::VERSION))
         .build()
 }
@@ -109,19 +102,29 @@ enum CheckError {
 }
 
 fn fetch_release() -> Result<Release, CheckError> {
-    let resp =
-        agent(Duration::from_secs(15), &api_url()).get(&api_url()).set("Accept", "application/vnd.github+json").call();
+    // перевірка вікна запуску: `NITOR_UPDATE_API` — файл з відповіддю GitHub замість мережі
+    let text = match std::env::var_os("NITOR_UPDATE_API") {
+        Some(path) => std::fs::read_to_string(path).map_err(|e| CheckError::Other(e.to_string()))?,
+        None => fetch_latest_json()?,
+    };
+    parse_release(text.trim_start_matches('\u{feff}')) // файл з PowerShell може мати BOM
+}
+
+/// Відповідь GitHub про останній реліз (`{}` — релізів ще немає).
+fn fetch_latest_json() -> Result<String, CheckError> {
+    let url = format!("https://api.github.com/repos/{}/releases/latest", nitor_core::GITHUB_REPO);
+    let resp = agent(Duration::from_secs(15)).get(&url).set("Accept", "application/vnd.github+json").call();
     let resp = match resp {
         Ok(r) => r,
         Err(ureq::Error::Transport(t)) => return Err(CheckError::Offline(t.to_string())),
-        Err(ureq::Error::Status(404, _)) => {
-            // релізів ще немає
-            return Ok(Release { latest: String::new(), notes: String::new(), url: None, page: String::new() });
-        }
+        Err(ureq::Error::Status(404, _)) => return Ok("{}".into()),
         Err(e) => return Err(CheckError::Other(e.to_string())),
     };
-    let text = resp.into_string().map_err(|e| CheckError::Other(e.to_string()))?;
-    let rel: serde_json::Value = serde_json::from_str(&text).map_err(|e| CheckError::Other(e.to_string()))?;
+    resp.into_string().map_err(|e| CheckError::Other(e.to_string()))
+}
+
+fn parse_release(text: &str) -> Result<Release, CheckError> {
+    let rel: serde_json::Value = serde_json::from_str(text).map_err(|e| CheckError::Other(e.to_string()))?;
     let latest = rel["tag_name"].as_str().unwrap_or("").trim_start_matches(['v', 'V']).to_string();
     let url = rel["assets"]
         .as_array()
@@ -297,7 +300,7 @@ impl Updater {
             return Err(reason);
         }
         self.set(|s| s.progress = "Завантаження…".into());
-        let resp = agent(Duration::from_secs(300), url).get(url).call().map_err(|e| e.to_string())?;
+        let resp = agent(Duration::from_secs(300)).get(url).call().map_err(|e| e.to_string())?;
         let total: u64 = resp.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
         let path = std::env::temp_dir().join(format!("Nitor-Setup-{}.exe", self.info().latest));
         let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
