@@ -1,10 +1,10 @@
-//! Головне вікно: верхня панель, прилади, колір, статичні кольори, ефекти, сцени, DMX-монітор.
+//! Головне вікно: верхня панель, прилади, колір і палітра, ефекти, сцени, DMX-монітор.
 
 use egui::{
     Align, Align2, Color32, ColorImage, Id, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureOptions,
     Ui, pos2, vec2,
 };
-use nitor_core::color::hsv_to_rgb;
+use nitor_core::color::{hsv_to_rgb, rgb_to_hsv};
 use nitor_core::engine::{ColorValues, EffectPatch};
 use nitor_core::fixtures::programs;
 use nitor_core::{Command, EffectKind, Engine, Rgb};
@@ -14,7 +14,6 @@ use crate::hotkeys::short_key;
 use crate::menus::{fmt_num, paint_static_chip};
 use nitor_core::engine::{FlashSource, StaticSource};
 use nitor_core::tempo::AudioSource;
-use nitor_ui::icons;
 use nitor_ui::theme::*;
 use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
 
@@ -29,10 +28,8 @@ const SLIDERS: [(&str, &str, Color32); 8] = [
     ("strobe", "Строб", Color32::from_rgb(0x88, 0x88, 0x88)),
 ];
 
-const SWATCHES: [&str; 16] = [
-    "#ff0000", "#ff6a00", "#ffc400", "#ffff00", "#80ff00", "#00ff00", "#00ffaa", "#00ffff", "#0080ff", "#0000ff",
-    "#8000ff", "#ff00ff", "#ff0080", "#ffffff", "#ffb070", "#000000",
-];
+/// Радіус колірного кола на екрані.
+const WHEEL_R: f32 = 110.0;
 
 /// HSV → RGB для колірного кола (округлення до цілих).
 fn wheel_hsv(h: f64, s: f64, v: f64) -> Rgb {
@@ -55,18 +52,23 @@ impl App {
                     ui.spacing_mut().item_spacing.x = S3;
                     ui.set_min_height(CONTROL_H);
                     ui.label(RichText::new("Nitor").font(bold(FS_XL)));
-                    // праві кнопки розкладаються першими; індикатор виходу займає те, що лишилося,
-                    // і обрізає текст, щоб на вузькому вікні нічого не накладалося
                     let narrow = ui.ctx().screen_rect().width() < 1100.0;
+                    // праві кнопки розкладаються першими; DMX-вихід — одразу біля назви програми,
+                    // у місці, що лишилося (текст обрізається, щоб на вузькому вікні нічого не накладалося)
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S3;
                         let h = self.v.hotkeys.clone();
-                        let k = |id: &str| short_key(&h, id).map(|k| format!(" — {k}")).unwrap_or_default();
+                        let k = |id: &str| short_key(&h, id);
                         let op = self.v.operator;
                         if op {
                             self.exit_operator_button(ui);
                         } else {
-                            if icon_btn("settings").kind(Kind::Ghost).tip("Налаштування").show(ui).clicked()
+                            if icon_btn("settings")
+                                .kind(Kind::Ghost)
+                                .key(k("settings"))
+                                .tip("Налаштування")
+                                .show(ui)
+                                .clicked()
                             {
                                 self.open_settings(None);
                             }
@@ -78,38 +80,14 @@ impl App {
                         let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
                         if icon_btn("bulbOff")
                             .kind(kind)
-                            .tip(format!("Вимкнути все світло{}", k("blackout")))
+                            .key(k("blackout"))
+                            .tip("Вимкнути все світло")
                             .show(ui)
                             .clicked()
                         {
                             self.send(Command::Blackout(None));
                         }
-                        let r = btn("Спалах")
-                            .icon("sun")
-                            .kind(if self.v.flashing { Kind::Toggled } else { Kind::Normal })
-                            .tip(format!("Повний білий, поки кнопку тримають{}", k("flash")))
-                            .show(ui);
-                        if r.is_pointer_button_down_on() {
-                            self.flash_color(FLASH_WHITE, FlashHold::Pointer);
-                        }
-                        let on = self.v.strobe.on;
-                        let can = on || !self.v.strobe_fixtures.is_empty();
-                        let tip = if !can {
-                            "Немає приладів з каналом строба".to_string()
-                        } else {
-                            format!("{}{}", if on { "Вимкнути строб" } else { "Строб" }, k("strobe"))
-                        };
-                        if !op
-                            && btn("Строб")
-                                .icon("bolt")
-                                .kind(if on { Kind::Toggled } else { Kind::Normal })
-                                .enabled(can)
-                                .tip(tip)
-                                .show(ui)
-                                .clicked()
-                        {
-                            self.toggle_strobe();
-                        }
+                        self.flash_button(ui, k("flash"));
                         let label = if self.sel.is_empty() {
                             "Очистити все"
                         } else {
@@ -118,7 +96,8 @@ impl App {
                         if btn(label)
                             .icon("eraser")
                             .kind(Kind::Warn)
-                            .tip(format!("Очистити кольори{}", k("clear")))
+                            .key(k("clear"))
+                            .tip("Очистити кольори")
                             .show(ui)
                             .clicked()
                         {
@@ -127,7 +106,6 @@ impl App {
                         if !op {
                             self.update_button(ui);
                         }
-                        // майстер — праворуч від індикатора, перед кнопками
                         let mut m = self.v.show.master as f32;
                         let id = Id::new("master");
                         let mut changed = widgets::value_box(ui, id, &mut m, 0.0, 255.0, Shown::Pct, 44.0);
@@ -139,7 +117,7 @@ impl App {
                         }
                         ui.add_space(S3);
                         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            let room = ui.available_width();
+                            let room = ui.available_width().min(360.0);
                             self.output_pill(ui, room);
                         });
                     });
@@ -147,16 +125,105 @@ impl App {
             });
     }
 
+    /// «Спалах»: тримати — повне світло; стрілка поруч — постійне світло чи мерехтіння з частотою.
+    fn flash_button(&mut self, ui: &mut Ui, key: Option<String>) {
+        let rate = self.v.prefs.flash_rate;
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let open = self.flash_cfg.is_some();
+        // оператор налаштувань не змінює
+        if !self.v.operator {
+            let c = icon_btn("chevronDown")
+                .kind(if open { Kind::Toggled } else { Kind::Normal })
+                .tip("Налаштувати спалах: постійне світло чи строб")
+                .show(ui);
+            if c.clicked() {
+                self.flash_cfg = if open { None } else { Some(c.rect) };
+            }
+        }
+        let (icon, label, tip) = if rate > 0.0 {
+            ("bolt", format!("Спалах · {} Гц", rate.round()), "Строб, поки кнопку тримають")
+        } else {
+            ("sun", "Спалах".to_string(), "Повний білий, поки кнопку тримають")
+        };
+        let r = btn(label)
+            .icon(icon)
+            .kind(if self.v.flashing { Kind::Toggled } else { Kind::Normal })
+            .key(key)
+            .tip(tip)
+            .show(ui);
+        if r.is_pointer_button_down_on() {
+            self.flash_color(FLASH_WHITE, FlashHold::Pointer);
+        }
+        ui.spacing_mut().item_spacing.x = S3;
+    }
+
+    /// Вікно налаштування «Спалаху» під кнопкою зі стрілкою.
+    pub fn flash_popup(&mut self, ctx: &egui::Context) {
+        let Some(anchor) = self.flash_cfg else { return };
+        let mut rate = self.v.prefs.flash_rate as f32;
+        let mut changed = false;
+        let area = egui::Area::new(Id::new("flash-cfg"))
+            .order(egui::Order::Foreground)
+            .pivot(Align2::RIGHT_TOP)
+            .fixed_pos(anchor.right_bottom() + vec2(0.0, S1))
+            .constrain(true)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(SURFACE)
+                    .stroke(Stroke::new(1.0_f32, LINE_STRONG))
+                    .corner_radius(radius(R_LG))
+                    .inner_margin(egui::Margin::same(S4 as i8))
+                    .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.45) })
+                    .show(ui, |ui| {
+                        ui.set_width(300.0);
+                        ui.label(RichText::new("Спалах").font(bold(FS_MD)));
+                        ui.add_space(S1);
+                        ui.label(widgets::muted(
+                            "Поки кнопку тримають — повне світло. З частотою світло блимає, як строб.",
+                        ));
+                        ui.add_space(S3);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = S1;
+                            for (v, label) in [(0.0, "Постійно"), (5.0, "5 Гц"), (10.0, "10 Гц"), (15.0, "15 Гц")]
+                            {
+                                let on = (rate - v).abs() < 0.5;
+                                let b = btn(label).small().kind(if on { Kind::Toggled } else { Kind::Normal });
+                                if b.show(ui).clicked() {
+                                    rate = v;
+                                    changed = true;
+                                }
+                            }
+                        });
+                        ui.add_space(S3);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = S2;
+                            ui.label(widgets::muted("Частота"));
+                            let w = ui.available_width() - 56.0 - S2;
+                            let max = nitor_core::engine::FLASH_RATE_MAX as f32;
+                            changed |=
+                                widgets::slider_named(ui, "Частота спалаху", &mut rate, 0.0, max, ACCENT, w).changed();
+                            changed |=
+                                widgets::value_box(ui, Id::new("flashRate"), &mut rate, 0.0, max, Shown::Hz, 56.0);
+                        });
+                    });
+            });
+        if changed {
+            self.set_prefs(|p| p.flash_rate = rate as f64);
+        }
+        let rect = area.response.rect;
+        let close = ctx.input(|i| {
+            i.key_pressed(egui::Key::Escape)
+                || (i.pointer.any_pressed()
+                    && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p) && !anchor.contains(p)))
+        });
+        if close {
+            self.flash_cfg = None;
+        }
+    }
+
+    /// Вихід DMX біля назви програми: інтерфейс, а назва пристрою — якщо так задано в налаштуваннях.
     fn output_pill(&mut self, ui: &mut Ui, room: f32) {
         let o = &self.v.output;
-        let status = match o.lost_since {
-            Some(t) if !o.ok => {
-                let s = t.elapsed().as_secs();
-                format!("від'єднано · {}:{:02}", s / 60, s % 60)
-            }
-            _ if o.ok && o.paused => "пауза, світло вимкнене".to_string(),
-            _ => o.status.clone(),
-        };
         let names = |k: &str| match k {
             "udmx" => "uDMX",
             "none" => "Симулятор",
@@ -165,24 +232,32 @@ impl App {
             "artnet" => "Art-Net",
             _ => "sACN",
         };
-        let text = format!("{} · {}", names(o.kind), cap(&status));
+        let kind = names(o.kind);
+        let text = match o.lost_since {
+            Some(t) if !o.ok => {
+                let s = t.elapsed().as_secs();
+                format!("{kind} · Від'єднано · {}:{:02}", s / 60, s % 60)
+            }
+            _ if o.ok && o.paused => format!("{kind} · Пауза"),
+            _ if !o.ok || self.v.prefs.output_device => format!("{kind} · {}", cap(&o.status)),
+            _ => kind.to_string(),
+        };
         let tip = if o.ok && o.paused {
             "Кадри не відправляються, бо все світло вимкнене. Відправка продовжиться, щойно щось увімкнеться."
                 .to_string()
         } else {
-            o.status.clone()
+            cap(&o.status)
         };
         let chrome = S3 * 2.0 + 8.0 + S2;
         // без місця для тексту лишається лише кольорова крапка стану
-        let text_room = (room - chrome).min(380.0);
-        let show_text = text_room >= 48.0;
+        let show_text = room - chrome >= 48.0;
         let mut job = egui::text::LayoutJob::simple_singleline(text.clone(), font(FS_SM), TEXT);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(text_room.max(1.0));
+        job.wrap = egui::text::TextWrapping::truncate_at_width((room - chrome).max(1.0));
         let g = ui.fonts(|f| f.layout_job(job));
         let w = if show_text { chrome + g.size().x } else { S3 * 2.0 + 8.0 };
+        let tip = if show_text { tip } else { format!("{text}\n{tip}") };
         let (r, resp) = ui.allocate_exact_size(vec2(w, CONTROL_H_SM), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Вихід DMX: {text}")));
-        let tip = if show_text { tip } else { format!("{text}\n{tip}") };
         let p = ui.painter();
         if resp.has_focus() {
             p.rect_stroke(
@@ -250,7 +325,7 @@ impl App {
                 let r3 = Rect::from_min_max(pos2(r2.right(), top.top()), top.max);
                 (r1, r2, r3)
             } else {
-                // вузьке вікно: дві колонки, праву (статичні кольори й ефекти) — під ними
+                // вузьке вікно: дві колонки, праву (ефекти й сцени) — під ними
                 let h = top.height() * 0.62;
                 let w1 = full.width() / 2.0;
                 let r1 = Rect::from_min_size(top.min, vec2(w1, h));
@@ -270,31 +345,68 @@ impl App {
 
             // фон панелей приймає правий клік (меню панелі) — вміст поверх нього має пріоритет
             let zone = |ui: &mut Ui, r: Rect, name: &str| ui.interact(r, Id::new(("zone", name)), Sense::click());
-            let z1 = zone(ui, c1, "fixtures");
+            // порожнє місце серед приладів: клік знімає вибір, протягування — виділення рамкою
+            let z1 = ui.interact(c1, Id::new(("zone", "fixtures")), Sense::click_and_drag());
             let z2 = zone(ui, c2, "color");
             let z3 = zone(ui, c3, "side");
 
             self.column(ui, c1, "fixtures", |app, ui| app.fixtures_panel(ui));
-            let scenes_rect = self.column(ui, c2, "color", |app, ui| app.color_panel(ui));
-            let side_rects = self.column(ui, c3, "side", |app, ui| app.side_panel(ui));
+            self.column(ui, c2, "color", |app, ui| app.color_panel(ui));
+            let scenes_rect = self.column(ui, c3, "side", |app, ui| app.side_panel(ui));
+            self.band_select(ui, &z1, c1);
             let mon = Rect::from_min_max(pos2(full.left(), top.bottom() + 1.0), full.max);
             self.monitor_panel(ui, mon);
 
+            if z1.clicked() && !ui.input(|i| i.modifiers.shift) {
+                self.sel.clear();
+            }
             if self.pending_menu.is_none() {
                 if z1.secondary_clicked() {
                     let m = self.fixtures_panel_menu();
                     self.want_menu(m);
                 } else if z2.secondary_clicked() {
-                    let pos = z2.interact_pointer_pos().unwrap_or_default();
-                    let m = if scenes_rect.contains(pos) { self.scene_menu(None) } else { self.color_menu() };
+                    let m = self.color_menu();
                     self.want_menu(m);
                 } else if z3.secondary_clicked() {
                     let pos = z3.interact_pointer_pos().unwrap_or_default();
-                    let m = if side_rects.contains(pos) { self.effect_menu() } else { self.static_menu(None) };
+                    let m = if scenes_rect.contains(pos) { self.scene_menu(None) } else { self.effect_menu() };
                     self.want_menu(m);
                 }
             }
         });
+    }
+
+    /// Виділення приладів рамкою, як файлів на робочому столі. Shift або Ctrl — додати до вибору.
+    fn band_select(&mut self, ui: &Ui, zone: &egui::Response, clip: Rect) {
+        if zone.drag_started_by(egui::PointerButton::Primary) {
+            let start = ui.input(|i| i.pointer.press_origin()).or(zone.interact_pointer_pos());
+            if let Some(start) = start {
+                let add = ui.input(|i| i.modifiers.shift || i.modifiers.command);
+                self.band = Some((start, if add { self.sel.clone() } else { vec![] }));
+            }
+        }
+        let Some((start, base)) = self.band.clone() else { return };
+        if !zone.dragged() {
+            self.band = None;
+            return;
+        }
+        let cur = ui.input(|i| i.pointer.interact_pos()).unwrap_or(start);
+        let band = Rect::from_two_pos(start, cur);
+        let mut sel = base;
+        for (id, r) in &self.tile_rects {
+            if r.intersects(band) && !sel.iter().any(|s| s.split('#').next() == Some(id.as_str())) {
+                sel.push(id.clone());
+            }
+        }
+        self.sel = sel;
+        ui.painter_at(clip).rect(
+            band,
+            radius(R_SM),
+            alpha(ACCENT, 0.12),
+            Stroke::new(1.0_f32, ACCENT),
+            StrokeKind::Inside,
+        );
+        ui.ctx().request_repaint();
     }
 
     /// Колонка з прокруткою й відступами панелі. Повертає прямокутник, який позначив вміст.
@@ -306,6 +418,8 @@ impl App {
             egui::ScrollArea::vertical()
                 .id_salt(("scroll", id))
                 .auto_shrink([false, false])
+                // мишею тягнуть рамку виділення, а не прокручують
+                .scroll_source(egui::scroll_area::ScrollSource { drag: false, ..Default::default() })
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                 .show(ui, |ui| {
                     ui.add_space(S4);
@@ -356,15 +470,17 @@ impl App {
 
     fn fixtures_panel(&mut self, ui: &mut Ui) -> Rect {
         let mut acts: Vec<Act> = vec![];
+        self.tile_rects.clear();
+        let h = self.v.hotkeys.clone();
         Self::panel_head(ui, "Прилади", |ui| {
             ui.spacing_mut().item_spacing.x = S1;
-            if btn("Інверсія").small().show(ui).clicked() {
+            if btn("Інверсія").small().key(short_key(&h, "selectInvert")).show(ui).clicked() {
                 acts.push(Act::SelectInvert);
             }
-            if btn("Жодного").small().show(ui).clicked() {
+            if btn("Жодного").small().key(short_key(&h, "selectNone")).show(ui).clicked() {
                 acts.push(Act::SelectNone);
             }
-            if btn("Усі").small().show(ui).clicked() {
+            if btn("Усі").small().key(short_key(&h, "selectAll")).show(ui).clicked() {
                 acts.push(Act::SelectAll);
             }
             if btn("Додати").small().icon("plus").tip("Додати прилад").show(ui).clicked() {
@@ -425,6 +541,7 @@ impl App {
 
     fn tile(&mut self, ui: &mut Ui, rect: Rect, f: &nitor_core::Fixture, eff_ids: &[String]) {
         let id = Id::new(("tile", &f.id));
+        self.tile_rects.push((f.id.clone(), rect));
         let resp = ui.interact(rect, id, Sense::click()).on_hover_text(&f.profile);
         let selected = self.sel.contains(&f.id);
         let p = ui.painter().clone();
@@ -553,7 +670,8 @@ impl App {
     // ----------------------------------------------------------------- колір --
     fn color_panel(&mut self, ui: &mut Ui) -> Rect {
         let targets = self.preset_targets();
-        let bars = !targets.is_empty();
+        // «Пресети» є, щойно в шоу є прилад із вбудованими програмами (а не лише коли його вибрано)
+        let bars = !self.v.preset_fixtures.is_empty();
         let show_presets = bars && self.pane == Pane::Presets;
         let desc = self.sel_description();
         ui.horizontal(|ui| {
@@ -603,8 +721,7 @@ impl App {
         } else {
             self.color_pane(ui);
         }
-        ui.add_space(S5);
-        self.scenes_block(ui)
+        Rect::NOTHING
     }
 
     fn wheel_texture(&mut self, ctx: &egui::Context) -> egui::TextureHandle {
@@ -634,63 +751,46 @@ impl App {
 
     fn color_pane(&mut self, ui: &mut Ui) {
         let tex = self.wheel_texture(ui.ctx());
+        // вказівник — колір першого вибраного (відтінок і насиченість; чорний — без вказівника)
+        let marker = self.first_sel_color().map(|(c, _)| c).filter(|c| *c != Rgb::BLACK);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = S4;
-            let (rect, resp) = ui.allocate_exact_size(vec2(220.0, 220.0), Sense::click_and_drag());
+            let size = 2.0 * WHEEL_R;
+            let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click_and_drag());
             ui.painter().image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             let resp = resp.on_hover_cursor(egui::CursorIcon::Crosshair);
+            let at = |pos: Pos2| {
+                let d = pos - rect.center();
+                let s = (d.length() / WHEEL_R).min(1.0) as f64;
+                let h = ((d.y as f64).atan2(d.x as f64) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
+                wheel_hsv(h, s, 1.0)
+            };
             if resp.is_pointer_button_down_on() && (resp.dragged() || resp.drag_started() || resp.clicked()) {
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    let d = pos - rect.center();
-                    let rr = 110.0;
-                    let s = (d.length() / rr).min(1.0) as f64;
-                    let h = ((d.y as f64).atan2(d.x as f64) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
-                    let c = wheel_hsv(h, s, 1.0);
+                    let c = at(pos);
                     if c != self.last_color || resp.drag_started() || resp.clicked() {
                         self.pick_color(c);
                     }
                 }
             } else if resp.clicked() {
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    let d = pos - rect.center();
-                    let s = (d.length() / 110.0).min(1.0) as f64;
-                    let h = ((d.y as f64).atan2(d.x as f64) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
-                    self.pick_color(wheel_hsv(h, s, 1.0));
+                    self.pick_color(at(pos));
                 }
+            }
+            if let Some(c) = marker {
+                let (h, s, _) = rgb_to_hsv(c.0 as f64, c.1 as f64, c.2 as f64);
+                let a = (h * std::f64::consts::TAU) as f32;
+                let m = rect.center() + vec2(a.cos(), a.sin()) * (s as f32).min(1.0) * WHEEL_R;
+                let p = ui.painter();
+                p.circle_filled(m, 8.0, c32(c));
+                p.circle_stroke(m, 8.0, Stroke::new(2.0_f32, WHITE));
+                p.circle_stroke(m, 10.0, Stroke::new(1.0_f32, rgba(0, 0, 0, 0.6)));
             }
             if resp.secondary_clicked() {
                 let m = self.color_menu();
                 self.want_menu(m);
             }
-            // палітра 4 × 4
-            let (grid, _) = ui.allocate_exact_size(vec2(4.0 * 32.0 + 3.0 * S2, 4.0 * 32.0 + 3.0 * S2), Sense::hover());
-            for (i, hex) in SWATCHES.iter().enumerate() {
-                let c = Rgb::from_hex(hex).unwrap();
-                let r = Rect::from_min_size(
-                    pos2(grid.left() + (i % 4) as f32 * (32.0 + S2), grid.top() + (i / 4) as f32 * (32.0 + S2)),
-                    vec2(32.0, 32.0),
-                );
-                let resp = ui.interact(r, Id::new(("swatch", i)), Sense::click()).on_hover_text(*hex);
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Колір {hex}")));
-                ui.painter().rect(
-                    r,
-                    radius(R_SM),
-                    c32(c),
-                    Stroke::new(1.0_f32, rgba(0, 0, 0, 0.4)),
-                    StrokeKind::Inside,
-                );
-                if resp.hovered() || resp.has_focus() {
-                    ui.painter().rect_stroke(
-                        r.expand(1.0),
-                        radius(R_SM),
-                        Stroke::new(2.0_f32, if resp.has_focus() { ACCENT } else { TEXT }),
-                        StrokeKind::Outside,
-                    );
-                }
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    self.pick_color(c);
-                }
-            }
+            self.palette_grid(ui);
         });
         ui.add_space(S4);
         // показувати лише ті канали, що є у вибраних приладів (або всі, якщо нічого не вибрано)
@@ -816,7 +916,12 @@ impl App {
     // ------------------------------------------------------------------ сцени --
     fn scenes_block(&mut self, ui: &mut Ui) -> Rect {
         let start = ui.cursor().min;
-        Self::panel_head(ui, "Сцени", |_| {});
+        let first = self.v.prefs.scenes_first;
+        let mut swap = false;
+        Self::panel_head(ui, "Сцени", |ui| swap = Self::swap_button(ui, first));
+        if swap {
+            self.act(ui.ctx(), Act::SwapSide);
+        }
         let w = ui.available_width();
         ui.horizontal(|ui| {
             let r = widgets::input(ui, &mut self.scene_name, "Назва сцени", w - 110.0);
@@ -878,6 +983,16 @@ impl App {
             });
         }
         Rect::from_min_max(start, pos2(start.x + w, ui.cursor().min.y))
+    }
+
+    /// Кнопка в заголовку «Ефектів» і «Сцен»: перемістити блок вище чи нижче.
+    fn swap_button(ui: &mut Ui, on_top: bool) -> bool {
+        let (icon, tip) = if on_top {
+            ("arrowDown", "Перемістити нижче")
+        } else {
+            ("arrowUp", "Перемістити вище")
+        };
+        icon_btn(icon).small().kind(Kind::Ghost).tip(tip).show(ui).clicked()
     }
 
     fn scene_button(&mut self, r: &egui::Response, name: &str) {
@@ -962,9 +1077,8 @@ impl App {
         }
     }
 
-    /// Екран оператора: групи, статичні кольори, сцени. Без патчу, налаштувань і редагування.
+    /// Екран оператора: групи, кольори палітри, сцени. Без патчу, налаштувань і редагування.
     pub fn operator_layout(&mut self, ctx: &egui::Context) {
-        self.static_editing = false;
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ctx, |ui| {
             let full = ui.max_rect();
             let cols = if full.width() > 900.0 { 3 } else { 1 };
@@ -990,7 +1104,7 @@ impl App {
                 }
             };
             let colors = |app: &mut App, ui: &mut Ui| {
-                Self::panel_head(ui, "Статичні кольори", |_| {});
+                Self::panel_head(ui, "Кольори", |_| {});
                 app.static_grid(ui);
             };
             let scenes = |app: &mut App, ui: &mut Ui| {
@@ -1031,37 +1145,81 @@ impl App {
         });
     }
 
-    // ------------------------------------------- статичні кольори й ефекти --
+    // ------------------------------------------------------- ефекти й сцени --
+    /// Права колонка: «Ефекти» і «Сцени» в обраному порядку. Повертає прямокутник сцен (для меню).
     fn side_panel(&mut self, ui: &mut Ui) -> Rect {
-        let target = if self.sel.is_empty() { "Для всіх приладів" } else { "Для вибраних" };
-        Self::panel_head(ui, "Статичні кольори", |ui| {
-            ui.label(widgets::muted(target));
-        });
-        self.static_grid(ui);
-        ui.add_space(S3 - S2);
-        ui.horizontal_wrapped(|ui| {
-            if btn("Зберегти поточний")
-                .small()
-                .icon("plus")
-                .tip("Зберегти колір першого вибраного приладу")
-                .show(ui)
-                .clicked()
-            {
-                self.act(ui.ctx(), Act::SaveStaticCurrent);
+        if self.v.prefs.scenes_first {
+            let r = self.scenes_block(ui);
+            ui.add_space(S5);
+            self.effects_block(ui);
+            r
+        } else {
+            self.effects_block(ui);
+            ui.add_space(S5);
+            let r = self.scenes_block(ui);
+            Rect::from_min_max(r.min, pos2(r.right(), r.bottom() + 400.0))
+        }
+    }
+
+    /// Палітра поруч із колом: клік — колір на вибрані (або всі), Alt + утримання — спалах кольором.
+    fn palette_grid(&mut self, ui: &mut Ui) {
+        let colors = self.v.show.static_colors.clone();
+        let h = self.v.hotkeys.clone();
+        let (cell, gap) = (32.0, S2);
+        let w = ui.available_width();
+        let cols = (((w + gap) / (cell + gap)).floor() as usize).max(1);
+        let rows = colors.len().div_ceil(cols);
+        let (grid, _) = ui.allocate_exact_size(
+            vec2(cols as f32 * (cell + gap) - gap, rows as f32 * (cell + gap) - gap),
+            Sense::hover(),
+        );
+        for (i, c) in colors.iter().enumerate() {
+            let r = Rect::from_min_size(
+                pos2(grid.left() + (i % cols) as f32 * (cell + gap), grid.top() + (i / cols) as f32 * (cell + gap)),
+                vec2(cell, cell),
+            );
+            let key = short_key(&h, &format!("static{}", i + 1));
+            let tip = match &key {
+                Some(k) => format!("{} — {k}\nAlt + утримання — спалах цим кольором", c.name),
+                None => format!("{}\nAlt + утримання — спалах цим кольором", c.name),
+            };
+            let resp = ui.interact(r, Id::new(("swatch", i)), Sense::click()).on_hover_text(tip);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &c.name));
+            let rr = if resp.is_pointer_button_down_on() { r.shrink(1.0) } else { r };
+            paint_static_chip(ui, rr, c.hex, c.w.is_some_and(|w| w > 0), R_SM);
+            ui.painter().rect_stroke(rr, radius(R_SM), Stroke::new(1.0_f32, rgba(0, 0, 0, 0.4)), StrokeKind::Inside);
+            if let Some(k) = key {
+                // гаряча клавіша кольору — у куті плашки
+                ui.painter().text(
+                    rr.left_top() + vec2(4.0, 2.0),
+                    Align2::LEFT_TOP,
+                    k,
+                    font(FS_XS),
+                    readable_text(c.hex),
+                );
             }
-            let (icon, label) =
-                if self.static_editing { ("check", "Готово") } else { ("edit", "Редагувати") };
-            if btn(label).small().icon(icon).show(ui).clicked() {
-                self.static_editing = !self.static_editing;
+            if resp.hovered() || resp.has_focus() {
+                ui.painter().rect_stroke(
+                    r.expand(1.0),
+                    radius(R_SM),
+                    Stroke::new(2.0_f32, if resp.has_focus() { ACCENT } else { TEXT }),
+                    StrokeKind::Outside,
+                );
             }
-            if self.static_editing && btn("Скинути до стандартних").small().show(ui).clicked() {
-                self.act(ui.ctx(), Act::AskResetStatic);
+            if ui.input(|i| i.modifiers.alt) {
+                if resp.is_pointer_button_down_on() {
+                    self.flash_color(StaticSource::Index(i), FlashHold::Pointer);
+                }
+            } else if resp.clicked() {
+                let ids = self.sel.clone();
+                self.act(ui.ctx(), Act::StaticTo { index: i, ids });
             }
-        });
-        ui.add_space(S5);
-        let start = ui.cursor().min;
-        self.effects_block(ui);
-        Rect::from_min_max(start, pos2(start.x + ui.available_width(), ui.cursor().min.y + 400.0))
+            if resp.secondary_clicked() {
+                let m = self.static_menu(i);
+                self.want_menu(m);
+            }
+            resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+        }
     }
 
     fn static_grid(&mut self, ui: &mut Ui) {
@@ -1121,22 +1279,7 @@ impl App {
             job.halign = Align::Center;
             let g = ui.fonts(|f| f.layout_job(job));
             ui.painter().galley(pos2(rr.center().x, rr.bottom() - S1 - g.size().y), g, fg);
-            if self.static_editing {
-                ui.painter().rect_stroke(
-                    r.expand(2.0),
-                    radius(R_MD + 2),
-                    Stroke::new(1.0_f32, MUTED),
-                    StrokeKind::Outside,
-                );
-                let dr = Rect::from_center_size(pos2(r.right() - 4.0, r.top() + 4.0), vec2(20.0, 20.0));
-                let dresp = ui.interact(dr, Id::new(("static-del", i)), Sense::click()).on_hover_text("Видалити");
-                ui.painter().circle_filled(dr.center(), 10.0, DANGER_STRONG);
-                icons::image("x", 12.0, WHITE).paint_at(ui, Rect::from_center_size(dr.center(), vec2(12.0, 12.0)));
-                if dresp.clicked() {
-                    self.send(Command::DeleteStaticColor { index: i });
-                    return;
-                }
-            } else if ui.input(|i| i.modifiers.alt) {
+            if ui.input(|i| i.modifiers.alt) {
                 // Alt + утримання — «Спалах» цим кольором
                 if resp.is_pointer_button_down_on() {
                     self.flash_color(StaticSource::Index(i), FlashHold::Pointer);
@@ -1146,7 +1289,7 @@ impl App {
                 self.act(ui.ctx(), Act::StaticTo { index: i, ids });
             }
             if resp.secondary_clicked() {
-                let m = self.static_menu(Some(i));
+                let m = self.static_menu(i);
                 self.want_menu(m);
             }
             resp.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1160,9 +1303,15 @@ impl App {
         } else {
             String::new()
         };
+        let on_top = !self.v.prefs.scenes_first;
+        let mut swap = false;
         Self::panel_head(ui, "Ефекти", |ui| {
+            swap = Self::swap_button(ui, on_top);
             ui.label(widgets::muted(state));
         });
+        if swap {
+            self.act(ui.ctx(), Act::SwapSide);
+        }
         let w = ui.available_width();
         widgets::field_label(ui, "Ефект");
         let opts: Vec<(EffectKind, String)> =
@@ -1236,11 +1385,9 @@ impl App {
                 let bpm = self.v.bpm.map_or("темп ще невідомий".to_string(), |b| format!("{b:.0} BPM"));
                 ui.label(RichText::new(format!("Темп: {bpm}")).size(FS_MD));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let tip = format!(
-                        "Натискайте в такт музиці{}",
-                        short_key(&self.v.hotkeys, "tap").map(|k| format!(" — {k}")).unwrap_or_default()
-                    );
-                    if btn("Тап").small().tip(tip).show(ui).clicked() {
+                    let key = short_key(&self.v.hotkeys, "tap");
+                    if btn("Тап").small().key(key).tip("Натискайте в такт музиці").show(ui).clicked()
+                    {
                         let now = self.core.now();
                         self.send(Command::Beat(now));
                     }
@@ -1283,7 +1430,7 @@ impl App {
             if btn(label).icon(icon).kind(kind).show(ui).clicked() {
                 self.act(ui.ctx(), Act::RunEffectSelected);
             }
-            if btn("Зупинити").icon("stop").show(ui).clicked() {
+            if btn("Зупинити").icon("stop").key(short_key(&self.v.hotkeys, "effectStop")).show(ui).clicked() {
                 self.send(Command::SetEffect(EffectPatch { kind: Some(EffectKind::None), ..Default::default() }));
             }
         });

@@ -42,6 +42,8 @@ pub struct Btn<'a> {
     full_width: bool,
     bold: bool,
     left_align: bool,
+    /// гаряча клавіша дії — показується праворуч у кнопці
+    kbd: Option<String>,
 }
 
 pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
@@ -56,6 +58,7 @@ pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
         full_width: false,
         bold: false,
         left_align: false,
+        kbd: None,
     }
 }
 
@@ -108,6 +111,11 @@ impl<'a> Btn<'a> {
         self.left_align = true;
         self
     }
+    /// Підказка гарячої клавіші в кнопці («F», «Ctrl+A»).
+    pub fn key(mut self, k: Option<String>) -> Self {
+        self.kbd = k.filter(|k| !k.is_empty());
+        self
+    }
 
     pub fn show(self, ui: &mut Ui) -> Response {
         let h = if self.small { CONTROL_H_SM } else { CONTROL_H };
@@ -127,10 +135,16 @@ impl<'a> Btn<'a> {
             .as_ref()
             .filter(|t| !t.text().is_empty())
             .map(|t| t.clone().into_galley(ui, Some(egui::TextWrapMode::Truncate), f32::INFINITY, font.clone()));
+        let kbd = self.kbd.as_ref().map(|k| {
+            let g = ui.fonts(|f| f.layout_no_wrap(k.clone(), mono(FS_XS), TEXT));
+            (g.size().x + 2.0 * S1).max(16.0)
+        });
+        let kbd_w = kbd.map_or(0.0, |w| w + gap);
         let mut w = match (&galley, self.icon) {
+            (None, Some(_)) if kbd.is_some() => pad * 2.0 + isz + kbd_w,
             (None, Some(_)) => h,
-            (Some(g), Some(_)) => pad * 2.0 + isz + gap + g.size().x,
-            (Some(g), None) => pad * 2.0 + g.size().x,
+            (Some(g), Some(_)) => pad * 2.0 + isz + gap + g.size().x + kbd_w,
+            (Some(g), None) => pad * 2.0 + g.size().x + kbd_w,
             (None, None) => h,
         };
         w = w.max(self.min_width);
@@ -174,16 +188,30 @@ impl<'a> Btn<'a> {
                 (Some(g), Some(_)) => isz + gap + g.size().x,
                 (Some(g), None) => g.size().x,
                 _ => isz,
-            };
+            } + kbd_w;
             let mut x = if self.left_align { rect.left() + pad } else { rect.center().x - content_w / 2.0 };
-            x = x.max(rect.left() + if galley.is_some() { pad } else { 0.0 });
+            x = x.max(rect.left() + if galley.is_some() || kbd.is_some() { pad } else { 0.0 });
+            // клавіша — праворуч: рамка-клавіша, як на клавіатурі
+            let text_right = rect.right() - pad - kbd_w;
+            if let (Some(kw), Some(k)) = (kbd, &self.kbd) {
+                let right = (x + content_w).min(rect.right() - pad);
+                let kr =
+                    Rect::from_min_max(pos2(right - kw, rect.center().y - 9.0), pos2(right, rect.center().y + 9.0));
+                p.rect_stroke(
+                    kr,
+                    CornerRadius::same(4),
+                    Stroke::new(1.0_f32, fg.gamma_multiply(0.45)),
+                    StrokeKind::Inside,
+                );
+                p.text(kr.center(), Align2::CENTER_CENTER, k, mono(FS_XS), fg.gamma_multiply(0.85));
+            }
             if let Some(name) = self.icon {
                 let r = Rect::from_min_size(pos2(x, rect.center().y - isz / 2.0), Vec2::splat(isz));
                 icons::image(name, isz, fg).paint_at(ui, r);
                 x += isz + gap;
             }
             if let Some(g) = galley {
-                let max_w = rect.right() - pad - x;
+                let max_w = text_right - x;
                 let pos = pos2(x, rect.center().y - g.size().y / 2.0);
                 if g.size().x > max_w + 0.5 {
                     // довгий текст: обрізаємо з трикрапкою
@@ -275,7 +303,7 @@ pub fn slider_named(
         // при максимумі — заливка до самого кінця
         let fill_right = if t >= 1.0 { track.right() } else { cx };
         p.rect_filled(Rect::from_min_max(track.min, pos2(fill_right, track.max.y)), CornerRadius::same(3), fill);
-        p.circle(pos2(cx, rect.center().y), thumb / 2.0 - 1.0, fill, Stroke::new(2.0_f32, TEXT));
+        p.circle_filled(pos2(cx, rect.center().y), thumb / 2.0 - 1.0, fill);
         if resp.has_focus() {
             p.circle_stroke(pos2(cx, rect.center().y), thumb / 2.0 + 2.0, Stroke::new(2.0_f32, ACCENT));
         }
@@ -291,25 +319,59 @@ pub enum Shown {
     Raw,
     /// у відсотках від `max`
     Pct,
+    /// герци
+    Hz,
 }
 
-pub fn shown_text(v: f32, max: f32, shown: Shown) -> String {
-    match shown {
-        Shown::Raw => format!("{}", v.round() as i64),
-        Shown::Pct => format!("{}%", (v / max * 100.0).round() as i64),
+impl Shown {
+    /// Одиниця після числа: показується, але не редагується.
+    fn unit(self) -> &'static str {
+        match self {
+            Shown::Raw => "",
+            Shown::Pct => "%",
+            Shown::Hz => " Гц",
+        }
+    }
+
+    /// Число без одиниці.
+    fn number(self, v: f32, max: f32) -> i64 {
+        match self {
+            Shown::Pct => (v / max * 100.0).round() as i64,
+            _ => v.round() as i64,
+        }
     }
 }
 
+pub fn shown_text(v: f32, max: f32, shown: Shown) -> String {
+    format!("{}{}", shown.number(v, max), shown.unit())
+}
+
 /// Число біля повзунка: клік відкриває поле, куди можна вписати значення (у відсотках — для
-/// значень у %). Enter або втрата фокусу — застосувати, Esc — скасувати.
+/// значень у %). Поле на місці числа й того самого розміру; одиниця (%) лишається поруч і не редагується.
+/// Enter або втрата фокусу — застосувати, Esc — скасувати.
 pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown: Shown, width: f32) -> bool {
     let edit_id = id.with("edit");
     let mut editing: Option<String> = ui.data(|d| d.get_temp(edit_id));
     let mut changed = false;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 18.0), Sense::click());
+    let unit = shown.unit();
+    let unit_w = if unit.is_empty() { 0.0 } else { text_width(ui, unit, font(FS_SM)) };
+    let right = rect.right() - S1;
     if let Some(text) = editing.as_mut() {
-        let r = ui.add_sized(
-            vec2(width, CONTROL_H_SM),
-            TextEdit::singleline(text).font(font(FS_SM)).horizontal_align(egui::Align::Max),
+        ui.painter().rect(rect, radius(R_SM), RAISED, Stroke::new(1.0_f32, ACCENT), StrokeKind::Inside);
+        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(FS_SM), MUTED);
+        let field = Rect::from_min_max(pos2(rect.left() + S1, rect.top()), pos2(right - unit_w, rect.bottom()));
+        // поле — поверх уже зайнятого місця, курсор розкладки не зсувається
+        let r = ui.new_child(egui::UiBuilder::new().max_rect(field)).add_sized(
+            field.size(),
+            TextEdit::singleline(text)
+                .id(edit_id.with("field"))
+                .font(font(FS_SM))
+                .frame(false)
+                .margin(egui::Margin::ZERO)
+                .horizontal_align(egui::Align::Max)
+                .vertical_align(egui::Align::Center)
+                .char_limit(6),
         );
         if !r.has_focus() && !r.lost_focus() {
             r.request_focus();
@@ -318,10 +380,10 @@ pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown
         if esc {
             editing = None;
         } else if r.lost_focus() {
-            if let Ok(raw) = text.trim().replace(',', ".").trim_end_matches('%').parse::<f32>() {
+            if let Ok(raw) = text.trim().replace(',', ".").trim_end_matches(unit.trim()).trim().parse::<f32>() {
                 let v = match shown {
                     Shown::Pct => (raw / 100.0 * max).round(),
-                    Shown::Raw => raw.round(),
+                    _ => raw.round(),
                 };
                 let v = v.clamp(min, max);
                 if v != *value {
@@ -336,20 +398,17 @@ pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown
             None => d.remove::<String>(edit_id),
         });
     } else {
-        let text = shown_text(*value, max, shown);
-        let (rect, resp) = ui.allocate_exact_size(vec2(width, 18.0), Sense::click());
+        let num = shown.number(*value, max).to_string();
         if resp.hovered() {
             ui.painter().rect_filled(rect, radius(R_SM), RAISED);
         }
-        ui.painter().text(rect.right_center() - vec2(S1, 0.0), Align2::RIGHT_CENTER, text.clone(), font(FS_SM), TEXT);
+        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(FS_SM), MUTED);
+        ui.painter().text(pos2(right - unit_w, rect.center().y), Align2::RIGHT_CENTER, &num, font(FS_SM), TEXT);
+        let text = format!("{num}{unit}");
         resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, format!("{text}, ввести значення")));
         let resp = resp.on_hover_cursor(CursorIcon::Text).on_hover_text("Клікніть, щоб ввести значення");
         if resp.clicked() {
-            let start = match shown {
-                Shown::Pct => format!("{}", (*value / max * 100.0).round() as i64),
-                Shown::Raw => format!("{}", value.round() as i64),
-            };
-            ui.data_mut(|d| d.insert_temp(edit_id, start));
+            ui.data_mut(|d| d.insert_temp(edit_id, num));
         }
     }
     changed

@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{Engine, Scene, StaticColor, check_hotkeys, default_static_colors};
+use crate::engine::{Engine, Prefs, Scene, StaticColor, check_hotkeys, default_static_colors};
 use crate::fixtures::{Fixture, Profiles, default_profiles, has_presets, preset_count};
 use crate::library::{RECENT_LIMIT, Recent};
 use crate::outputs::OutputConfig;
@@ -38,8 +38,11 @@ pub struct ConfigFile {
     pub fixtures: Vec<Fixture>,
     #[serde(default)]
     pub scenes: IndexMap<String, Scene>,
+    /// Лише для старих файлів: набір кольорів тепер сталий (`default_static_colors`).
     #[serde(default = "default_static_colors")]
     pub static_colors: Vec<StaticColor>,
+    #[serde(default)]
+    pub prefs: Prefs,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub hotkeys: IndexMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
@@ -134,7 +137,9 @@ impl Engine {
             }
         }
         self.show.scenes = cfg.scenes;
-        self.show.static_colors = cfg.static_colors;
+        // набір кольорів не редагується: завжди стандартний (новіші версії можуть його розширити)
+        self.show.static_colors = default_static_colors();
+        self.prefs = cfg.prefs.clamped();
         self.output_cfg = cfg.output;
         self.show.master = cfg.master;
         self.hotkeys = check_hotkeys(cfg.hotkeys).unwrap_or_default();
@@ -166,6 +171,7 @@ impl Engine {
             fixtures: self.show.fixtures.clone(),
             scenes: self.show.scenes.clone(),
             static_colors: self.show.static_colors.clone(),
+            prefs: self.prefs.clone(),
             hotkeys: self.hotkeys.clone(),
             groups: self.show.groups.clone(),
             operator: self.operator,

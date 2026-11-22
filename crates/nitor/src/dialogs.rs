@@ -35,6 +35,8 @@ pub struct SettingsState {
     pub prof_name: String,
     pub prof_channels: String,
     pub capturing: Option<String>,
+    /// коли перемкнули вкладку (час egui) — для плавної появи
+    pub tab_t: f64,
     /// поля патчу, що редагуються: id → (назва, адреса)
     pub patch_names: std::collections::HashMap<String, String>,
 }
@@ -46,14 +48,25 @@ pub struct AddState {
     pub name_auto: bool,
     pub address: i64,
     pub count: i64,
-    pub lib_opened: bool,
 }
 
 pub struct LibState {
     pub kind: String,
     pub q: String,
     pub shown: usize,
+    /// модель вибирають для наявного приладу (вікно властивостей), а не для нового
+    pub for_props: bool,
 }
+
+impl LibState {
+    /// Бібліотека завжди відкривається на «Усі моделі».
+    pub fn new(for_props: bool) -> LibState {
+        LibState { kind: String::new(), q: String::new(), shown: 60, for_props }
+    }
+}
+
+/// Висота вмісту вкладок налаштувань: однакова для всіх, щоб вікно не стрибало (довгі — прокручуються).
+const SETTINGS_BODY_H: f32 = 520.0;
 
 pub enum ModesFor {
     Add,
@@ -186,6 +199,7 @@ impl App {
             prof_name: String::new(),
             prof_channels: String::new(),
             capturing: None,
+            tab_t: f64::NEG_INFINITY,
             patch_names: Default::default(),
         });
         if o.kind() == "udmx" {
@@ -210,7 +224,6 @@ impl App {
             name_auto: false,
             address: self.v.next_free_address(),
             count: 1,
-            lib_opened: false,
         });
     }
 
@@ -336,8 +349,6 @@ impl App {
         match result {
             Some(true) => {
                 let act = match (d.on_ok.clone(), d.input.clone()) {
-                    (Act::AddStatic { hex, w, .. }, Some(name)) => Act::AddStatic { name, hex, w },
-                    (Act::RenameStatic(i, _), Some(name)) => Act::RenameStatic(i, name),
                     (Act::SaveScene(_), Some(name)) => Act::SaveScene(name),
                     (Act::SaveGroup(_), Some(name)) => Act::SaveGroup(name),
                     (Act::RenameGroup(old, _), Some(name)) => Act::RenameGroup(old, name),
@@ -394,9 +405,12 @@ impl App {
         let mut st = self.settings.take().unwrap();
         let mut close = false;
         let capturing = st.capturing.is_some();
+        let now = ctx.input(|i| i.time);
+        let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
         let esc_close = modal(ctx, "settings", 880.0, |ui| {
             close |= dialog_head(ui, "Налаштування");
-            // вкладки
+            // вкладки; риска під активною плавно переїжджає
+            let mut active = Rect::NOTHING;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S1;
                 for (tab, label) in [
@@ -418,26 +432,43 @@ impl App {
                         if on { TEXT } else { MUTED },
                     );
                     if on {
-                        ui.painter().hline(r.x_range(), r.bottom() - 1.0, Stroke::new(2.0_f32, ACCENT));
+                        active = r;
                     }
                     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
                         st.tab = tab;
                         st.capturing = None;
+                        st.tab_t = now;
                     }
                 }
             });
+            let ctx = ui.ctx().clone();
+            let x0 = ctx.animate_value_with_time(Id::new("settings-tab-x0"), active.left(), 0.18);
+            let x1 = ctx.animate_value_with_time(Id::new("settings-tab-x1"), active.right(), 0.18);
+            ui.painter().hline(x0..=x1, active.bottom() - 1.0, Stroke::new(2.0_f32, ACCENT));
             widgets::hline(ui);
             ui.add_space(S4 - S2);
-            egui::ScrollArea::vertical().id_salt("settings-scroll").max_height(ui.available_height()).show(ui, |ui| {
-                match st.tab {
-                    Tab::Output => self.tab_output(ui, &mut st),
-                    Tab::Patch => self.tab_patch(ui, &mut st),
-                    Tab::Profiles => self.tab_profiles(ui, &mut st),
-                    Tab::Keys => self.tab_keys(ui, &mut st),
-                    Tab::Midi => self.tab_midi(ui),
-                    Tab::About => self.tab_about(ui),
-                }
-            });
+            // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
+            let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
+            let ease = 1.0 - (1.0 - t).powi(3);
+            if t < 1.0 {
+                ctx.request_repaint();
+            }
+            egui::ScrollArea::vertical()
+                .id_salt(("settings-scroll", st.tab as u8))
+                .auto_shrink([false, false])
+                .max_height(body_h)
+                .show(ui, |ui| {
+                    ui.multiply_opacity(ease);
+                    ui.add_space((1.0 - ease) * S2);
+                    match st.tab {
+                        Tab::Output => self.tab_output(ui, &mut st),
+                        Tab::Patch => self.tab_patch(ui, &mut st),
+                        Tab::Profiles => self.tab_profiles(ui, &mut st),
+                        Tab::Keys => self.tab_keys(ui, &mut st),
+                        Tab::Midi => self.tab_midi(ui),
+                        Tab::About => self.tab_about(ui),
+                    }
+                });
         });
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
         let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
@@ -558,6 +589,13 @@ impl App {
             }
             ui.label(widgets::muted(cap(&self.v.output.status)));
         });
+        ui.add_space(S4);
+        let mut dev = self.v.prefs.output_device;
+        if widgets::check(ui, &mut dev, "Показувати назву пристрою біля назви програми").changed()
+        {
+            self.set_prefs(|p| p.output_device = dev);
+        }
+        ui.label(widgets::muted("Без цього вгорі видно лише тип інтерфейсу, наприклад «uDMX»."));
     }
 
     fn tab_patch(&mut self, ui: &mut Ui, st: &mut SettingsState) {
@@ -745,7 +783,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             if btn("Профіль APC mini mk2")
                 .small()
-                .tip("Пади — статичні кольори, сцени й групи; кнопки праворуч — Blackout, «Очистити», «Спалах», тап; повзунки — швидкість і майстер")
+                .tip("Пади — кольори палітри, сцени й групи; кнопки праворуч — Blackout, «Очистити», «Спалах», тап; повзунки — швидкість і майстер")
                 .show(ui)
                 .clicked()
             {
@@ -775,7 +813,7 @@ impl App {
         ] {
             rows.push((None, id.into(), label.into()));
         }
-        rows.push((Some("Статичні кольори"), String::new(), String::new()));
+        rows.push((Some("Кольори палітри"), String::new(), String::new()));
         for (i, c) in self.v.show.static_colors.iter().enumerate() {
             rows.push((None, format!("static{}", i + 1), c.name.clone()));
         }
@@ -1042,16 +1080,7 @@ impl App {
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if btn("Вибрати з бібліотеки").icon("grid").show(ui).clicked() {
-                        if !a.lib_opened {
-                            // нове вікно — починаємо з нещодавно використаних, якщо вони є
-                            a.lib_opened = true;
-                            let kind = if self.v.recent.is_empty() { "" } else { "recent" };
-                            self.lib = Some(LibState { kind: kind.into(), q: String::new(), shown: 60 });
-                        } else {
-                            let prev = self.lib.take();
-                            self.lib =
-                                Some(prev.unwrap_or(LibState { kind: String::new(), q: String::new(), shown: 60 }));
-                        }
+                        self.lib = Some(LibState::new(false));
                     }
                     if a.device.is_some() && btn("Скинути").show(ui).clicked() {
                         a.device = None;
@@ -1289,7 +1318,8 @@ impl App {
             })
             .should_close();
         if let Some(fx) = pick {
-            self.modes = Some(ModesState { fx, current: None, target: ModesFor::Add });
+            let target = if st.for_props { ModesFor::Props } else { ModesFor::Add };
+            self.modes = Some(ModesState { fx, current: None, target });
         }
         let esc = esc && self.modes.is_none();
         if !(close || esc) {
@@ -1367,6 +1397,7 @@ impl App {
                     self.lib = None;
                 }
                 ModesFor::Props => {
+                    self.lib = None;
                     if let Some(p) = self.props.as_mut() {
                         let name = st.fx.profile_name(&mode);
                         let model = Model { m: st.fx.m.clone(), n: st.fx.n.clone(), mode: mode.name().into() };
@@ -1403,6 +1434,7 @@ impl App {
         let mut dup = false;
         let mut del = false;
         let mut mode_btn = false;
+        let mut lib_btn = false;
         let mut test_save = false;
         let mut raw_cmds: Vec<Command> = vec![];
         let mut dimmer_changed = false;
@@ -1431,19 +1463,39 @@ impl App {
                 });
             });
             ui.add_space(S3 - S2);
-            if let Some((_, ch, Some(m), _)) = &p.device {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new(format!("{} {}", m.m, m.n)).font(bold(FS_MD)));
-                        ui.label(widgets::muted(format!("Режим: {} · {} кан.", m.mode, ch.len())));
-                    });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        mode_btn = btn("Змінити режим").show(ui).clicked();
-                    });
+            // модель приладу: змінити режим або взяти іншу модель з бібліотеки
+            let model = match &p.device {
+                Some((_, ch, Some(m), _)) => Some((m.clone(), ch.len())),
+                _ => None,
+            };
+            ui.horizontal(|ui| {
+                ui.set_min_height(CONTROL_H + 8.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    match &model {
+                        Some((m, n)) => {
+                            ui.label(RichText::new(format!("{} {}", m.m, m.n)).font(bold(FS_MD)));
+                            ui.label(widgets::muted(format!("Режим: {} · {n} кан.", m.mode)));
+                        }
+                        None => {
+                            ui.label(RichText::new("Модель не вибрано").font(bold(FS_MD)));
+                            ui.label(widgets::muted("Прилад працює за стандартним профілем"));
+                        }
+                    }
                 });
-                ui.add_space(S3 - S2);
-            }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let label = if model.is_some() {
+                        "Інша модель"
+                    } else {
+                        "Вибрати з бібліотеки"
+                    };
+                    lib_btn = btn(label).icon("grid").show(ui).clicked();
+                    if model.is_some() {
+                        mode_btn = btn("Змінити режим").show(ui).clicked();
+                    }
+                });
+            });
+            ui.add_space(S3 - S2);
             widgets::field_label(ui, "Профіль");
             let device = p.device.clone();
             if self.profile_select(ui, "propProfile", &mut p.profile, &f, device.as_ref(), w) {
@@ -1602,6 +1654,9 @@ impl App {
                 values: ColorValues { dimmer: Some(p.dimmer as u8), ..Default::default() },
             });
         }
+        if lib_btn {
+            self.lib = Some(LibState::new(true));
+        }
         if mode_btn {
             if let Some((_, _, Some(m), _)) = &p.device {
                 match library::find(&m.m, &m.n) {
@@ -1672,7 +1727,7 @@ impl App {
             self.act(ctx, Act::AskDeleteFixtures { ids: vec![id], close_props: true });
             return;
         }
-        let esc = esc && self.modes.is_none() && self.ui_dlg.is_none();
+        let esc = esc && self.modes.is_none() && self.lib.is_none() && self.ui_dlg.is_none();
         if close || esc {
             self.props = Some(p);
             self.close_props();

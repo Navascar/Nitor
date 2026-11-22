@@ -2,9 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use nitor_core::engine::{
-    ColorValues, Command, EffectPatch, FlashSource, ProfileSpec, STROBE_LEVEL, StaticSource, StrobeState,
-};
+use nitor_core::engine::{ColorValues, Command, EffectPatch, FlashSource, Prefs, ProfileSpec, StaticSource};
 use nitor_core::fixtures::{Model, default_profiles, model_profiles, preset_level, segment_count};
 use nitor_core::{EffectKind, Engine, Rgb, library, scene_file, userdata};
 use serde_json::json;
@@ -148,10 +146,6 @@ fn static_color_stops_effect_and_uses_white_channel() {
     );
     assert!(!e.show.effect.ids.contains(&rgb) && e.show.effect.kind == EffectKind::Rainbow);
     assert_eq!(&e.render(0.0)[0..4], &[255, 255, 0, 0]);
-
-    ok(&mut e, Command::AddStaticColor { name: "Мій".into(), hex: Rgb(0x12, 0x34, 0x56), w: 0 });
-    let last = e.show.static_colors.last().unwrap();
-    assert_eq!((last.name.as_str(), last.hex, last.w), ("Мій", Rgb(0x12, 0x34, 0x56), None));
 }
 
 #[test]
@@ -213,9 +207,12 @@ fn effect_runs_along_segments() {
     );
     let f = e.render(0.0);
     let segs: BTreeSet<&[u8]> = (0..8).map(|i| &f[i * 3..i * 3 + 3]).collect();
-    assert!(segs.len() > 4, "веселка розкладена по сегментах");
+    assert_eq!(segs.len(), 1, "ефект починається з одного кольору");
+    let f = e.render(5.0);
+    let segs: BTreeSet<&[u8]> = (0..8).map(|i| &f[i * 3..i * 3 + 3]).collect();
+    assert!(segs.len() > 4, "за цикл веселка розходиться по сегментах");
     ok(&mut e, Command::SetEffect(EffectPatch { by_segment: Some(false), ..Default::default() }));
-    let f = e.render(0.0);
+    let f = e.render(5.0);
     let segs: BTreeSet<&[u8]> = (0..8).map(|i| &f[i * 3..i * 3 + 3]).collect();
     assert_eq!(segs.len(), 1, "увесь бар одним кольором");
 }
@@ -295,19 +292,39 @@ fn presets_dropped_on_load_without_program_channel() {
 }
 
 #[test]
-fn strobe_button_only_for_strobe_channel() {
+fn effects_start_together_and_speed_change_keeps_phase() {
+    for kind in [EffectKind::Rainbow, EffectKind::Fade, EffectKind::Random, EffectKind::Fire, EffectKind::Pulse] {
+        let mut e = Engine::new();
+        let a = add(&mut e, "RGB (3 кан.)", 1);
+        let b = add(&mut e, "RGB (3 кан.)", 4);
+        let c = add(&mut e, "RGB (3 кан.)", 7);
+        e.handle(effect(kind, &[&a, &b, &c]), 7.3).unwrap();
+        let f = e.render(7.3);
+        assert!(f[0..3] == f[3..6] && f[3..6] == f[6..9], "{kind:?}: на старті один колір на всіх");
+    }
     let mut e = Engine::new();
-    let bar = add(&mut e, WASH8, 1);
-    let par = add(&mut e, "RGB (3 кан.)", 20);
-    assert_eq!(e.strobe_fixtures(), vec![bar.clone()]);
-    ok(&mut e, Command::Strobe { on: Some(true), ids: vec![] });
-    assert_eq!(e.render(0.0)[1], STROBE_LEVEL);
-    assert_eq!(e.can_undo(), Some("add_fixture"), "строб не потрапляє в скасування");
-    ok(&mut e, Command::Strobe { on: Some(false), ids: vec![] });
-    assert_eq!(e.render(0.0)[1], 0);
-    assert!(e.handle(Command::Strobe { on: Some(true), ids: ids(&[&par]) }, 0.0).is_err());
-    ok(&mut e, Command::Strobe { on: None, ids: ids(&[&bar, &par]) });
-    assert_eq!(e.strobe, StrobeState { on: true, ids: vec![bar] });
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    e.handle(effect(EffectKind::Rainbow, &[&a]), 0.0).unwrap();
+    let before = e.render(1.0);
+    e.handle(Command::SetEffect(EffectPatch { speed: Some(5.0), ..Default::default() }), 1.0).unwrap();
+    assert_eq!(e.render(1.0), before, "зміна швидкості не стрибає по кольору");
+    assert_ne!(e.render(1.05), before, "далі — з новою швидкістю");
+}
+
+#[test]
+fn flash_rate_blinks() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    ok(&mut e, Command::SetPrefs(Prefs { flash_rate: 10.0, ..Default::default() }));
+    assert_eq!(e.can_undo(), Some("add_fixture"), "налаштування в скасування не потрапляє");
+    let white = StaticSource::Custom { hex: Rgb(255, 255, 255), hex_w: None, w: 0 };
+    e.handle(Command::Flash(Some(FlashSource::Color { ids: ids(&[&a]), source: white })), 2.0).unwrap();
+    assert_eq!(&e.render(2.01)[0..3], &[255, 255, 255], "перша половина періоду — світло");
+    assert_eq!(&e.render(2.07)[0..3], &[0, 0, 0], "друга — темно");
+    assert_eq!(&e.render(2.11)[0..3], &[255, 255, 255]);
+    ok(&mut e, Command::SetPrefs(Prefs { flash_rate: f64::NAN, ..Default::default() }));
+    assert_eq!(e.prefs.flash_rate, 0.0);
+    assert_eq!(&e.render(2.07)[0..3], &[255, 255, 255], "без частоти — постійне світло");
 }
 
 #[test]

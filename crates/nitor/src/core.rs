@@ -27,8 +27,6 @@ impl Core {
     pub fn start(engine: Engine) -> Core {
         let epoch = Instant::now();
         let output = outputs::start(&engine.output_cfg);
-        let mut engine = engine;
-        engine.set_epoch(0.0);
         let core = Core {
             state: Arc::new(Mutex::new(State { engine, output })),
             epoch,

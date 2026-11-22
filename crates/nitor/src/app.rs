@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::{Duration, Instant};
 
 use egui::Context;
-use nitor_core::engine::{ColorValues, EffectPatch, FlashSource, Live, Show, StaticSource, StrobeState};
+use nitor_core::engine::{ColorValues, EffectPatch, FlashSource, Live, Prefs, Show, StaticSource};
 use nitor_core::fixtures::{Fixture, Segs, segment_count};
 use nitor_core::library::Recent;
 use nitor_core::midi::{MidiBinding, MidiValue};
@@ -22,7 +22,7 @@ pub struct View {
     pub show: Show,
     pub recent: Vec<Recent>,
     pub output_cfg: OutputConfig,
-    pub strobe: StrobeState,
+    pub prefs: Prefs,
     pub hotkeys: indexmap::IndexMap<String, Vec<String>>,
     pub live: Live,
     pub dmx: [u8; DMX_CHANNELS],
@@ -30,7 +30,6 @@ pub struct View {
     pub redo: Option<&'static str>,
     pub menu_profiles: Vec<String>,
     pub preset_fixtures: Vec<String>,
-    pub strobe_fixtures: Vec<String>,
     pub overlaps: Vec<(String, String)>,
     pub output: OutputInfo,
     pub flashing: bool,
@@ -114,7 +113,10 @@ pub struct Toast {
 #[derive(Clone, Debug)]
 pub enum Act {
     Cmd(Command),
-    StaticTo { index: usize, ids: Vec<String> },
+    StaticTo {
+        index: usize,
+        ids: Vec<String>,
+    },
     Clear,
     RunEffect(Vec<String>),
     RunEffectSelected,
@@ -125,20 +127,22 @@ pub enum Act {
     OpenPresets,
     OpenProps(String),
     Duplicate(String),
-    AskDeleteFixtures { ids: Vec<String>, close_props: bool },
-    DeleteFixtures { ids: Vec<String>, close_props: bool },
+    AskDeleteFixtures {
+        ids: Vec<String>,
+        close_props: bool,
+    },
+    DeleteFixtures {
+        ids: Vec<String>,
+        close_props: bool,
+    },
     CopyColor,
     PasteColor,
-    SaveStaticCurrent,
-    AddStatic { name: String, hex: Rgb, w: u8 },
-    ToggleStaticEdit,
-    AskResetStatic,
-    AskRenameStatic(usize),
-    RenameStatic(usize, String),
-    AskDeleteStatic(usize),
     AddPaletteColor,
     ClearPalette,
-    RecallScene { name: String, fade: f64 },
+    RecallScene {
+        name: String,
+        fade: f64,
+    },
     AskOverwriteScene(String),
     SaveScene(String),
     SaveSceneFile(String),
@@ -152,7 +156,10 @@ pub enum Act {
     Undo,
     Redo,
     Blackout,
-    ToggleStrobe,
+    /// «Видалити» на клавіатурі: вибрані прилади — після підтвердження.
+    AskDeleteSelected,
+    /// Поміняти місцями «Ефекти» і «Сцени».
+    SwapSide,
     CheckUpdate,
     OpenUpdate,
     OpenSettings(Option<crate::dialogs::Tab>),
@@ -198,7 +205,12 @@ pub struct App {
     pub last_color: Rgb,
     pub eff: EffDraft,
     pub pane: Pane,
-    pub static_editing: bool,
+    /// виділення рамкою: де почали тягнути і що було вибрано до того
+    pub band: Option<(egui::Pos2, Vec<String>)>,
+    /// плитки приладів цього кадру (для виділення рамкою)
+    pub tile_rects: Vec<(String, egui::Rect)>,
+    /// відкрите налаштування «Спалаху»: кнопка, під якою воно показане
+    pub flash_cfg: Option<egui::Rect>,
     pub scene_name: String,
     pub scene_with_effect: bool,
     pub scene_fade: f64,
@@ -265,7 +277,9 @@ impl App {
                 synced: false,
             },
             pane: Pane::Color,
-            static_editing: false,
+            band: None,
+            tile_rects: vec![],
+            flash_cfg: None,
             scene_name: String::new(),
             scene_with_effect: false,
             scene_fade: 1.0,
@@ -453,16 +467,25 @@ impl App {
         self.sel = vec![id.to_string()];
     }
 
+    /// Прилади для пресетів: вибрані LED-бари, а якщо їх не вибрано — усі.
     pub fn preset_targets(&self) -> Vec<String> {
-        self.sel_fixtures().into_iter().filter(|id| self.v.preset_fixtures.contains(id)).collect()
+        let picked: Vec<String> =
+            self.sel_fixtures().into_iter().filter(|id| self.v.preset_fixtures.contains(id)).collect();
+        if picked.is_empty() { self.v.preset_fixtures.clone() } else { picked }
     }
 
     pub fn open_presets(&mut self) {
-        if self.preset_targets().is_empty() {
-            self.toast("Виберіть LED-бар", false);
+        if self.v.preset_fixtures.is_empty() {
+            self.toast("Немає приладів із вбудованими програмами", false);
             return;
         }
         self.pane = Pane::Presets;
+    }
+
+    pub fn set_prefs(&mut self, f: impl FnOnce(&mut Prefs)) {
+        let mut p = self.v.prefs.clone();
+        f(&mut p);
+        self.send(Command::SetPrefs(p));
     }
 
     pub fn effect_patch(&self) -> EffectPatch {
@@ -503,16 +526,6 @@ impl App {
     pub fn clear_colors(&mut self) {
         let ids = self.sel.clone();
         self.send(Command::Clear { ids });
-    }
-
-    pub fn toggle_strobe(&mut self) {
-        let on = !self.v.strobe.on;
-        if on && self.v.strobe_fixtures.is_empty() {
-            self.toast("Немає приладів з каналом строба", false);
-            return;
-        }
-        let ids = self.sel.clone();
-        self.send(Command::Strobe { on: Some(on), ids });
     }
 
     /// «Спалах» натиснули: на вибрані прилади (або всі), поки не відпустять.
@@ -811,52 +824,6 @@ impl App {
                     self.set_color(ColorValues { hex: Some(hex), w: Some(w), ..Default::default() });
                 }
             }
-            Act::SaveStaticCurrent => match self.first_sel_color() {
-                None => self.toast("Спершу виберіть прилад", false),
-                Some((hex, w)) => {
-                    self.ui_dlg = Some(UiDlg::prompt(
-                        "Назва кольору",
-                        "Мій колір",
-                        Act::AddStatic { name: String::new(), hex, w },
-                    ));
-                }
-            },
-            Act::AddStatic { name, hex, w } => {
-                self.send(Command::AddStaticColor { name, hex, w });
-            }
-            Act::ToggleStaticEdit => self.static_editing = !self.static_editing,
-            Act::AskResetStatic => {
-                self.ui_dlg = Some(UiDlg::confirm(
-                    "Повернути стандартний набір кольорів?",
-                    "Власні кольори буде видалено.",
-                    "Повернути",
-                    false,
-                    Act::Cmd(Command::ResetStaticColors),
-                ));
-            }
-            Act::AskRenameStatic(i) => {
-                if let Some(c) = self.v.show.static_colors.get(i) {
-                    let name = c.name.clone();
-                    self.ui_dlg = Some(UiDlg::prompt("Нова назва кольору", &name, Act::RenameStatic(i, String::new())));
-                }
-            }
-            Act::RenameStatic(index, name) => {
-                if !name.trim().is_empty() {
-                    self.send(Command::RenameStaticColor { index, name: name.trim().into() });
-                }
-            }
-            Act::AskDeleteStatic(i) => {
-                if let Some(c) = self.v.show.static_colors.get(i) {
-                    let t = format!("Видалити колір «{}»?", c.name);
-                    self.ui_dlg = Some(UiDlg::confirm(
-                        &t,
-                        "",
-                        "Видалити",
-                        true,
-                        Act::Cmd(Command::DeleteStaticColor { index: i }),
-                    ));
-                }
-            }
             Act::AddPaletteColor => {
                 let c = self.first_sel_color().map(|c| c.0).filter(|c| *c != Rgb::BLACK).unwrap_or(self.last_color);
                 self.eff.colors.push(c);
@@ -895,7 +862,11 @@ impl App {
             Act::Blackout => {
                 self.send(Command::Blackout(None));
             }
-            Act::ToggleStrobe => self.toggle_strobe(),
+            Act::AskDeleteSelected => {
+                let ids = self.sel_fixtures();
+                self.act(ctx, Act::AskDeleteFixtures { ids, close_props: false });
+            }
+            Act::SwapSide => self.set_prefs(|p| p.scenes_first = !p.scenes_first),
             Act::CheckUpdate => self.updater.check(),
             Act::OpenUpdate => self.open_update_dialog(),
             Act::OpenSettings(tab) => self.open_settings(tab),
@@ -939,7 +910,7 @@ impl App {
             }),
             Act::AskOperator => {
                 let mut d = UiDlg::prompt("Увімкнути режим оператора", "", Act::EnterOperator(String::new()));
-                d.text = "Лишаться сцени, статичні кольори, групи й майстер. PIN — від 4 до 8 цифр. \
+                d.text = "Лишаться сцени, кольори палітри, групи й майстер. PIN — від 4 до 8 цифр. \
                           Без PIN вийти можна, утримуючи кнопку виходу 3 секунди."
                     .into();
                 d.ok = "Увімкнути".into();
@@ -1070,7 +1041,7 @@ impl App {
         }
         let a = match id {
             "blackout" => Act::Blackout,
-            "strobe" => Act::ToggleStrobe,
+            "deleteFixtures" => Act::AskDeleteSelected,
             "clear" => Act::Clear,
             "effectStop" => Act::StopEffect,
             "selectAll" => Act::SelectAll,
@@ -1106,7 +1077,7 @@ pub fn snapshot(core: &Core) -> View {
         show: e.show.clone(),
         recent: e.recent_models.clone(),
         output_cfg: e.output_cfg.clone(),
-        strobe: e.strobe.clone(),
+        prefs: e.prefs.clone(),
         hotkeys: e.hotkeys.clone(),
         live: e.live.clone(),
         dmx: e.universe,
@@ -1114,7 +1085,6 @@ pub fn snapshot(core: &Core) -> View {
         redo: e.can_redo(),
         menu_profiles: e.menu_profiles(),
         preset_fixtures: e.preset_fixtures(),
-        strobe_fixtures: e.strobe_fixtures(),
         overlaps: e.overlaps(),
         output: s.output.info(),
         flashing: !e.flash.is_empty(),

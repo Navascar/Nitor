@@ -258,6 +258,7 @@ impl eframe::App for App {
             }
         }
         self.show_menu(ctx);
+        self.flash_popup(ctx);
         self.show_toast(ctx);
         self.screenshot(ctx);
         // живі кольори приладів і DMX-монітор — ~15 разів на секунду; згорнуте вікно малювати
@@ -354,7 +355,7 @@ impl App {
                         "add" => self.open_add(),
                         "library" => {
                             self.open_add();
-                            self.lib = Some(dialogs::LibState { kind: String::new(), q: String::new(), shown: 60 });
+                            self.lib = Some(dialogs::LibState::new(false));
                         }
                         "props" => {
                             if let Some(f) = self.v.show.fixtures.first() {
@@ -363,6 +364,11 @@ impl App {
                             }
                         }
                         "close" => self.request_close(),
+                        "flash" => {
+                            let w = ctx.screen_rect().width();
+                            self.flash_cfg =
+                                Some(egui::Rect::from_min_size(egui::pos2(w * 0.55, 8.0), egui::vec2(34.0, 34.0)));
+                        }
                         "monitor" => self.monitor_open = true,
                         "menu" => {
                             let items = self.general_menu();

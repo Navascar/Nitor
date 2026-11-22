@@ -23,9 +23,8 @@ pub const FPS: f64 = 40.0;
 pub const UNDO_LIMIT: usize = 100;
 /// Серія однакових команд (рух повзунка) — один крок скасування.
 pub const UNDO_MERGE_S: f64 = 1.0;
-/// Значення каналу строба для кнопки «Строб», якщо в приладу строб не задано.
-pub const STROBE_LEVEL: u8 = 200;
-pub const STATIC_COLORS_MAX: usize = 48;
+/// Найбільша частота мерехтіння «Спалаху», Гц.
+pub const FLASH_RATE_MAX: f64 = 25.0;
 /// Ключі стану приладу, що зберігаються в сцені й плавно змінюються під час кросфейду.
 pub const STATE_KEYS: [&str; 7] = ["r", "g", "b", "w", "a", "uv", "dimmer"];
 
@@ -68,6 +67,17 @@ pub fn default_static_colors() -> Vec<StaticColor> {
         white("Теплий білий", "#ffa050", "#783200"),
         white("Білий", "#ffffff", "#000000"),
         white("Холодний білий", "#d2e6ff", "#002878"),
+        c("Малиновий", "#ff0040"),
+        c("Бурштиновий", "#ff8000"),
+        c("Лимонний", "#ffe600"),
+        c("Салатовий", "#80ff00"),
+        c("Смарагдовий", "#00ff60"),
+        c("Аквамарин", "#40ffc0"),
+        c("Небесний", "#60c0ff"),
+        c("Індиго", "#4000ff"),
+        c("Лавандовий", "#b080ff"),
+        c("Ніжно-рожевий", "#ff80c0"),
+        c("Персиковий", "#ff9060"),
     ]
 }
 
@@ -178,11 +188,25 @@ impl Default for Show {
     }
 }
 
-/// Кнопка «Строб»: прилади з каналом строба (порожньо — усі). Не зберігається й не скасовується.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct StrobeState {
-    pub on: bool,
-    pub ids: Vec<String>,
+/// Налаштування вигляду й «Спалаху». Зберігаються, не скасовуються.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Prefs {
+    /// Праворуч спершу «Сцени», під ними «Ефекти».
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scenes_first: bool,
+    /// Біля назви програми — ще й назва пристрою DMX-виходу.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub output_device: bool,
+    /// Мерехтіння «Спалаху», Гц: 0 — постійне світло, більше — строб.
+    #[serde(default)]
+    pub flash_rate: f64,
+}
+
+impl Prefs {
+    pub fn clamped(self) -> Prefs {
+        let rate = if self.flash_rate.is_finite() { self.flash_rate.clamp(0.0, FLASH_RATE_MAX) } else { 0.0 };
+        Prefs { flash_rate: rate, ..self }
+    }
 }
 
 /// Що показує «Спалах», поки його тримають.
@@ -311,25 +335,7 @@ pub enum Command {
         ids: Vec<String>,
         source: StaticSource,
     },
-    AddStaticColor {
-        name: String,
-        hex: Rgb,
-        w: u8,
-    },
-    RenameStaticColor {
-        index: usize,
-        name: String,
-    },
-    DeleteStaticColor {
-        index: usize,
-    },
-    ResetStaticColors,
     SetMaster(u8),
-    /// `on`: `None` — перемкнути.
-    Strobe {
-        on: Option<bool>,
-        ids: Vec<String>,
-    },
     SetHotkeys(IndexMap<String, Vec<String>>),
     Blackout(Option<bool>),
     AddFixture {
@@ -397,6 +403,7 @@ pub enum Command {
     },
     /// Новий PIN режиму оператора; порожній — без PIN.
     SetPin(String),
+    SetPrefs(Prefs),
 }
 
 impl Command {
@@ -408,12 +415,7 @@ impl Command {
             Command::Preset { .. } => "preset",
             Command::Clear { .. } => "clear",
             Command::StaticColor { .. } => "static_color",
-            Command::AddStaticColor { .. } => "add_static_color",
-            Command::RenameStaticColor { .. } => "rename_static_color",
-            Command::DeleteStaticColor { .. } => "delete_static_color",
-            Command::ResetStaticColors => "reset_static_colors",
             Command::SetMaster(_) => "set_master",
-            Command::Strobe { .. } => "strobe",
             Command::SetHotkeys(_) => "set_hotkeys",
             Command::Blackout(_) => "blackout",
             Command::AddFixture { .. } => "add_fixture",
@@ -437,6 +439,7 @@ impl Command {
             Command::SetGroups(_) => "set_groups",
             Command::Operator { .. } => "operator",
             Command::SetPin(_) => "set_pin",
+            Command::SetPrefs(_) => "set_prefs",
         }
     }
 
@@ -449,7 +452,7 @@ impl Command {
                 | Command::RawSet { .. }
                 | Command::RawClear(_)
                 | Command::SetOutput(_)
-                | Command::Strobe { .. }
+                | Command::SetPrefs(_)
                 | Command::SetHotkeys(_)
                 | Command::Flash(_)
                 | Command::Beat(_)
@@ -516,10 +519,6 @@ impl Command {
             "import_scene" => "відкриття сцени з файлу",
             "save_profile" => "збереження профілю",
             "delete_profile" => "видалення профілю",
-            "add_static_color" => "новий колір",
-            "delete_static_color" => "видалення кольору",
-            "rename_static_color" => "перейменування кольору",
-            "reset_static_colors" => "скидання кольорів",
             "set_groups" => "зміну груп",
             _ => "дію",
         }
@@ -544,9 +543,13 @@ pub struct Engine {
     pub output_cfg: OutputConfig,
     /// `SetOutput` змінив вихід — програма має перевідкрити його.
     pub output_changed: bool,
-    pub strobe: StrobeState,
+    pub prefs: Prefs,
     /// «Спалах»: прилади, що зараз показують інший стан (без майстра й ефекту). Не зберігається.
     pub flash: IndexMap<String, Fixture>,
+    /// Коли натиснули «Спалах» (відлік мерехтіння).
+    flash_t0: f64,
+    /// Початок ефекту: від нього відлічується фаза, щоб ефект починався з одного кольору.
+    eff_t0: f64,
     /// Темп для ефектів «у такт музиці». Не зберігається.
     pub tempo: Tempo,
     /// Джерело ударів, крім тапу. Зберігається.
@@ -568,7 +571,6 @@ pub struct Engine {
     /// Шлях до config.json; `None` — нічого не зберігається (тести).
     pub config_path: Option<PathBuf>,
     fade: Option<Fade>,
-    t0: f64,
     dirty: bool,
     last_save: f64,
     undo: Vec<(&'static str, Show)>,
@@ -619,8 +621,10 @@ impl Engine {
             recent_models: vec![],
             output_cfg: OutputConfig::default(),
             output_changed: false,
-            strobe: StrobeState::default(),
+            prefs: Prefs::default(),
             flash: IndexMap::new(),
+            flash_t0: 0.0,
+            eff_t0: 0.0,
             tempo: Tempo::default(),
             audio: AudioSource::default(),
             midi: vec![],
@@ -633,7 +637,6 @@ impl Engine {
             live: IndexMap::new(),
             config_path: None,
             fade: None,
-            t0: 0.0,
             dirty: false,
             last_save: 0.0,
             undo: vec![],
@@ -643,11 +646,6 @@ impl Engine {
             notice: None,
             last_undo: None,
         }
-    }
-
-    /// Початок відліку часу ефектів.
-    pub fn set_epoch(&mut self, t0: f64) {
-        self.t0 = t0;
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -763,11 +761,6 @@ impl Engine {
         self.show.fixtures.iter().filter(|f| self.has_presets(f)).map(|f| f.id.clone()).collect()
     }
 
-    /// Прилади з каналом строба.
-    pub fn strobe_fixtures(&self) -> Vec<String> {
-        self.show.fixtures.iter().filter(|f| self.has_role(f, "strobe")).map(|f| f.id.clone()).collect()
-    }
-
     pub fn can_undo(&self) -> Option<&'static str> {
         self.undo.last().map(|u| u.0)
     }
@@ -799,6 +792,7 @@ impl Engine {
             self.undo_t = now;
         }
         let no_undo = cmd.no_undo();
+        let prev = self.show.effect.clone();
         if let Err(e) = self.apply(cmd, now) {
             if pushed {
                 // команда не виконалась — і кроку скасування немає
@@ -811,8 +805,23 @@ impl Engine {
         if !no_undo {
             self.redo.clear();
         }
+        self.retime_effect(&prev, now);
         self.dirty = true;
         Ok(())
+    }
+
+    /// Новий ефект (чи нові прилади в ньому) починається з нуля — з одного кольору на всіх.
+    /// Зміна швидкості не зсуває фазу: ефект продовжується з того ж кольору, без мерехтіння.
+    fn retime_effect(&mut self, prev: &Effect, now: f64) {
+        let e = &self.show.effect;
+        if e.kind == EffectKind::None {
+            return;
+        }
+        if e.kind != prev.kind || e.ids.iter().any(|id| !prev.ids.contains(id)) {
+            self.eff_t0 = now;
+        } else if e.speed != prev.speed {
+            self.eff_t0 = now - (now - self.eff_t0) * prev.speed / e.speed;
+        }
     }
 
     fn restore(&mut self, snap: Show) {
@@ -839,30 +848,7 @@ impl Engine {
             Command::Preset { ids, n, speed } => self.preset(&ids, n, speed)?,
             Command::Clear { ids } => self.clear(&ids),
             Command::StaticColor { ids, source } => self.static_color(&ids, source)?,
-            Command::AddStaticColor { name, hex, w } => {
-                let name = name.trim();
-                let name = if name.is_empty() { hex.hex() } else { truncate_chars(name, 40) };
-                if self.show.static_colors.len() >= STATIC_COLORS_MAX {
-                    bail!("забагато статичних кольорів (максимум {STATIC_COLORS_MAX})");
-                }
-                let (w, hex_w) = if w > 0 { (Some(w), Some(hex)) } else { (None, None) };
-                self.show.static_colors.push(StaticColor { name, hex, hex_w, w });
-            }
-            Command::RenameStaticColor { index, name } => {
-                let name = name.trim();
-                if name.is_empty() {
-                    bail!("назва не може бути порожньою");
-                }
-                self.static_at(index)?;
-                self.show.static_colors[index].name = truncate_chars(name, 40);
-            }
-            Command::DeleteStaticColor { index } => {
-                self.static_at(index)?;
-                self.show.static_colors.remove(index);
-            }
-            Command::ResetStaticColors => self.show.static_colors = default_static_colors(),
             Command::SetMaster(v) => self.show.master = v,
-            Command::Strobe { on, ids } => self.strobe_cmd(on, &ids)?,
             Command::SetHotkeys(h) => self.hotkeys = check_hotkeys(h)?,
             Command::Blackout(on) => self.show.blackout = on.unwrap_or(!self.show.blackout),
             Command::AddFixture { spec, name, address, count } => self.add_fixture(spec, &name, address, count)?,
@@ -972,6 +958,7 @@ impl Engine {
                     Some(format!("{salt}:{}", pin_hash(&salt, pin)))
                 };
             }
+            Command::SetPrefs(p) => self.prefs = p.clamped(),
         }
         Ok(())
     }
@@ -1011,6 +998,7 @@ impl Engine {
     fn flash_cmd(&mut self, src: Option<FlashSource>, now: f64) -> Result<()> {
         self.flash.clear();
         let Some(src) = src else { return Ok(()) };
+        self.flash_t0 = now;
         let saved = (self.show.fixtures.clone(), self.show.effect.clone(), self.fade.take());
         let targets: Vec<String> = match &src {
             FlashSource::Color { ids, .. } if !ids.is_empty() => {
@@ -1168,31 +1156,6 @@ impl Engine {
             fids.push(f.id.clone());
         }
         self.drop_from_effect(&fids);
-        Ok(())
-    }
-
-    fn strobe_cmd(&mut self, on: Option<bool>, ids: &[String]) -> Result<()> {
-        let on = on.unwrap_or(!self.strobe.on);
-        let mut out = vec![];
-        if on {
-            let (whole, segs) = self.resolve(ids);
-            let mut sel: BTreeSet<String> = whole.iter().map(|&i| self.show.fixtures[i].id.clone()).collect();
-            sel.extend(segs.iter().map(|&(i, _)| self.show.fixtures[i].id.clone()));
-            let able: Vec<String> = self
-                .show
-                .fixtures
-                .iter()
-                .filter(|f| self.has_role(f, "strobe") && (sel.is_empty() || sel.contains(&f.id)))
-                .map(|f| f.id.clone())
-                .collect();
-            if able.is_empty() {
-                bail!("Строб доступний лише приладам з каналом строба");
-            }
-            if !sel.is_empty() {
-                out = able;
-            }
-        }
-        self.strobe = StrobeState { on, ids: out };
         Ok(())
     }
 
@@ -1409,8 +1372,10 @@ impl Engine {
                 synced = Effect { speed: bpm / 60.0 * e.kind.cycles_per_beat(), ..e.clone() };
                 (&synced, now - self.tempo.anchor)
             }
-            _ => (&self.show.effect, now - self.t0),
+            _ => (&self.show.effect, now - self.eff_t0),
         };
+        // ефект розходиться з одного кольору за перший цикл; у такт музиці — одразу
+        let unfold = if beat.is_some() && self.tempo.bpm.is_some() { 1.0 } else { (t * eff.speed).clamp(0.0, 1.0) };
         let pulse = beat.filter(|_| eff.beat_pulse).map(beat_pulse);
         // «пікселі» ефекту: кожен сегмент кожного приладу (або прилад цілком)
         let mut pixel: IndexMap<(&str, usize), usize> = IndexMap::new();
@@ -1441,20 +1406,17 @@ impl Engine {
             // «Спалах» перекриває стан приладу, ефект і майстер (але не Blackout)
             let over = self.flash.get(&fx.id);
             let fx = over.unwrap_or(fx);
-            let master = if over.is_some() && !self.show.blackout { 1.0 } else { master };
+            // «Спалах» з частотою мерехтить: половину періоду світить, половину — темно
+            let flash_on =
+                self.prefs.flash_rate <= 0.0 || ((now - self.flash_t0) * self.prefs.flash_rate).fract() < 0.5;
+            let master = match over {
+                Some(_) if self.show.blackout || !flash_on => 0.0,
+                Some(_) => 1.0,
+                None => master,
+            };
             if channels.is_empty() {
                 continue;
             }
-            let strobed = self.strobe.on
-                && channels.iter().any(|c| c == "strobe")
-                && (self.strobe.ids.is_empty() || self.strobe.ids.contains(&fx.id));
-            let tmp;
-            let fx = if strobed {
-                tmp = Fixture { strobe: if fx.strobe > 0 { fx.strobe } else { STROBE_LEVEL }, ..fx.clone() };
-                &tmp
-            } else {
-                fx
-            };
             let n_seg = segment_count(channels);
             if let (Some(p), true) = (fx.preset, has_presets(channels)) {
                 // профіль з каналом програми (A001 / H001): програма — у свій канал
@@ -1476,7 +1438,7 @@ impl Engine {
                     let c = fx.seg_color(k);
                     match pixel.get(&(fx.id.as_str(), k)) {
                         Some(&p) if over.is_none() => {
-                            let c = effect_color(eff, p, count, t, c);
+                            let c = effect_color(eff, p, count, t, unfold, c);
                             pulse.map_or(c, |k| c.scaled(k))
                         }
                         _ => c,

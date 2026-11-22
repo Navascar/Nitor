@@ -140,11 +140,11 @@ fn floor_mod(a: f64, b: f64) -> f64 {
     a.rem_euclid(b)
 }
 
-/// Колір «пікселя» з номером `index` (0..count-1) у момент `t` (секунди).
-/// `base` — власний колір приладу.
-pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: Color) -> Color {
+/// Колір «пікселя» з номером `index` (0..count-1) у момент `t` (секунди від початку ефекту).
+/// `unfold` 0..1 — наскільки пікселі вже розійшлися: 0 — усі одного кольору. `base` — власний колір приладу.
+pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, unfold: f64, base: Color) -> Color {
     let speed = effect.speed;
-    let spread = effect.spread;
+    let spread = effect.spread * unfold;
     let palette = &effect.colors;
     let count = count.max(1);
     let (fi, fc) = (index as f64, count as f64);
@@ -188,7 +188,9 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: C
         }
         EffectKind::Random => {
             let step = (t * speed + offset).trunc() as u64;
-            let mut rng = Rng::new(step * 7919 + index as u64 * 104729);
+            // поки ефект не розійшовся — один випадковий колір на всіх
+            let seed_index = if unfold < 1.0 { 0 } else { index as u64 };
+            let mut rng = Rng::new(step * 7919 + seed_index * 104729);
             if palette.is_empty() {
                 let (r, g, b) = hsv_to_rgb(rng.random(), 1.0, 1.0);
                 Color::rgb(r * 255.0, g * 255.0, b * 255.0)
@@ -197,6 +199,7 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, base: C
             }
         }
         EffectKind::Fire => {
+            let fi = fi * unfold;
             let n = ((t * speed * 7.3 + fi * 1.7).sin()
                 + (t * speed * 13.1 + fi * 3.1).sin()
                 + (t * speed * 23.7 + fi * 0.7).sin())

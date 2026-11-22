@@ -1,4 +1,4 @@
-//! Контекстні меню. Вміст залежить від того, де клікнули: прилад, колір, статичні кольори,
+//! Контекстні меню. Вміст залежить від того, де клікнули: прилад, колір палітри,
 //! ефекти, сцени, поле вводу або порожнє місце.
 
 use egui::{Align2, Color32, Id, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
@@ -15,7 +15,7 @@ use nitor_ui::theme::*;
 pub enum Item {
     Title(String),
     Sep,
-    /// рядок статичних кольорів: клік — застосувати до `ids`
+    /// кольори палітри: клік — застосувати до `ids`
     Colors(Vec<String>),
     Entry {
         icon: Option<&'static str>,
@@ -89,6 +89,7 @@ impl App {
         }
         let ids = self.sel.clone();
         let items = self.sel_items();
+        let h = self.v.hotkeys.clone();
         let mut whole: Vec<String> = vec![];
         for i in items.iter().filter(|i| i.seg.is_none()) {
             if !whole.contains(&i.id) {
@@ -109,7 +110,7 @@ impl App {
         let mut m = vec![
             Item::Title(head),
             Item::Colors(ids.clone()),
-            item("eraser", "Очистити колір", Act::Cmd(Command::Clear { ids: ids.clone() })).key(Some("Del".into())),
+            item("eraser", "Очистити колір", Act::Cmd(Command::Clear { ids: ids.clone() })).key(short_key(&h, "clear")),
             Item::Sep,
             item("play", format!("Запустити ефект «{eff_name}»"), Act::RunEffect(in_sel.clone())),
         ];
@@ -135,7 +136,11 @@ impl App {
             } else {
                 "Видалити прилад".into()
             };
-            m.push(item("trash", label, Act::AskDeleteFixtures { ids: whole, close_props: false }).danger());
+            m.push(
+                item("trash", label, Act::AskDeleteFixtures { ids: whole, close_props: false })
+                    .danger()
+                    .key(short_key(&h, "deleteFixtures")),
+            );
         }
         m
     }
@@ -168,50 +173,29 @@ impl App {
         m.push(item("sun", "Яскравість 100%", dim(255)).disabled(!has));
         m.push(item("half", "Яскравість 50%", dim(128)).disabled(!has));
         m.push(Item::Sep);
-        m.push(item("star", "Зберегти як статичний колір…", Act::SaveStaticCurrent).disabled(cur.is_none()));
         m.push(
-            item("eraser", if has { "Очистити вибрані" } else { "Очистити все" }, Act::Clear).key(Some("Del".into())),
+            item("eraser", if has { "Очистити вибрані" } else { "Очистити все" }, Act::Clear)
+                .key(short_key(&self.v.hotkeys, "clear")),
         );
         m
     }
 
-    pub fn static_menu(&self, index: Option<usize>) -> Vec<Item> {
+    pub fn static_menu(&self, i: usize) -> Vec<Item> {
         let ids = self.sel.clone();
-        let c = index.and_then(|i| self.v.show.static_colors.get(i));
-        let mut m = vec![Item::Title(match c {
-            Some(c) => format!("Статичний колір · {}", c.name),
-            None => "Статичні кольори".into(),
-        })];
-        if let (Some(_), Some(i)) = (c, index) {
-            let label = if self.sel.is_empty() {
-                "Застосувати до всіх"
-            } else {
-                "Застосувати до вибраних"
-            };
-            m.push(
-                item("dot", label, Act::StaticTo { index: i, ids: ids.clone() })
-                    .key((i < 9).then(|| (i + 1).to_string())),
-            );
-            if !self.sel.is_empty() {
-                m.push(item("circle", "Застосувати до всіх приладів", Act::StaticTo { index: i, ids: vec![] }));
-            }
-            m.push(item("edit", "Перейменувати…", Act::AskRenameStatic(i)));
-            m.push(item("trash", "Видалити колір", Act::AskDeleteStatic(i)).danger());
-            m.push(Item::Sep);
+        let Some(c) = self.v.show.static_colors.get(i) else { return vec![] };
+        let label = if self.sel.is_empty() {
+            "Застосувати до всіх"
+        } else {
+            "Застосувати до вибраних"
+        };
+        let mut m = vec![
+            Item::Title(format!("Колір · {}", c.name)),
+            item("dot", label, Act::StaticTo { index: i, ids: ids.clone() })
+                .key(short_key(&self.v.hotkeys, &format!("static{}", i + 1))),
+        ];
+        if !self.sel.is_empty() {
+            m.push(item("circle", "Застосувати до всіх приладів", Act::StaticTo { index: i, ids: vec![] }));
         }
-        m.push(
-            item("star", "Зберегти поточний колір…", Act::SaveStaticCurrent).disabled(self.first_sel_color().is_none()),
-        );
-        m.push(item(
-            "edit",
-            if self.static_editing {
-                "Завершити редагування"
-            } else {
-                "Редагувати набір"
-            },
-            Act::ToggleStaticEdit,
-        ));
-        m.push(item("reset", "Скинути до стандартних", Act::AskResetStatic));
         m.push(Item::Sep);
         m.push(
             item(
@@ -223,7 +207,7 @@ impl App {
                 },
                 Act::Clear,
             )
-            .key(Some("Del".into())),
+            .key(short_key(&self.v.hotkeys, "clear")),
         );
         m
     }
@@ -363,12 +347,6 @@ impl App {
             item("bulbOff", if self.v.show.blackout { "Вимкнути Blackout" } else { "Blackout" }, Act::Blackout)
                 .key(short_key(h, "blackout")),
         );
-        if !self.v.strobe_fixtures.is_empty() {
-            m.push(
-                item("bolt", if self.v.strobe.on { "Вимкнути строб" } else { "Строб" }, Act::ToggleStrobe)
-                    .key(short_key(h, "strobe")),
-            );
-        }
         m.push(Item::Sep);
         if u.available && u.blocked.is_none() {
             m.push(item("download", format!("Оновити до {}…", u.latest), Act::OpenUpdate));

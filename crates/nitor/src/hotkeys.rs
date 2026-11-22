@@ -18,24 +18,24 @@ pub fn table() -> Vec<Entry> {
     let mut t = vec![
         Entry::Group("Світло"),
         a("blackout", "Blackout — вимкнути все світло", &["KeyB"]),
-        a("strobe", "Строб", &["KeyS"]),
         a("flash", "Спалах — поки клавішу тримають", &["KeyF"]),
         a("tap", "Тап темпу для «у такт музиці»", &["KeyT"]),
-        a("clear", "Очистити кольори", &["Delete", "Backspace", "Digit0"]),
+        a("clear", "Очистити кольори", &["Backspace", "Digit0"]),
         a("effectStop", "Зупинити всі ефекти", &[]),
         Entry::Group("Вибір приладів"),
         a("selectAll", "Вибрати всі прилади", &["Ctrl+KeyA"]),
         a("selectNone", "Зняти вибір", &["Escape"]),
         a("selectInvert", "Інвертувати вибір", &[]),
+        a("deleteFixtures", "Видалити вибрані прилади (з підтвердженням)", &["Delete"]),
         Entry::Group("Скасування"),
         a("undo", "Скасувати", &["Ctrl+KeyZ"]),
         a("redo", "Повторити", &["Ctrl+KeyY", "Ctrl+Shift+KeyZ"]),
-        Entry::Group("Статичні кольори"),
+        Entry::Group("Палітра кольорів"),
     ];
     for n in 1..=9 {
         t.push(Entry::Action {
             id: format!("static{n}"),
-            label: format!("Статичний колір {n}"),
+            label: format!("Колір палітри {n}"),
             keys: vec![format!("Digit{n}")],
         });
     }
