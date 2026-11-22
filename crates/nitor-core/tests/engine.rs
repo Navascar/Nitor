@@ -691,7 +691,12 @@ fn full_config() -> serde_json::Value {
                      {"id": "b", "name": "B", "address": 10, "profile": "Мій"}],
         "scenes": {"S": {"fixtures": {}, "effect": null}},
         "static_colors": [{"name": "X", "hex": "#ff0000"}],
-        "hotkeys": {"blackout": ["KeyX"]}
+        "hotkeys": {"blackout": ["KeyX"]},
+        "groups": {"Ліві": ["a"]},
+        "audio": "mic",
+        "midi": [{"key": "note:0:1", "action": "blackout"}],
+        "operator": true,
+        "pin": "salt:hash"
     })
 }
 
@@ -707,7 +712,7 @@ fn userdata_strip() {
     let s = userdata::strip(c, &parts(&[Scenes]));
     assert!(!s.contains_key("scenes") && s.contains_key("fixtures"));
     let s = userdata::strip(c, &parts(&[Fixtures]));
-    assert!(!s.contains_key("fixtures") && !s.contains_key("recent_models"));
+    assert!(!s.contains_key("fixtures") && !s.contains_key("recent_models") && !s.contains_key("groups"));
     assert!(s["profiles"].get("Модель · 3 кан.").is_none() && s["profiles"].get("Мій").is_some());
     let s = userdata::strip(c, &parts(&[Profiles]));
     // у використанні — лишаються; невикористаний власний — видаляється
@@ -720,6 +725,38 @@ fn userdata_strip() {
             && !s.contains_key("hotkeys")
             && !s.contains_key("static_colors")
     );
+    // PIN і режим оператора — теж налаштування: інакше після перевстановлення програма знову заблокована
+    for k in ["audio", "midi", "operator", "pin"] {
+        assert!(!s.contains_key(k), "{k} лишився");
+    }
+}
+
+#[test]
+fn only_saved_state_marks_config_dirty() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    e.mark_saved(0.0);
+    for c in [
+        Command::Beat(0.5),
+        Command::Flash(Some(FlashSource::Color { ids: vec![], source: StaticSource::Index(0) })),
+        Command::Flash(None),
+        Command::RawSet { address: 1, value: 9 },
+        Command::RawClear(None),
+    ] {
+        ok(&mut e, c);
+        assert!(!e.is_dirty(), "удари, спалах і тест каналів не переписують config.json");
+    }
+    ok(&mut e, hex(&[&a], "#ff0000"));
+    assert!(e.is_dirty());
+}
+
+#[test]
+fn deleting_last_effect_fixture_stops_effect() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    ok(&mut e, effect(EffectKind::Rainbow, &[&a]));
+    ok(&mut e, Command::DeleteFixture { id: a });
+    assert_eq!(e.show.effect.kind, EffectKind::None);
 }
 
 #[test]

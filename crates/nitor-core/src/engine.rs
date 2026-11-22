@@ -183,7 +183,7 @@ impl Default for Show {
             effect: Effect::default(),
             scenes: IndexMap::new(),
             static_colors: default_static_colors(),
-            profiles: default_profiles(),
+            profiles: default_profiles().clone(),
             device_profiles: BTreeSet::new(),
             groups: IndexMap::new(),
         }
@@ -808,6 +808,9 @@ impl Engine {
             self.undo_t = now;
         }
         let no_undo = cmd.no_undo();
+        // удари, «Спалах» і тест каналів не зберігаються — файл налаштувань не переписуємо
+        let persist =
+            !matches!(cmd, Command::Beat(_) | Command::Flash(_) | Command::RawSet { .. } | Command::RawClear(_));
         let prev = self.show.effect.clone();
         if let Err(e) = self.apply(cmd, now) {
             if pushed {
@@ -822,7 +825,7 @@ impl Engine {
             self.redo.clear();
         }
         self.retime_effect(&prev, now);
-        self.dirty = true;
+        self.dirty |= persist;
         Ok(())
     }
 
@@ -892,7 +895,7 @@ impl Engine {
             }
             Command::DeleteFixture { id } => {
                 self.show.fixtures.retain(|f| f.id != id);
-                self.show.effect.ids.retain(|i| *i != id);
+                self.drop_from_effect(std::slice::from_ref(&id));
                 for ids in self.show.groups.values_mut() {
                     ids.retain(|i| *i != id);
                 }

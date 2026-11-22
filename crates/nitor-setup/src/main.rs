@@ -274,6 +274,13 @@ fn main() {
             Ok(()) => 0,
             Err(e) => {
                 note(&job, format!("Оновлення не вдалося: {e}"));
+                // програма вже закрилася заради оновлення — запускаємо ту версію, що є
+                let exe = sys::app_dir().join(APP_EXE);
+                if exe.exists() {
+                    if let Err(e) = sys::launch(&exe) {
+                        note(&job, format!("Не вдалося запустити Nitor: {e}"));
+                    }
+                }
                 1
             }
         };

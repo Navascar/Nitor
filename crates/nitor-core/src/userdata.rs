@@ -1,8 +1,9 @@
 //! Вибіркове видалення даних користувача з config.json (для вікна видалення програми).
 //!
-//! Частини: сцени; прилади (разом із профілями їхніх моделей і нещодавніми моделями); власні
-//! профілі (крім тих, якими користуються прилади, що лишаються); статичні кольори; налаштування
-//! (DMX-інтерфейс, яскравість, гарячі клавіші). Якщо нічого не лишилося, файл видаляється.
+//! Частини: сцени; прилади (разом із профілями їхніх моделей, нещодавніми моделями й групами);
+//! власні профілі (крім тих, якими користуються прилади, що лишаються); статичні кольори;
+//! налаштування (DMX-інтерфейс, яскравість, гарячі клавіші, звук, MIDI, режим оператора й PIN).
+//! Якщо нічого не лишилося, файл видаляється.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -48,7 +49,7 @@ pub fn strip(cfg: &Map<String, Value>, parts: &BTreeSet<Part>) -> Map<String, Va
         cfg.remove("scenes");
     }
     if parts.contains(&Part::Fixtures) {
-        for k in ["fixtures", "recent_models", "device_profiles"] {
+        for k in ["fixtures", "recent_models", "device_profiles", "groups"] {
             cfg.remove(k);
         }
         profiles.retain(|k, _| !device.contains(k));
@@ -66,7 +67,7 @@ pub fn strip(cfg: &Map<String, Value>, parts: &BTreeSet<Part>) -> Map<String, Va
         cfg.remove("static_colors");
     }
     if parts.contains(&Part::Settings) {
-        for k in ["output", "master", "hotkeys", "prefs"] {
+        for k in ["output", "master", "hotkeys", "prefs", "audio", "midi", "operator", "pin"] {
             cfg.remove(k);
         }
     }

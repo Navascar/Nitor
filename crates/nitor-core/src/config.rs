@@ -38,7 +38,7 @@ pub struct ConfigFile {
     pub fixtures: Vec<Fixture>,
     #[serde(default)]
     pub scenes: IndexMap<String, Scene>,
-    /// Лише для старих файлів: набір кольорів тепер сталий (`default_static_colors`).
+    /// Стандартні кольори й ті, що зберіг користувач (стандартні під час читання беруться з програми).
     #[serde(default = "default_static_colors")]
     pub static_colors: Vec<StaticColor>,
     #[serde(default)]
@@ -105,7 +105,16 @@ impl Engine {
                 let broken = path.with_file_name(format!("config.broken-{}.json", stamp()));
                 let name = broken.file_name().unwrap_or_default().to_string_lossy().to_string();
                 if let Err(re) = std::fs::rename(&path, &broken) {
-                    log::error!("Не вдалося відкласти зіпсований файл налаштувань: {re}");
+                    // файл не прочитався й не перейменувався (наприклад, його тримає інша програма):
+                    // не зберігаємо нічого, інакше порожні налаштування затруть справжні
+                    log::error!("Не вдалося прочитати чи відкласти файл налаштувань ({err}; {re})");
+                    e.config_path = None;
+                    e.load_warning = Some(format!(
+                        "Не вдалося відкрити файл налаштувань {}. Програма працює з чистими налаштуваннями, \
+                         і зміни не збережуться. Закрийте Nitor і відкрийте знову.",
+                        path.display()
+                    ));
+                    return e;
                 }
                 log::error!("Файл налаштувань пошкоджено ({err}), його збережено як {name}");
                 e.load_warning = Some(format!(
@@ -119,7 +128,7 @@ impl Engine {
 
     pub fn apply_config(&mut self, cfg: ConfigFile) {
         let s = &mut self.show;
-        s.profiles = default_profiles();
+        s.profiles = default_profiles().clone();
         s.profiles.extend(cfg.profiles);
         s.device_profiles = cfg.device_profiles.into_iter().filter(|p| s.profiles.contains_key(p)).collect();
         self.recent_models = cfg.recent_models.into_iter().take(RECENT_LIMIT).collect();
@@ -204,7 +213,11 @@ pub fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&tmp, serde_json::to_string_pretty(value)?)?;
+    let mut f = std::fs::File::create(&tmp)?;
+    std::io::Write::write_all(&mut f, serde_json::to_string_pretty(value)?.as_bytes())?;
+    // на диск до перейменування: інакше після вимкнення живлення файл може лишитися порожнім
+    f.sync_all()?;
+    drop(f);
     std::fs::rename(&tmp, path)?;
     Ok(())
 }

@@ -22,7 +22,7 @@ pub struct RegInfo<'a> {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
     use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
     use windows::Win32::System::Com::{
         CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, IPersistFile,
@@ -36,7 +36,7 @@ mod imp {
         FOLDERID_Desktop, FOLDERID_Programs, IShellLinkW, KF_FLAG_DEFAULT, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
         SHChangeNotify, SHGetKnownFolderPath, ShellLink,
     };
-    use windows::core::{GUID, HSTRING, Interface, PCWSTR, PROPVARIANT};
+    use windows::core::{GUID, HSTRING, Interface, PROPVARIANT};
 
     fn known(id: &GUID) -> Option<PathBuf> {
         unsafe {
@@ -154,9 +154,6 @@ mod imp {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
-
-    #[allow(dead_code)]
-    fn _unused(_: HANDLE, _: PCWSTR) {}
 }
 
 #[cfg(not(windows))]

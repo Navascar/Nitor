@@ -7,11 +7,11 @@ use egui::{
 use nitor_core::color::{hsv_to_rgb, rgb_to_hsv};
 use nitor_core::engine::{ColorValues, EffectPatch};
 use nitor_core::fixtures::programs;
-use nitor_core::{Command, EffectKind, Engine, Rgb};
+use nitor_core::{Command, EffectKind, Rgb};
 
 use crate::app::{Act, App, FLASH_WHITE, FlashHold, Pane, c32, cap, readable_text, speed_from_slider};
 use crate::hotkeys::short_key;
-use crate::menus::{fmt_num, paint_static_chip};
+use crate::menus::paint_static_chip;
 use nitor_core::engine::{FlashSource, StaticSource};
 use nitor_core::tempo::AudioSource;
 use nitor_ui::theme::*;
@@ -1782,13 +1782,6 @@ fn scene_tip(name: &str) -> String {
 fn ui_alt(r: &egui::Response) -> bool {
     r.ctx.input(|i| i.modifiers.alt)
 }
-
-pub fn _fmt(v: f64) -> String {
-    fmt_num(v)
-}
-
-#[allow(dead_code)]
-fn _unused(_: &Engine) {}
 
 /// Кнопка панелі вікна (як «Згорнути» в інсталяторі): значок малюється сам. `true` — натиснуто.
 fn window_button(ui: &mut Ui, tip: &str, paint: impl FnOnce(&egui::Painter, Pos2)) -> bool {

@@ -44,21 +44,25 @@ pub fn wash243_modes() -> Vec<(String, String, Vec<String>)> {
 }
 
 /// Профілі моделей, які програма знає сама (додаються, щойно потрібні приладу).
-pub fn model_profiles() -> Profiles {
-    wash243_modes().into_iter().map(|(_, name, r)| (name, r)).collect()
+pub fn model_profiles() -> &'static Profiles {
+    static P: std::sync::OnceLock<Profiles> = std::sync::OnceLock::new();
+    P.get_or_init(|| wash243_modes().into_iter().map(|(_, name, r)| (name, r)).collect())
 }
 
 /// Загальні профілі — для невідомого приладу, якому потрібне лише базове керування кольором.
-pub fn default_profiles() -> Profiles {
-    [
-        ("RGB (3 кан.)", &["r", "g", "b"][..]),
-        ("RGBW (4 кан.)", &["r", "g", "b", "w"][..]),
-        ("Dim+RGB (4 кан.)", &["dim", "r", "g", "b"][..]),
-        ("RGB+Dim (4 кан.)", &["r", "g", "b", "dim"][..]),
-    ]
-    .into_iter()
-    .map(|(n, r)| (n.to_string(), roles(r)))
-    .collect()
+pub fn default_profiles() -> &'static Profiles {
+    static P: std::sync::OnceLock<Profiles> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
+        [
+            ("RGB (3 кан.)", &["r", "g", "b"][..]),
+            ("RGBW (4 кан.)", &["r", "g", "b", "w"][..]),
+            ("Dim+RGB (4 кан.)", &["dim", "r", "g", "b"][..]),
+            ("RGB+Dim (4 кан.)", &["r", "g", "b", "dim"][..]),
+        ]
+        .into_iter()
+        .map(|(n, r)| (n.to_string(), roles(r)))
+        .collect()
+    })
 }
 
 pub fn roles(r: &[&str]) -> Vec<String> {
@@ -454,10 +458,10 @@ mod tests {
     #[test]
     fn address_bounds() {
         let p = default_profiles();
-        assert!(validate_fixture(&fx(510, "RGB (3 кан.)"), &p).is_ok());
-        assert!(validate_fixture(&fx(511, "RGB (3 кан.)"), &p).is_err());
-        assert!(validate_fixture(&fx(0, "RGB (3 кан.)"), &p).is_err());
-        assert!(validate_fixture(&fx(1, "немає"), &p).is_err());
+        assert!(validate_fixture(&fx(510, "RGB (3 кан.)"), p).is_ok());
+        assert!(validate_fixture(&fx(511, "RGB (3 кан.)"), p).is_err());
+        assert!(validate_fixture(&fx(0, "RGB (3 кан.)"), p).is_err());
+        assert!(validate_fixture(&fx(1, "немає"), p).is_err());
     }
 
     #[test]
@@ -480,7 +484,7 @@ mod tests {
         b.id = "b".into();
         let mut c = fx(4, "RGB (3 кан.)");
         c.id = "c".into();
-        assert_eq!(find_overlaps(&[a, b, c], &p), vec![("a".to_string(), "b".to_string()), ("b".into(), "c".into())]);
+        assert_eq!(find_overlaps(&[a, b, c], p), vec![("a".to_string(), "b".to_string()), ("b".into(), "c".into())]);
     }
 
     #[test]
