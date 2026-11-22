@@ -1,4 +1,4 @@
-# Перевірка на справжній Windows (гілки, крім main, і вручну): збірка, встановлення поверх Nitor 1.x,
+# Перевірка на справжній Windows (гілки, крім main, і вручну): збірка, тихе встановлення,
 # ярлики й ідентифікатор програми, вікно програми й вікно запуску, одна копія, повторне встановлення
 # поверх відкритої програми, вибіркове видалення даних.
 # Знімки вікон — в артефакті windows-check і в журналі рядками SHOT|назва|base64.
@@ -48,19 +48,7 @@ jobs:
           Start-Process .\Nitor-Setup.exe -Wait
           Test-Path shots\setup.png
 
-      - name: Стара установка Nitor 1.x
-        shell: pwsh
-        run: |
-          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
-          New-Item -ItemType Directory -Force "$app\dmxctl", "$app\.venv\Scripts" | Out-Null
-          Set-Content "$app\dmxctl\engine.py" '' -Encoding UTF8
-          Set-Content "$app\nitor.pyw" '' -Encoding UTF8
-          Set-Content "$app\config.json" '{"fixtures": []}' -Encoding UTF8
-          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor'
-          New-Item $key -Force | Out-Null
-          New-ItemProperty $key -Name DisplayVersion -Value '1.26.9' -Force | Out-Null
-
-      - name: Тихе встановлення поверх 1.x
+      - name: Тихе встановлення
         shell: pwsh
         run: |
           $p = Start-Process .\Nitor-Setup.exe -ArgumentList '/S' -PassThru -Wait
@@ -72,10 +60,6 @@ jobs:
             'код виходу 0'              = $p.ExitCode -eq 0
             'nitor.exe'                 = Test-Path "$app\nitor.exe"
             'Uninstall.exe'             = Test-Path "$app\Uninstall.exe"
-            '1.x прибрано (dmxctl)'     = -not (Test-Path "$app\dmxctl")
-            '1.x прибрано (.venv)'      = -not (Test-Path "$app\.venv")
-            'налаштування 1.x прибрано' = -not (Test-Path "$app\config.json")
-            'версія в «Програмах»'      = (Get-ItemProperty $key).DisplayVersion -ne '1.26.9'
             'ярлик на робочому столі'   = Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nitor.lnk')
             'ярлик у меню «Пуск»'       = Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk')
           }
@@ -100,11 +84,12 @@ jobs:
           $app = Join-Path $env:LOCALAPPDATA 'Nitor'
           @'
           {"version": 2, "output": {"type": "none"}, "master": 230,
+           "profiles": {"LED-бар (24 кан.)": ["r","g","b","r","g","b","r","g","b","r","g","b","r","g","b","r","g","b","r","g","b","r","g","b"]},
            "fixtures": [
             {"id": "a1", "name": "Лівий PAR", "address": 1, "profile": "RGBW (4 кан.)", "r": 255, "g": 80},
             {"id": "a2", "name": "Правий PAR", "address": 5, "profile": "RGBW (4 кан.)", "g": 120, "b": 255},
-            {"id": "a3", "name": "Бар", "address": 20, "profile": "Free Color WASH 243 · 24 кан. P001 (8 сегментів)",
-             "b": 255, "segs": [[255,0,0],null,[0,255,0]], "model": {"m": "Free Color", "n": "WASH 243", "mode": "P001 · 8 сегментів"}}],
+            {"id": "a3", "name": "Бар", "address": 20, "profile": "LED-бар (24 кан.)",
+             "b": 255, "segs": [[255,0,0],null,[0,255,0]]}],
            "scenes": {"Вечір": {"fixtures": {}}}}
           '@ | Set-Content "$app\config.json" -Encoding UTF8
           $env:NITOR_NO_UPDATE = '1'
@@ -199,6 +184,13 @@ jobs:
         with:
           name: windows-check
           path: shots
+
+      - name: Інсталятор для ручної перевірки
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nitor-Setup
+          path: Nitor-Setup.exe
+          retention-days: 14
 
       - name: Знімки в журнал (base64, для перегляду без артефактів)
         if: always()

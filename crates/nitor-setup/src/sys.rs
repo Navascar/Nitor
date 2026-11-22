@@ -114,7 +114,7 @@ mod imp {
         HSTRING::from(s)
     }
 
-    /// Nitor (2.x або 1.x — вони мають той самий м'ютекс) зараз працює.
+    /// Nitor зараз працює.
     pub fn app_running() -> bool {
         unsafe {
             match OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, &wide(r"Local\Nitor.App")) {
@@ -127,7 +127,7 @@ mod imp {
         }
     }
 
-    /// Просить Nitor 2.x завершитися (подія Local\Nitor.Quit) і Nitor 1.x (HTTP /api/quit).
+    /// Просить Nitor завершитися (подія Local\Nitor.Quit).
     pub fn request_quit() {
         unsafe {
             if let Ok(h) = OpenEventW(EVENT_MODIFY_STATE, false, &wide(r"Local\Nitor.Quit")) {
@@ -135,7 +135,6 @@ mod imp {
                 let _ = CloseHandle(h);
             }
         }
-        super::quit_legacy();
     }
 
     /// Чекає, поки процес завершиться (не довше `secs`).
@@ -182,9 +181,7 @@ mod imp {
     pub fn app_running() -> bool {
         false
     }
-    pub fn request_quit() {
-        super::quit_legacy();
-    }
+    pub fn request_quit() {}
     pub fn wait_pid(_pid: u32, _secs: u32) {}
     pub fn launch(exe: &Path) -> Result<(), String> {
         std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| e.to_string())
@@ -192,30 +189,6 @@ mod imp {
 }
 
 pub use imp::*;
-
-/// Nitor 1.x слухає HTTP на 8080..8099: команда «вимкнути» від вікна запуску.
-pub fn quit_legacy() {
-    use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpStream};
-    use std::time::Duration;
-    for port in 8080u16..8100 {
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(150)) else { continue };
-        let _ = s.set_read_timeout(Some(Duration::from_millis(800)));
-        let _ = write!(s, "GET / HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n");
-        let mut buf = vec![0u8; 4096];
-        let n = s.read(&mut buf).unwrap_or(0);
-        if !String::from_utf8_lossy(&buf[..n]).contains("<title>Nitor</title>") {
-            continue;
-        }
-        if let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) {
-            let _ = write!(
-                s,
-                "POST /api/quit HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nX-Nitor-Splash: 1\r\nContent-Length: 0\r\n\r\n"
-            );
-        }
-    }
-}
 
 /// Закриває запущений Nitor і чекає, поки він завершиться. `false` — не закрився.
 pub fn close_app(timeout_s: u32) -> bool {

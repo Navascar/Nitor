@@ -309,7 +309,7 @@ pub fn segment_count(channels: &[String]) -> usize {
     COLOR_KEYS.iter().map(|k| channels.iter().filter(|c| c == k).count()).max().unwrap_or(0).max(1)
 }
 
-/// Округлення до 0..255 (до парного при .5, як `round` у Python).
+/// Округлення до 0..255 (банківське: .5 — до парного).
 pub fn clamp8(v: f64) -> u8 {
     if v <= 0.0 {
         0

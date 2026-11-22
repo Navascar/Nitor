@@ -28,46 +28,6 @@ pub fn installed_size_kb(app: &[u8]) -> u32 {
     ((app.len() + LICENSES_TEXT.len()) / 1024) as u32 + 1
 }
 
-/// Ознаки Nitor 1.x (Python) у теці програми.
-const LEGACY: [&str; 9] = [
-    "dmxctl",
-    ".venv",
-    "venv",
-    "nitor.pyw",
-    "sc-dmx.pyw",
-    "requirements.txt",
-    "install.ps1",
-    "install.bat",
-    "start.bat",
-];
-
-pub fn has_legacy(app_dir: &Path) -> bool {
-    LEGACY.iter().any(|n| app_dir.join(n).exists())
-}
-
-/// Повністю прибирає Nitor 1.x з теки програми (разом із її налаштуваннями).
-/// Повертає файли, які не вдалося видалити.
-pub fn remove_legacy(app_dir: &Path) -> Vec<PathBuf> {
-    if !has_legacy(app_dir) {
-        return vec![];
-    }
-    let mut failed = vec![];
-    let Ok(entries) = std::fs::read_dir(app_dir) else { return failed };
-    for e in entries.flatten() {
-        let p = e.path();
-        let name = e.file_name().to_string_lossy().to_string();
-        // власні файли нової версії не чіпаємо (повторне встановлення поверх 1.x після збою)
-        if name == APP_EXE || name == UNINSTALL_EXE {
-            continue;
-        }
-        let r = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
-        if r.is_err() {
-            failed.push(p);
-        }
-    }
-    failed
-}
-
 /// Записує файл через тимчасовий і перейменування (запущений exe можна перейменувати, але не перезаписати).
 fn write_replace(path: &Path, data: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("new");
@@ -111,7 +71,7 @@ pub struct Removed {
 /// Видаляє програму з теки. Деінсталятор, що зараз працює (`except`), видаляється окремо.
 pub fn uninstall_files(app_dir: &Path, removal: &Removal, except: Option<&Path>) -> Result<Removed, String> {
     // захист: видаляємо лише теку, схожу на теку Nitor
-    let looks_like = app_dir.join(APP_EXE).exists() || app_dir.join(UNINSTALL_EXE).exists() || has_legacy(app_dir);
+    let looks_like = app_dir.join(APP_EXE).exists() || app_dir.join(UNINSTALL_EXE).exists();
     if !looks_like {
         return Err(format!("Тека {} не схожа на теку Nitor — її не видалено.", app_dir.display()));
     }
@@ -175,23 +135,6 @@ mod tests {
             std::fs::create_dir_all(d).unwrap();
         }
         std::fs::write(p, b"x").unwrap();
-    }
-
-    #[test]
-    fn legacy_is_removed_completely() {
-        let d = tempfile::tempdir().unwrap();
-        let app = d.path();
-        touch(&app.join("dmxctl/engine.py"));
-        touch(&app.join(".venv/Scripts/python.exe"));
-        touch(&app.join("config.json"));
-        touch(&app.join("nitor.pyw"));
-        assert!(has_legacy(app));
-        assert!(remove_legacy(app).is_empty());
-        assert_eq!(std::fs::read_dir(app).unwrap().count(), 0, "1.x прибрано разом із налаштуваннями");
-        // без ознак 1.x нічого не чіпаємо
-        touch(&app.join("config.json"));
-        assert!(remove_legacy(app).is_empty());
-        assert!(app.join("config.json").exists());
     }
 
     #[test]

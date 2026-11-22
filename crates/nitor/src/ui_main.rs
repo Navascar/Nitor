@@ -34,8 +34,8 @@ const SWATCHES: [&str; 16] = [
     "#8000ff", "#ff00ff", "#ff0080", "#ffffff", "#ffb070", "#000000",
 ];
 
-/// HSV → RGB так само, як колірне коло 1.x (округлення до цілих).
-fn js_hsv(h: f64, s: f64, v: f64) -> Rgb {
+/// HSV → RGB для колірного кола (округлення до цілих).
+fn wheel_hsv(h: f64, s: f64, v: f64) -> Rgb {
     let (r, g, b) = hsv_to_rgb(h, s, v);
     Rgb((r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8)
 }
@@ -622,7 +622,7 @@ impl App {
                     continue;
                 }
                 let h = (dy.atan2(dx) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
-                let c = js_hsv(h, d / r, 1.0);
+                let c = wheel_hsv(h, d / r, 1.0);
                 let a = if d > r - 2.0 { 128 } else { 255 };
                 img[(x, y)] = Color32::from_rgba_unmultiplied(c.0, c.1, c.2, a);
             }
@@ -645,7 +645,7 @@ impl App {
                     let rr = 110.0;
                     let s = (d.length() / rr).min(1.0) as f64;
                     let h = ((d.y as f64).atan2(d.x as f64) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
-                    let c = js_hsv(h, s, 1.0);
+                    let c = wheel_hsv(h, s, 1.0);
                     if c != self.last_color || resp.drag_started() || resp.clicked() {
                         self.pick_color(c);
                     }
@@ -655,7 +655,7 @@ impl App {
                     let d = pos - rect.center();
                     let s = (d.length() / 110.0).min(1.0) as f64;
                     let h = ((d.y as f64).atan2(d.x as f64) / (2.0 * std::f64::consts::PI) + 1.0) % 1.0;
-                    self.pick_color(js_hsv(h, s, 1.0));
+                    self.pick_color(wheel_hsv(h, s, 1.0));
                 }
             }
             if resp.secondary_clicked() {

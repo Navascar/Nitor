@@ -1,4 +1,4 @@
-//! Поведінка рушія (перенесено з тестів pytest Nitor 1.x, без перенесення старих форматів).
+//! Поведінка рушія.
 
 use std::collections::BTreeSet;
 
@@ -118,7 +118,7 @@ fn render_with_and_without_dimmer() {
         },
     );
     ok(&mut e, Command::SetMaster(128));
-    // 0.5 майстра в Python ≈ 128/255 тут
+    // майстер 128/255 ≈ половина яскравості
     let f = e.render(0.0);
     assert_eq!(&f[0..4], &[100, 50, 25, 128]);
 }
@@ -574,8 +574,8 @@ fn scene_file_busy_addresses_and_bad_file() {
     let added = b.show.fixtures.iter().find(|f| f.address == 100).unwrap().clone();
     assert_eq!(b.show.profiles[&added.profile], ids(&["dim", "r", "g", "b", "zero"]));
     assert!(b.menu_profiles().contains(&added.profile));
-    // файли старого формату 1.x не відкриваються
-    assert!(import(&mut b, &json!({"format": "sc-dmx-scene", "fixtures": []})).is_err());
+    // файли чужого формату не відкриваються
+    assert!(import(&mut b, &json!({"format": "other-scene", "fixtures": []})).is_err());
 }
 
 fn scene_with(effect: serde_json::Value, items: serde_json::Value) -> serde_json::Value {

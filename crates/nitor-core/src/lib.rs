@@ -12,7 +12,7 @@ pub mod fixtures;
 pub mod library;
 pub mod midi;
 pub mod outputs;
-pub mod pyrandom;
+pub mod rng;
 pub mod scene_file;
 pub mod tempo;
 pub mod userdata;
