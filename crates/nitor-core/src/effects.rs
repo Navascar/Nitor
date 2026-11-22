@@ -77,11 +77,26 @@ pub struct Effect {
     pub colors: Vec<Rgb>,
     #[serde(default = "yes")]
     pub by_segment: bool,
+    /// У такт музиці: швидкість і крок — від темпу.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub beat: bool,
+    /// Спалах яскравості на кожен удар (лише з `beat`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub beat_pulse: bool,
 }
 
 impl Default for Effect {
     fn default() -> Self {
-        Effect { kind: EffectKind::None, ids: vec![], speed: 0.5, spread: 1.0, colors: vec![], by_segment: true }
+        Effect {
+            kind: EffectKind::None,
+            ids: vec![],
+            speed: 0.5,
+            spread: 1.0,
+            colors: vec![],
+            by_segment: true,
+            beat: false,
+            beat_pulse: false,
+        }
     }
 }
 
@@ -94,6 +109,21 @@ impl Effect {
         self.colors.truncate(PALETTE_MAX);
         self
     }
+}
+
+impl EffectKind {
+    /// Циклів ефекту на удар у режимі «у такт музиці»: крокові ефекти — на кожен удар, плавні — на такт.
+    pub fn cycles_per_beat(self) -> f64 {
+        match self {
+            EffectKind::Pulse | EffectKind::Strobe | EffectKind::Random => 1.0,
+            _ => 0.25,
+        }
+    }
+}
+
+/// Яскравість пульсації на удар: спалах на ударі, далі згасання до 35 %.
+pub fn beat_pulse(beats: f64) -> f64 {
+    0.35 + 0.65 * (1.0 - beats.rem_euclid(1.0)).powi(2)
 }
 
 fn rgbc(c: Rgb) -> Color {

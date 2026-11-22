@@ -765,3 +765,24 @@ fn operator_pin() {
     ok(&mut e, Command::Operator { on: false, pin: "1234".into() });
     assert!(!e.operator);
 }
+
+#[test]
+fn effect_follows_beat() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "Dim+RGB (4 кан.)", 1);
+    ok(&mut e, hex(&[&a], "#ff0000"));
+    ok(&mut e, effect(EffectKind::Strobe, &[&a]));
+    let free = e.render(0.05);
+    ok(&mut e, Command::SetEffect(EffectPatch { beat: Some(true), ..Default::default() }));
+    assert_eq!(e.render(0.05), free, "без темпу — звичайна швидкість");
+    for i in 0..3 {
+        ok(&mut e, Command::Beat(10.0 + i as f64 * 0.5)); // 120 BPM, останній удар — 11.0
+    }
+    assert_eq!(e.tempo.bpm, Some(120.0));
+    assert_eq!(e.render(11.05)[1], 255, "строб світить одразу після удару");
+    assert_eq!(e.render(11.25)[1], 0, "посередині між ударами — темно");
+    assert_eq!(e.render(11.55)[1], 255, "наступний удар");
+    ok(&mut e, Command::SetEffect(EffectPatch { beat_pulse: Some(true), ..Default::default() }));
+    assert!(e.render(11.55)[1] < 255, "пульсація приглушує після удару");
+    assert!(e.render(11.501)[1] >= 250, "на самому ударі — повна яскравість");
+}

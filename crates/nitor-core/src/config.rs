@@ -44,6 +44,10 @@ pub struct ConfigFile {
     pub hotkeys: IndexMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub groups: IndexMap<String, Vec<String>>,
+    #[serde(default)]
+    pub audio: crate::tempo::AudioSource,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub midi: Vec<crate::midi::MidiBinding>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub operator: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,6 +140,8 @@ impl Engine {
         self.hotkeys = check_hotkeys(cfg.hotkeys).unwrap_or_default();
         self.show.groups = self.check_groups(cfg.groups).unwrap_or_default();
         self.operator = cfg.operator;
+        self.audio = cfg.audio;
+        self.midi = crate::midi::check(cfg.midi).unwrap_or_default();
         self.pin = cfg.pin.filter(|p| p.contains(':'));
     }
 
@@ -163,6 +169,8 @@ impl Engine {
             hotkeys: self.hotkeys.clone(),
             groups: self.show.groups.clone(),
             operator: self.operator,
+            audio: self.audio,
+            midi: self.midi.clone(),
             pin: self.pin.clone(),
         }
     }

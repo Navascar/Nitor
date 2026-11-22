@@ -20,6 +20,7 @@ pub fn table() -> Vec<Entry> {
         a("blackout", "Blackout — вимкнути все світло", &["KeyB"]),
         a("strobe", "Строб", &["KeyS"]),
         a("flash", "Спалах — поки клавішу тримають", &["KeyF"]),
+        a("tap", "Тап темпу для «у такт музиці»", &["KeyT"]),
         a("clear", "Очистити кольори", &["Delete", "Backspace", "Digit0"]),
         a("effectStop", "Зупинити всі ефекти", &[]),
         Entry::Group("Вибір приладів"),

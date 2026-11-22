@@ -7,12 +7,14 @@
 mod already;
 mod app;
 mod art;
+mod audio;
 mod core;
 mod dialogs;
 mod hotkeys;
 
 mod logging;
 mod menus;
+mod midi;
 mod paths;
 mod splash;
 
@@ -203,6 +205,8 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh();
         self.flash_release(ctx);
+        self.audio_tick();
+        self.midi_tick(ctx);
         self.pending_menu = None;
 
         // інсталятор оновлення запущено — програма завершується, світло не гасне
@@ -351,6 +355,7 @@ impl App {
                         "settings" => self.open_settings(None),
                         "patch" => self.open_settings(Some(dialogs::Tab::Patch)),
                         "keys" => self.open_settings(Some(dialogs::Tab::Keys)),
+                        "midi" => self.open_settings(Some(dialogs::Tab::Midi)),
                         "add" => self.open_add(),
                         "library" => {
                             self.open_add();

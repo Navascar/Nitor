@@ -19,6 +19,7 @@ pub enum Tab {
     Patch,
     Profiles,
     Keys,
+    Midi,
     About,
 }
 
@@ -403,6 +404,7 @@ impl App {
                     (Tab::Patch, "Патч приладів"),
                     (Tab::Profiles, "Профілі"),
                     (Tab::Keys, "Гарячі клавіші"),
+                    (Tab::Midi, "MIDI"),
                     (Tab::About, "Про програму"),
                 ] {
                     let on = st.tab == tab;
@@ -432,6 +434,7 @@ impl App {
                     Tab::Patch => self.tab_patch(ui, &mut st),
                     Tab::Profiles => self.tab_profiles(ui, &mut st),
                     Tab::Keys => self.tab_keys(ui, &mut st),
+                    Tab::Midi => self.tab_midi(ui),
                     Tab::About => self.tab_about(ui),
                 }
             });
@@ -717,6 +720,107 @@ impl App {
                 .map(String::from)
                 .collect();
             self.send(Command::SaveProfile { name: st.prof_name.trim().into(), channels, assign_to: None });
+        }
+    }
+
+    fn tab_midi(&mut self, ui: &mut Ui) {
+        ui.label(widgets::muted(
+            "Натисніть «Навчити» біля дії, а потім кнопку чи повзунок на контролері. \
+             Контролер підключається, лише коли є хоч одна прив'язка.",
+        ));
+        ui.add_space(S3 - S2);
+        let status = if !self.midi_error.is_empty() {
+            format!("Контролер: {}", self.midi_error)
+        } else if let Some(m) = &self.midi {
+            if m.names.is_empty() {
+                "Контролерів не знайдено".into()
+            } else {
+                format!("Підключено: {}", m.names.join(", "))
+            }
+        } else {
+            "Контролер не підключено".into()
+        };
+        ui.label(RichText::new(status).size(FS_MD));
+        ui.add_space(S2);
+        ui.horizontal_wrapped(|ui| {
+            if btn("Профіль APC mini mk2")
+                .small()
+                .tip("Пади — статичні кольори, сцени й групи; кнопки праворуч — Blackout, «Очистити», «Спалах», тап; повзунки — швидкість і майстер")
+                .show(ui)
+                .clicked()
+            {
+                let scenes: Vec<String> = self.v.show.scenes.keys().cloned().collect();
+                let groups: Vec<String> = self.v.show.groups.keys().cloned().collect();
+                let p = nitor_core::midi::apc_mini_mk2(self.v.show.static_colors.len(), &scenes, &groups);
+                self.set_midi(p);
+            }
+            if btn("Перепідключити").small().icon("refresh").show(ui).clicked() {
+                self.midi_error.clear();
+                self.midi_connect(ui.ctx());
+            }
+            if !self.v.midi.is_empty() && btn("Прибрати все").small().kind(Kind::Ghost).show(ui).clicked() {
+                self.midi_learn = None;
+                self.set_midi(vec![]);
+            }
+        });
+        ui.add_space(S3 - S2);
+        let mut rows: Vec<(Option<&str>, String, String)> = vec![(Some("Світло"), String::new(), String::new())];
+        for (id, label) in [
+            ("blackout", "Blackout"),
+            ("clear", "Очистити кольори"),
+            ("flash", "Спалах — поки кнопку тримають"),
+            ("tap", "Тап темпу"),
+            ("master", "Майстер (повзунок)"),
+            ("speed", "Швидкість ефекту (повзунок)"),
+        ] {
+            rows.push((None, id.into(), label.into()));
+        }
+        rows.push((Some("Статичні кольори"), String::new(), String::new()));
+        for (i, c) in self.v.show.static_colors.iter().enumerate() {
+            rows.push((None, format!("static{}", i + 1), c.name.clone()));
+        }
+        if !self.v.show.scenes.is_empty() {
+            rows.push((Some("Сцени"), String::new(), String::new()));
+            rows.extend(self.v.show.scenes.keys().map(|n| (None, format!("scene:{n}"), n.clone())));
+        }
+        if !self.v.show.groups.is_empty() {
+            rows.push((Some("Групи"), String::new(), String::new()));
+            rows.extend(self.v.show.groups.keys().map(|n| (None, format!("group:{n}"), n.clone())));
+        }
+        for (group, id, label) in rows {
+            if let Some(g) = group {
+                ui.add_space(S2);
+                ui.label(widgets::muted(g));
+                continue;
+            }
+            let bound = self.v.midi.iter().find(|b| b.action == id).map(|b| nitor_core::midi::key_label(&b.key));
+            ui.horizontal(|ui| {
+                ui.set_min_height(CONTROL_H_SM + S1);
+                ui.add_space(S2);
+                ui.label(RichText::new(&label).size(FS_MD));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = S1;
+                    if bound.is_some() {
+                        if btn("Прибрати").small().kind(Kind::Ghost).min_width(84.0).show(ui).clicked() {
+                            let m = self.v.midi.iter().filter(|b| b.action != id).cloned().collect();
+                            self.set_midi(m);
+                        }
+                    } else {
+                        ui.allocate_exact_size(vec2(84.0, CONTROL_H_SM), Sense::hover());
+                    }
+                    let learning = self.midi_learn.as_deref() == Some(id.as_str());
+                    if btn(if learning { "Скасувати" } else { "Навчити" }).small().min_width(84.0).show(ui).clicked()
+                    {
+                        self.midi_learn = if learning { None } else { Some(id.clone()) };
+                    }
+                    ui.add_space(S2);
+                    if learning {
+                        ui.label(RichText::new("Натисніть кнопку на контролері…").size(FS_SM).color(ACCENT));
+                    } else {
+                        ui.label(widgets::muted(bound.unwrap_or_else(|| "Не призначено".into())));
+                    }
+                });
+            });
         }
     }
 

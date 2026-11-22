@@ -13,6 +13,7 @@ use crate::app::{Act, App, FLASH_WHITE, FlashHold, Pane, c32, cap, readable_text
 use crate::hotkeys::short_key;
 use crate::menus::{fmt_num, paint_static_chip};
 use nitor_core::engine::{FlashSource, StaticSource};
+use nitor_core::tempo::AudioSource;
 use nitor_ui::icons;
 use nitor_ui::theme::*;
 use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
@@ -1224,6 +1225,45 @@ impl App {
         ui.add_space(S3 - S2);
         if widgets::check(ui, &mut self.eff.by_seg, "По сегментах").changed() {
             changed = true;
+        }
+        ui.add_space(S3 - S2);
+        changed |= widgets::check(ui, &mut self.eff.beat, "У такт музиці").changed();
+        if self.eff.beat {
+            ui.add_space(S3 - S2);
+            changed |= widgets::check(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
+            ui.add_space(S3 - S2);
+            ui.horizontal(|ui| {
+                let bpm = self.v.bpm.map_or("темп ще невідомий".to_string(), |b| format!("{b:.0} BPM"));
+                ui.label(RichText::new(format!("Темп: {bpm}")).size(FS_MD));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let tip = format!(
+                        "Натискайте в такт музиці{}",
+                        short_key(&self.v.hotkeys, "tap").map(|k| format!(" — {k}")).unwrap_or_default()
+                    );
+                    if btn("Тап").small().tip(tip).show(ui).clicked() {
+                        let now = self.core.now();
+                        self.send(Command::Beat(now));
+                    }
+                });
+            });
+            ui.add_space(S3 - S2);
+            widgets::field_label(ui, "Удари брати з");
+            let mut src = self.v.audio;
+            let opts = [
+                (AudioSource::Loopback, "Звуку комп'ютера".to_string()),
+                (AudioSource::Mic, "Мікрофона".to_string()),
+                (AudioSource::Off, "Лише тапу".to_string()),
+            ];
+            if widgets::select(ui, "audioSrc", &mut src, &opts, w) {
+                self.send(Command::SetAudio(src));
+            }
+            let err = self.audio.as_ref().map(|a| a.error.lock().unwrap().clone()).unwrap_or_default();
+            if !err.is_empty() {
+                ui.label(widgets::muted(cap(&err)));
+            }
+            if self.v.bpm.is_some() {
+                ui.label(widgets::muted("Швидкість ефекту береться з темпу"));
+            }
         }
         ui.add_space(S3 - S2);
         ui.horizontal_wrapped(|ui| {

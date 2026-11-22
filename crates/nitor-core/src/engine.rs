@@ -9,13 +9,14 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::effects::{Effect, EffectKind, PALETTE_MAX, SPEED_MAX, SPEED_MIN, effect_color};
+use crate::effects::{Effect, EffectKind, PALETTE_MAX, SPEED_MAX, SPEED_MIN, beat_pulse, effect_color};
 use crate::fixtures::{
     COLOR_KEYS, Color, Fixture, Model, Profiles, Segs, default_profiles, find_overlaps, has_presets, model_profiles,
     preset_count, preset_level, programs, render_fixture, segment_count, validate_fixture, validate_profile,
 };
 use crate::library::{RECENT_LIMIT, Recent};
 use crate::outputs::OutputConfig;
+use crate::tempo::{AudioSource, Tempo};
 use crate::{DMX_CHANNELS, Error, Result, Rgb, bail, err};
 
 pub const FPS: f64 = 40.0;
@@ -283,6 +284,8 @@ pub struct EffectPatch {
     pub spread: Option<f64>,
     pub colors: Option<Vec<Rgb>>,
     pub by_segment: Option<bool>,
+    pub beat: Option<bool>,
+    pub beat_pulse: Option<bool>,
 }
 
 /// Команда від інтерфейсу. Вибір `ids`: `"id"` — увесь прилад, `"id#k"` — сегмент k.
@@ -380,6 +383,10 @@ pub enum Command {
         name: Option<String>,
     },
     SetOutput(OutputConfig),
+    /// Удар для «у такт музиці»: тап, звук чи OS2L (момент — годинник рушія).
+    Beat(f64),
+    SetAudio(AudioSource),
+    SetMidi(Vec<crate::midi::MidiBinding>),
     /// `Some` — «Спалах» натиснули, `None` — відпустили.
     Flash(Option<FlashSource>),
     SetGroups(IndexMap<String, Vec<String>>),
@@ -424,6 +431,9 @@ impl Command {
             Command::ImportScene { .. } => "import_scene",
             Command::SetOutput(_) => "set_output",
             Command::Flash(_) => "flash",
+            Command::Beat(_) => "beat",
+            Command::SetAudio(_) => "set_audio",
+            Command::SetMidi(_) => "set_midi",
             Command::SetGroups(_) => "set_groups",
             Command::Operator { .. } => "operator",
             Command::SetPin(_) => "set_pin",
@@ -442,6 +452,9 @@ impl Command {
                 | Command::Strobe { .. }
                 | Command::SetHotkeys(_)
                 | Command::Flash(_)
+                | Command::Beat(_)
+                | Command::SetAudio(_)
+                | Command::SetMidi(_)
                 | Command::Operator { .. }
                 | Command::SetPin(_)
         )
@@ -469,13 +482,15 @@ impl Command {
             }
             Command::SetMaster(_) => "set_master".into(),
             Command::SetEffect(p) => format!(
-                "set_effect|{}|{:?}|{}{}{}{}",
+                "set_effect|{}|{:?}|{}{}{}{}{}{}",
                 p.ids.as_deref().map(ids).unwrap_or_default(),
                 p.kind,
                 p.speed.is_some(),
                 p.spread.is_some(),
                 p.colors.is_some(),
-                p.by_segment.is_some()
+                p.by_segment.is_some(),
+                p.beat.is_some(),
+                p.beat_pulse.is_some()
             ),
             other => other.name().into(),
         }
@@ -532,6 +547,12 @@ pub struct Engine {
     pub strobe: StrobeState,
     /// «Спалах»: прилади, що зараз показують інший стан (без майстра й ефекту). Не зберігається.
     pub flash: IndexMap<String, Fixture>,
+    /// Темп для ефектів «у такт музиці». Не зберігається.
+    pub tempo: Tempo,
+    /// Джерело ударів, крім тапу. Зберігається.
+    pub audio: AudioSource,
+    /// Прив'язки MIDI-контролера. Зберігаються.
+    pub midi: Vec<crate::midi::MidiBinding>,
     /// Режим оператора: лише сцени, кольори, групи й майстер. Зберігається.
     pub operator: bool,
     /// PIN виходу з режиму оператора: `сіль:sha256`; `None` — без PIN.
@@ -600,6 +621,9 @@ impl Engine {
             output_changed: false,
             strobe: StrobeState::default(),
             flash: IndexMap::new(),
+            tempo: Tempo::default(),
+            audio: AudioSource::default(),
+            midi: vec![],
             operator: false,
             pin: None,
             hotkeys: IndexMap::new(),
@@ -896,6 +920,8 @@ impl Engine {
                     spread: p.spread.unwrap_or(cur.spread).clamp(0.0, 1.0),
                     colors: colors.into_iter().take(PALETTE_MAX).collect(),
                     by_segment: p.by_segment.unwrap_or(cur.by_segment),
+                    beat: p.beat.unwrap_or(cur.beat),
+                    beat_pulse: p.beat_pulse.unwrap_or(cur.beat_pulse),
                 };
             }
             Command::SaveScene { name, with_effect } => {
@@ -924,6 +950,9 @@ impl Engine {
                 self.output_changed = true;
             }
             Command::Flash(src) => self.flash_cmd(src, now)?,
+            Command::Beat(at) => self.tempo.beat(at),
+            Command::SetAudio(a) => self.audio = a,
+            Command::SetMidi(m) => self.midi = crate::midi::check(m)?,
             Command::SetGroups(groups) => self.show.groups = self.check_groups(groups)?,
             Command::Operator { on, pin } => {
                 if !on && !self.pin_ok(&pin) {
@@ -1371,8 +1400,18 @@ impl Engine {
         }
         let mut uni = [0u8; DMX_CHANNELS];
         let mut live = Live::new();
-        let t = now - self.t0;
-        let eff = &self.show.effect;
+        // «у такт музиці»: цикл ефекту відлічується від останнього удару зі швидкістю за темпом
+        let beat = if self.show.effect.beat { self.tempo.beats_since(now) } else { None };
+        let synced;
+        let (eff, t) = match (beat, self.tempo.bpm) {
+            (Some(_), Some(bpm)) => {
+                let e = &self.show.effect;
+                synced = Effect { speed: bpm / 60.0 * e.kind.cycles_per_beat(), ..e.clone() };
+                (&synced, now - self.tempo.anchor)
+            }
+            _ => (&self.show.effect, now - self.t0),
+        };
+        let pulse = beat.filter(|_| eff.beat_pulse).map(beat_pulse);
         // «пікселі» ефекту: кожен сегмент кожного приладу (або прилад цілком)
         let mut pixel: IndexMap<(&str, usize), usize> = IndexMap::new();
         let mut count = 0usize;
@@ -1436,7 +1475,10 @@ impl Engine {
                 .map(|k| {
                     let c = fx.seg_color(k);
                     match pixel.get(&(fx.id.as_str(), k)) {
-                        Some(&p) if over.is_none() => effect_color(eff, p, count, t, c),
+                        Some(&p) if over.is_none() => {
+                            let c = effect_color(eff, p, count, t, c);
+                            pulse.map_or(c, |k| c.scaled(k))
+                        }
                         _ => c,
                     }
                 })

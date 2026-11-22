@@ -7,7 +7,9 @@ use egui::Context;
 use nitor_core::engine::{ColorValues, EffectPatch, FlashSource, Live, Show, StaticSource, StrobeState};
 use nitor_core::fixtures::{Fixture, Segs, segment_count};
 use nitor_core::library::Recent;
+use nitor_core::midi::{MidiBinding, MidiValue};
 use nitor_core::outputs::{OutputConfig, OutputInfo, SerialPortInfo, UdmxDevice};
+use nitor_core::tempo::AudioSource;
 use nitor_core::{Command, DMX_CHANNELS, EffectKind, Rgb, scene_file};
 
 use crate::core::Core;
@@ -34,6 +36,9 @@ pub struct View {
     pub flashing: bool,
     pub operator: bool,
     pub has_pin: bool,
+    pub audio: AudioSource,
+    pub bpm: Option<f64>,
+    pub midi: Vec<MidiBinding>,
 }
 
 impl View {
@@ -80,6 +85,8 @@ pub struct EffDraft {
     pub spread: f32,
     pub colors: Vec<Rgb>,
     pub by_seg: bool,
+    pub beat: bool,
+    pub beat_pulse: bool,
     pub synced: bool,
 }
 
@@ -163,11 +170,12 @@ pub enum Act {
     Quit,
 }
 
-/// Чим тримають «Спалах»: клавішею чи кнопкою миші.
-#[derive(Clone, Copy, PartialEq)]
+/// Чим тримають «Спалах»: клавішею, кнопкою миші чи кнопкою MIDI-контролера.
+#[derive(Clone, PartialEq)]
 pub enum FlashHold {
     Key(egui::Key),
     Pointer,
+    Midi(String),
 }
 
 /// Повний білий «Спалаху» за замовчуванням (і RGB, і W).
@@ -228,6 +236,11 @@ pub struct App {
     /// кадр, на якому зробити знімок (режим NITOR_SCREENSHOT)
     pub shot_frame: Option<u64>,
     pub flash_hold: Option<FlashHold>,
+    pub audio: Option<crate::audio::Audio>,
+    pub midi: Option<crate::midi::Midi>,
+    pub midi_error: String,
+    /// Дія, якій чекаємо повідомлення MIDI (режим «Навчити»).
+    pub midi_learn: Option<String>,
     /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
     pub exit_hold: Option<Instant>,
 }
@@ -247,6 +260,8 @@ impl App {
                 spread: 100.0,
                 colors: vec![],
                 by_seg: true,
+                beat: false,
+                beat_pulse: false,
                 synced: false,
             },
             pane: Pane::Color,
@@ -281,6 +296,10 @@ impl App {
             quit_request: Default::default(),
             shot_frame: None,
             flash_hold: None,
+            audio: None,
+            midi: None,
+            midi_error: String::new(),
+            midi_learn: None,
             exit_hold: None,
         };
         app.sync_effect_draft();
@@ -310,6 +329,8 @@ impl App {
             self.eff.speed = slider_from_speed(e.speed).clamp(1.0, 100.0);
             self.eff.spread = (e.spread * 100.0).round() as f32;
             self.eff.by_seg = e.by_segment;
+            self.eff.beat = e.beat;
+            self.eff.beat_pulse = e.beat_pulse;
             self.eff.synced = true;
         }
     }
@@ -452,6 +473,8 @@ impl App {
             spread: Some(self.eff.spread as f64 / 100.0),
             colors: Some(self.eff.colors.clone()),
             by_segment: Some(self.eff.by_seg),
+            beat: Some(self.eff.beat),
+            beat_pulse: Some(self.eff.beat_pulse),
         }
     }
 
@@ -506,20 +529,130 @@ impl App {
 
     /// Відпускання «Спалаху»: клавішу відпустили, кнопку миші відпустили або вікно втратило фокус.
     pub fn flash_release(&mut self, ctx: &Context) {
-        let Some(hold) = self.flash_hold else { return };
-        let up = ctx.input(|i| {
-            !i.focused
-                || match hold {
-                    FlashHold::Pointer => !i.pointer.any_down(),
-                    FlashHold::Key(k) => i.events.iter().any(|e| {
+        let Some(hold) = self.flash_hold.clone() else { return };
+        let up = ctx.input(|i| match hold {
+            // кнопку контролера відпускають у midi_tick; вікно при цьому може бути не у фокусі
+            FlashHold::Midi(_) => false,
+            FlashHold::Pointer => !i.focused || !i.pointer.any_down(),
+            FlashHold::Key(k) => {
+                !i.focused
+                    || i.events.iter().any(|e| {
                         matches!(e, egui::Event::Key { key, physical_key, pressed: false, .. }
                             if physical_key.unwrap_or(*key) == k)
-                    }),
-                }
+                    })
+            }
         });
         if up {
             self.flash_hold = None;
             self.send(Command::Flash(None));
+        }
+    }
+
+    /// Звук для ударів потрібен, лише поки працює ефект «у такт музиці».
+    pub fn audio_tick(&mut self) {
+        let e = &self.v.show.effect;
+        let want = (e.kind != EffectKind::None && e.beat && self.v.audio != AudioSource::Off).then_some(self.v.audio);
+        if self.audio.as_ref().map(|a| a.source) != want {
+            self.audio = want.map(|s| crate::audio::Audio::start(self.core.clone(), s));
+        }
+    }
+
+    /// MIDI: порти відкриваються лише з прив'язками чи в навчанні; повідомлення — у дії.
+    pub fn midi_tick(&mut self, ctx: &Context) {
+        if self.midi.is_none() && self.midi_error.is_empty() && (!self.v.midi.is_empty() || self.midi_learn.is_some()) {
+            self.midi_connect(ctx);
+        }
+        let msgs: Vec<(String, MidiValue)> = self.midi.as_ref().map(|m| m.rx.try_iter().collect()).unwrap_or_default();
+        for (key, val) in msgs {
+            if let Some(action) = self.midi_learn.take() {
+                let mut m = self.v.midi.clone();
+                m.retain(|b| b.action != action);
+                m.push(MidiBinding { key, action });
+                self.set_midi(m);
+                continue;
+            }
+            let Some(action) = self.v.midi.iter().find(|b| b.key == key).map(|b| b.action.clone()) else { continue };
+            self.midi_action(ctx, &key, &action, val);
+        }
+    }
+
+    pub fn midi_connect(&mut self, ctx: &Context) {
+        self.midi = None;
+        match crate::midi::open(ctx.clone()) {
+            Ok(m) => {
+                self.midi_error.clear();
+                self.midi = Some(m);
+                self.midi_leds();
+            }
+            Err(e) => {
+                log::warn!("MIDI недоступне: {e}");
+                self.midi_error = e;
+            }
+        }
+    }
+
+    pub fn set_midi(&mut self, m: Vec<MidiBinding>) {
+        self.send(Command::SetMidi(m));
+        self.midi_leds();
+    }
+
+    /// Пади APC mini mk2 світяться кольором дії.
+    pub fn midi_leds(&mut self) {
+        let Some(midi) = self.midi.as_mut() else { return };
+        if !midi.has_apc() {
+            return;
+        }
+        for note in 0..64u8 {
+            midi.send(&[0x90, note, 0]);
+        }
+        for b in &self.v.midi {
+            let color = if let Some(n) = b.action.strip_prefix("static").and_then(|n| n.parse::<usize>().ok()) {
+                self.v.show.static_colors.get(n.wrapping_sub(1)).map(|c| c.hex)
+            } else if b.action.starts_with("scene:") {
+                Some(Rgb(0, 0, 255))
+            } else if b.action.starts_with("group:") {
+                Some(Rgb(0, 255, 0))
+            } else {
+                None
+            };
+            if let Some(msg) = color.and_then(|c| nitor_core::midi::apc_led(&b.key, c)) {
+                midi.send(&msg);
+            }
+        }
+    }
+
+    fn midi_action(&mut self, ctx: &Context, key: &str, action: &str, val: MidiValue) {
+        let level = |v: u8| v as f32 / 127.0;
+        match (action, val) {
+            ("master", MidiValue::Level(v)) => {
+                self.send(Command::SetMaster((level(v) * 255.0).round() as u8));
+            }
+            ("speed", MidiValue::Level(v)) => {
+                self.eff.speed = 1.0 + (level(v) * 99.0).round();
+                self.live_effect_update();
+            }
+            (_, MidiValue::Level(_)) if nitor_core::midi::is_level(action) => {}
+            // кнопка, прив'язана до регулятора: натиснуто — понад половину
+            (_, MidiValue::Level(v)) => self.midi_action(ctx, key, action, MidiValue::Button(v >= 64)),
+            ("flash", MidiValue::Button(down)) => {
+                if down {
+                    self.flash_color(FLASH_WHITE, FlashHold::Midi(key.into()));
+                } else if self.flash_hold == Some(FlashHold::Midi(key.into())) {
+                    self.flash_hold = None;
+                    self.send(Command::Flash(None));
+                }
+            }
+            (_, MidiValue::Button(false)) => {}
+            (a, MidiValue::Button(true)) => {
+                if let Some(name) = a.strip_prefix("scene:") {
+                    let fade = self.scene_fade;
+                    self.send(Command::RecallScene { name: name.into(), fade });
+                } else if let Some(name) = a.strip_prefix("group:") {
+                    self.pick_group(name, false);
+                } else {
+                    self.run_hotkey(ctx, a);
+                }
+            }
         }
     }
 
@@ -930,6 +1063,11 @@ impl App {
             }
             return;
         }
+        if id == "tap" {
+            let now = self.core.now();
+            self.send(Command::Beat(now));
+            return;
+        }
         let a = match id {
             "blackout" => Act::Blackout,
             "strobe" => Act::ToggleStrobe,
@@ -982,6 +1120,9 @@ pub fn snapshot(core: &Core) -> View {
         flashing: !e.flash.is_empty(),
         operator: e.operator,
         has_pin: e.pin.is_some(),
+        audio: e.audio,
+        bpm: e.tempo.bpm,
+        midi: e.midi.clone(),
     }
 }
 
