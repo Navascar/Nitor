@@ -8,3 +8,5 @@ rust-version.workspace = true
 
 [dependencies]
 egui = "0.32.3"
+# той самий розбирач шрифтів, що в egui: перевірка системного шрифту перед використанням
+ab_glyph = "0.2.32"

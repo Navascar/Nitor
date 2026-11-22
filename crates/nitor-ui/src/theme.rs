@@ -92,7 +92,22 @@ pub fn alpha(c: Color32, a: f32) -> Color32 {
 }
 
 fn read_font(paths: &[&str]) -> Option<Vec<u8>> {
-    paths.iter().find_map(|p| std::fs::read(p).ok())
+    paths.iter().filter_map(|p| std::fs::read(p).ok()).find(|d| draws_text(d))
+}
+
+/// Чи малює шрифт видимі літери (латиниця й українська кирилиця) так, як їх малюватиме egui.
+/// Системний файл може розібратися без помилки, але давати порожні гліфи — тоді весь текст зникає.
+fn draws_text(data: &[u8]) -> bool {
+    use ab_glyph::{Font, FontRef};
+    let Ok(f) = FontRef::try_from_slice(data) else { return false };
+    "AaЖжЇїҐґ0".chars().all(|c| {
+        let id = f.glyph_id(c);
+        id.0 != 0
+            && f.outline_glyph(id.with_scale(16.0)).is_some_and(|g| {
+                let b = g.px_bounds();
+                b.width() >= 1.0 && b.height() >= 1.0
+            })
+    })
 }
 
 /// Шрифти: системний Segoe UI на Windows (`system-ui`), інакше вбудований.
@@ -196,4 +211,18 @@ pub fn apply(ctx: &egui::Context) {
         w.noninteractive.bg_stroke = Stroke::new(1.0_f32, LINE);
         w.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_font_check() {
+        let defaults = FontDefinitions::default();
+        assert!(draws_text(defaults.font_data["Ubuntu-Light"].font.as_ref()));
+        // emoji-шрифт не має латиниці й кирилиці — не годиться як основний
+        assert!(!draws_text(defaults.font_data["NotoEmoji-Regular"].font.as_ref()));
+        assert!(!draws_text(b"not a font"));
+    }
 }

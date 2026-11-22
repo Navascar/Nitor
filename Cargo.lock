@@ -2069,6 +2069,7 @@ dependencies = [
 name = "nitor-ui"
 version = "2.1.0"
 dependencies = [
+ "ab_glyph",
  "egui",
 ]
 
