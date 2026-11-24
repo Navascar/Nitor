@@ -208,12 +208,23 @@ pub struct Prefs {
     /// Не показувати знаки «?» з поясненнями.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_help: bool,
+    /// Порядок стовпців головного вікна (`fixtures`, `color`, `side`); порожньо — стандартний.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
+    /// Ширина стовпців у пікселях; без запису — стандартна частка вікна.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub col_width: BTreeMap<String, f32>,
+    /// Кнопки верхньої панелі без назви, лише значок (`clear`, `flash`, `blackout`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub short_buttons: Vec<String>,
 }
 
 impl Prefs {
     pub fn clamped(self) -> Prefs {
         let rate = if self.flash_rate.is_finite() { self.flash_rate.clamp(0.0, FLASH_RATE_MAX) } else { 0.0 };
-        Prefs { flash_rate: rate, ..self }
+        let mut col_width = self.col_width;
+        col_width.retain(|_, w| w.is_finite() && *w > 0.0);
+        Prefs { flash_rate: rate, col_width, ..self }
     }
 }
 

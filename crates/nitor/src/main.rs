@@ -363,6 +363,7 @@ impl App {
                         "libtab" => self.open_settings(Some(dialogs::Tab::Library)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "about" => self.open_settings(Some(dialogs::Tab::About)),
+                        "edit" => self.layout_edit = true,
                         "add" => self.open_add(),
                         "library" => {
                             self.open_add();

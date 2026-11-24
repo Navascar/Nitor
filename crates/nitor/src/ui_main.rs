@@ -57,14 +57,36 @@ impl App {
                     ui.label(RichText::new("Майстер").size(FS_MD));
                     let sw = if narrow { 120.0 } else { 200.0 };
                     let mut changed = widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
-                    changed |= widgets::value_box(ui, Id::new("master"), &mut m, 0.0, 255.0, Shown::Pct, 44.0);
+                    changed |=
+                        widgets::value_box_sized(ui, Id::new("master"), &mut m, 0.0, 255.0, Shown::Pct, 60.0, FS_LG);
                     if changed {
                         self.send(Command::SetMaster(m as u8));
                     }
+                    // дії зі світлом — одразу біля майстра
+                    let h = self.v.hotkeys.clone();
+                    let k = |id: &str| short_key(&h, id);
+                    ui.add_space(S2);
+                    let label =
+                        if self.sel.is_empty() { "Очистити все" } else { "Очистити вибрані" };
+                    if self.top_button(ui, "clear", "eraser", label, Kind::Warn, k("clear"), "Очистити кольори")
+                    {
+                        self.clear_colors();
+                    }
+                    self.flash_button(ui, k("flash"));
+                    let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
+                    if self.top_button(
+                        ui,
+                        "blackout",
+                        "bulbOff",
+                        "Blackout",
+                        kind,
+                        k("blackout"),
+                        "Вимкнути все світло",
+                    ) {
+                        self.send(Command::Blackout(None));
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = S3;
-                        let h = self.v.hotkeys.clone();
-                        let k = |id: &str| short_key(&h, id);
                         let op = self.v.operator;
                         if op {
                             self.exit_operator_button(ui);
@@ -82,39 +104,73 @@ impl App {
                             {
                                 self.act(ui.ctx(), Act::AskOperator);
                             }
-                        }
-                        let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
-                        if icon_btn("bulbOff")
-                            .kind(kind)
-                            .key(k("blackout"))
-                            .tip("Вимкнути все світло")
-                            .show(ui)
-                            .clicked()
-                        {
-                            self.send(Command::Blackout(None));
-                        }
-                        self.flash_button(ui, k("flash"));
-                        let label = if self.sel.is_empty() {
-                            "Очистити все"
-                        } else {
-                            "Очистити вибрані"
-                        };
-                        if btn(label)
-                            .icon("eraser")
-                            .kind(Kind::Warn)
-                            .key(k("clear"))
-                            .tip("Очистити кольори")
-                            .show(ui)
-                            .clicked()
-                        {
-                            self.clear_colors();
-                        }
-                        if !op {
+                            self.layout_buttons(ui);
                             self.update_button(ui);
                         }
                     });
                 });
             });
+    }
+
+    /// Кнопка верхньої панелі: з назвою або лише значок (вибір — у меню правої кнопки миші).
+    #[allow(clippy::too_many_arguments)]
+    fn top_button(
+        &mut self,
+        ui: &mut Ui,
+        id: &'static str,
+        icon: &'static str,
+        label: &str,
+        kind: Kind,
+        key: Option<String>,
+        tip: &str,
+    ) -> bool {
+        let short = self.v.prefs.short_buttons.iter().any(|b| b == id);
+        let r = if short {
+            icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
+        } else {
+            btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
+        };
+        self.short_button_menu(&r, id, label);
+        r.clicked()
+    }
+
+    /// Меню правої кнопки миші на кнопці верхньої панелі: сховати чи показати назву.
+    fn short_button_menu(&mut self, r: &egui::Response, id: &'static str, label: &str) {
+        if r.secondary_clicked() {
+            let short = self.v.prefs.short_buttons.iter().any(|b| b == id);
+            let text =
+                if short { "Показувати назву" } else { "Лише значок, без назви" };
+            self.want_menu(crate::menus::toggle_menu(label, text, Act::ToggleShortButton(id)));
+        }
+    }
+
+    /// Олівець: увімкнути редагування вигляду; під час редагування — «Готово» і «Скинути вигляд».
+    fn layout_buttons(&mut self, ui: &mut Ui) {
+        if !self.layout_edit {
+            if icon_btn("edit").kind(Kind::Ghost).tip("Змінити вигляд головного екрана").show(ui).clicked()
+            {
+                self.layout_edit = true;
+            }
+            return;
+        }
+        if btn("Готово").icon("check").primary().tip("Закінчити редагування вигляду").show(ui).clicked()
+        {
+            self.layout_edit = false;
+        }
+        if btn("Скинути вигляд")
+            .icon("reset")
+            .kind(Kind::Ghost)
+            .tip("Стандартні ширина й порядок стовпців")
+            .show(ui)
+            .clicked()
+        {
+            self.col_anim = Some((ui.input(|i| i.time), self.col_rects.clone()));
+            self.set_prefs(|p| {
+                p.columns.clear();
+                p.col_width.clear();
+                p.scenes_first = false;
+            });
+        }
     }
 
     /// Панель вікна, як у вікні запуску й інсталятора: логотип, «Nitor», DMX-вихід поруч,
@@ -244,13 +300,15 @@ impl App {
         } else {
             ("sun", "Спалах".to_string(), "Повний білий, поки кнопку тримають")
         };
-        let r = btn(label)
-            .icon(icon)
-            .kind(if self.v.flashing { Kind::Toggled } else { Kind::Normal })
-            .key(key)
-            .tip(tip)
-            .show(ui);
-        if r.is_pointer_button_down_on() {
+        let kind = if self.v.flashing { Kind::Toggled } else { Kind::Normal };
+        let r = if self.v.prefs.short_buttons.iter().any(|b| b == "flash") {
+            icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
+        } else {
+            btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
+        };
+        self.short_button_menu(&r, "flash", "Спалах");
+        // права кнопка відкриває меню, а не спалах
+        if r.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
             self.flash_color(FLASH_WHITE, FlashHold::Pointer);
         }
         ui.spacing_mut().item_spacing.x = S3;
@@ -414,31 +472,54 @@ impl App {
             let full = ui.max_rect();
             let mon_h = if self.monitor_open { (full.height() * 0.28).clamp(120.0, 360.0) + 52.0 } else { 46.0 };
             let top = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - mon_h));
-            let wide = full.width() > 1100.0;
-            let (c1, c2, c3) = if wide {
-                let total = 1.0 + 1.35 + 1.0;
-                let w1 = (full.width() / total).max(240.0);
-                let w2 = (full.width() * 1.35 / total).max(340.0);
-                let r1 = Rect::from_min_size(top.min, vec2(w1, top.height()));
-                let r2 = Rect::from_min_size(pos2(r1.right(), top.top()), vec2(w2, top.height()));
-                let r3 = Rect::from_min_max(pos2(r2.right(), top.top()), top.max);
-                (r1, r2, r3)
+            let order = col_order(&self.v.prefs.columns);
+            let wide = full.width() >= COLS.iter().map(|c| c.2).sum::<f32>();
+            let stored = self.col_live.clone().unwrap_or_else(|| self.v.prefs.col_width.clone());
+            let widths = col_widths(&order, &stored, full.width());
+            let mut target = [Rect::NOTHING; 3];
+            if wide {
+                let mut x = top.left();
+                for i in 0..3 {
+                    target[i] = Rect::from_min_size(pos2(x, top.top()), vec2(widths[i], top.height()));
+                    x += widths[i];
+                }
+                target[2].max.x = top.right();
             } else {
-                // вузьке вікно: дві колонки, праву (ефекти й сцени) — під ними
+                // вузьке вікно: два стовпці, третій — під ними на всю ширину
                 let h = top.height() * 0.62;
                 let w1 = full.width() / 2.0;
-                let r1 = Rect::from_min_size(top.min, vec2(w1, h));
-                let r2 = Rect::from_min_max(pos2(r1.right(), top.top()), pos2(top.right(), top.top() + h));
-                let r3 = Rect::from_min_max(pos2(top.left(), top.top() + h), top.max);
-                (r1, r2, r3)
-            };
+                target[0] = Rect::from_min_size(top.min, vec2(w1, h));
+                target[1] = Rect::from_min_max(pos2(top.left() + w1, top.top()), pos2(top.right(), top.top() + h));
+                target[2] = Rect::from_min_max(pos2(top.left(), top.top() + h), top.max);
+            }
+            // обмін стовпців — плавно, за 0,25 с
+            let now = ui.input(|i| i.time);
+            let mut rects = target;
+            if let Some((t0, from)) = &self.col_anim {
+                let t = (((now - t0) / 0.25) as f32).clamp(0.0, 1.0);
+                let e = 1.0 - (1.0 - t).powi(3);
+                for (i, id) in order.iter().enumerate() {
+                    if let Some((_, f)) = from.iter().find(|(fid, _)| fid == id) {
+                        rects[i] = Rect::from_min_max(f.min.lerp(target[i].min, e), f.max.lerp(target[i].max, e));
+                    }
+                }
+                if t < 1.0 {
+                    ui.ctx().request_repaint();
+                } else {
+                    self.col_anim = None;
+                }
+            }
+            self.col_rects = order.iter().copied().zip(rects).collect();
+            let at = |id: &str| rects[order.iter().position(|o| *o == id).unwrap_or(0)];
+            let (c1, c2, c3) = (at("fixtures"), at("color"), at("side"));
             let p = ui.painter();
-            if wide {
-                p.vline(c2.left(), c2.y_range(), Stroke::new(1.0_f32, LINE));
-                p.vline(c3.left(), c3.y_range(), Stroke::new(1.0_f32, LINE));
-            } else {
-                p.vline(c2.left(), c2.y_range(), Stroke::new(1.0_f32, LINE));
-                p.hline(c3.x_range(), c3.top(), Stroke::new(1.0_f32, LINE));
+            for r in rects {
+                if r.left() > top.left() + 1.0 {
+                    p.vline(r.left(), r.y_range(), Stroke::new(1.0_f32, LINE));
+                }
+                if r.top() > top.top() + 1.0 {
+                    p.hline(r.x_range(), r.top(), Stroke::new(1.0_f32, LINE));
+                }
             }
             p.hline(full.x_range(), top.bottom(), Stroke::new(1.0_f32, LINE));
 
@@ -452,6 +533,9 @@ impl App {
             self.column(ui, c1, "fixtures", |app, ui| app.fixtures_panel(ui));
             self.column(ui, c2, "color", |app, ui| app.color_panel(ui));
             let scenes_rect = self.column(ui, c3, "side", |app, ui| app.side_panel(ui));
+            if self.layout_edit && !self.v.operator {
+                self.layout_overlay(ui, &order, &rects, &widths, wide);
+            }
             self.band_select(ui, &z1, c1);
             let mon = Rect::from_min_max(pos2(full.left(), top.bottom() + 1.0), full.max);
             self.monitor_panel(ui, mon);
@@ -473,6 +557,91 @@ impl App {
                 }
             }
         });
+    }
+
+    /// Редагування вигляду: межі між стовпцями тягнуть мишею, стрілки міняють стовпці місцями.
+    fn layout_overlay(
+        &mut self,
+        ui: &mut Ui,
+        order: &[&'static str; 3],
+        rects: &[Rect; 3],
+        widths: &[f32; 3],
+        wide: bool,
+    ) {
+        for r in rects {
+            ui.painter().rect_stroke(
+                r.shrink(3.0),
+                radius(R_LG),
+                Stroke::new(1.0_f32, alpha(ACCENT, 0.5)),
+                StrokeKind::Inside,
+            );
+        }
+        if wide {
+            for k in 0..2 {
+                let x = rects[k].right();
+                let hit = Rect::from_x_y_ranges(x - 5.0..=x + 5.0, rects[k].y_range());
+                let resp = ui
+                    .interact(hit, Id::new(("col-edge", k)), Sense::drag())
+                    .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+                    .on_hover_text("Потягніть, щоб змінити ширину");
+                let hot = resp.hovered() || resp.dragged();
+                ui.painter().vline(x, hit.y_range(), Stroke::new(if hot { 3.0_f32 } else { 2.0 }, ACCENT));
+                // ручка посередині межі
+                let grip = Rect::from_center_size(pos2(x, hit.center().y), vec2(8.0, 40.0));
+                ui.painter().rect_filled(grip, radius(R_SM), ACCENT);
+                if resp.dragged() {
+                    let mut w = *widths;
+                    let dx = resp.drag_delta().x;
+                    let pair = w[k] + w[k + 1];
+                    w[k] = (w[k] + dx).clamp(col_min(order[k]), (pair - col_min(order[k + 1])).max(col_min(order[k])));
+                    w[k + 1] = pair - w[k];
+                    self.col_live = Some(order.iter().map(|id| id.to_string()).zip(w).collect());
+                }
+                if resp.drag_stopped() {
+                    if let Some(w) = self.col_live.take() {
+                        self.set_prefs(|p| p.col_width = w);
+                    }
+                }
+            }
+        }
+        // посередині внизу стовпця — назва й стрілки «ліворуч / праворуч»
+        let mut swap = None;
+        for (i, r) in rects.iter().enumerate() {
+            let name = COLS.iter().find(|c| c.0 == order[i]).map_or("", |c| c.3);
+            let size =
+                vec2(widgets::text_width(ui, name, bold(FS_SM)) + 2.0 * CONTROL_H_SM + 2.0 * S3, CONTROL_H_SM + S2);
+            let bar = Rect::from_center_size(pos2(r.center().x, r.bottom() - S4 - size.y / 2.0), size);
+            ui.painter().rect(bar, radius(R_MD), RAISED, Stroke::new(1.0_f32, ACCENT), StrokeKind::Inside);
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(bar.shrink(S1)).layout(Layout::left_to_right(Align::Center)),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = S1;
+                    let left = if wide {
+                        "Перемістити ліворуч"
+                    } else {
+                        "Перемістити раніше"
+                    };
+                    if icon_btn("arrowLeft").small().kind(Kind::Ghost).enabled(i > 0).tip(left).show(ui).clicked() {
+                        swap = Some(i - 1);
+                    }
+                    ui.label(RichText::new(name).font(bold(FS_SM)));
+                    let right = if wide {
+                        "Перемістити праворуч"
+                    } else {
+                        "Перемістити далі"
+                    };
+                    if icon_btn("arrowRight").small().kind(Kind::Ghost).enabled(i < 2).tip(right).show(ui).clicked() {
+                        swap = Some(i);
+                    }
+                },
+            );
+        }
+        if let Some(i) = swap {
+            self.col_anim = Some((ui.input(|t| t.time), self.col_rects.clone()));
+            let mut o = *order;
+            o.swap(i, i + 1);
+            self.set_prefs(|p| p.columns = o.iter().map(|s| s.to_string()).collect());
+        }
     }
 
     /// Виділення приладів рамкою, як файлів на робочому столі. Shift або Ctrl — додати до вибору.
@@ -1051,8 +1220,9 @@ impl App {
     fn scenes_block(&mut self, ui: &mut Ui) -> Rect {
         let start = ui.cursor().min;
         let first = self.v.prefs.scenes_first;
+        let edit = self.layout_edit;
         let mut swap = false;
-        Self::panel_head(ui, "Сцени", |ui| swap = Self::swap_button(ui, first));
+        Self::panel_head(ui, "Сцени", |ui| swap = edit && Self::swap_button(ui, first));
         if swap {
             self.act(ui.ctx(), Act::SwapSide);
         }
@@ -1296,21 +1466,45 @@ impl App {
                 .response
                 .rect
         };
-        if self.v.prefs.scenes_first {
-            let r = card(ui, &mut |ui| {
-                self.scenes_block(ui);
-            });
-            ui.add_space(S4);
-            card(ui, &mut |ui| self.effects_block(ui));
-            r
-        } else {
-            card(ui, &mut |ui| self.effects_block(ui));
-            ui.add_space(S4);
-            let r = card(ui, &mut |ui| {
-                self.scenes_block(ui);
-            });
-            Rect::from_min_max(r.min, pos2(r.right(), r.bottom() + 400.0))
+        // картки стоять одна під одною; після обміну плавно з'їжджають на нові місця за 0,25 с
+        let top = ui.cursor().min;
+        let w = ui.available_width();
+        let hid = |n: &str| Id::new(("side-card-h", n));
+        let (he, hs): (f32, f32) =
+            ui.data(|d| (d.get_temp(hid("e")).unwrap_or(0.0), d.get_temp(hid("s")).unwrap_or(0.0)));
+        let first = self.v.prefs.scenes_first;
+        // зсув карток («Ефекти», «Сцени») згори для порядку «сцени першими» чи ні
+        let offs = |scenes_first: bool| if scenes_first { (hs + S4, 0.0) } else { (0.0, he + S4) };
+        let (mut oe, mut os) = offs(first);
+        if let Some(t0) = self.side_anim {
+            let t = (((ui.input(|i| i.time) - t0) / 0.25) as f32).clamp(0.0, 1.0);
+            let e = 1.0 - (1.0 - t).powi(3);
+            let (fe, fs) = offs(!first);
+            (oe, os) = (fe + (oe - fe) * e, fs + (os - fs) * e);
+            if t < 1.0 {
+                ui.ctx().request_repaint();
+            } else {
+                self.side_anim = None;
+            }
         }
+        let place = |ui: &mut Ui, y: f32, add: &mut dyn FnMut(&mut Ui)| {
+            let max = Rect::from_min_size(pos2(top.x, top.y + y), vec2(w, f32::INFINITY));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(max), |ui| card(ui, add)).inner
+        };
+        let re = place(ui, oe, &mut |ui| self.effects_block(ui));
+        let rs = place(ui, os, &mut |ui| {
+            self.scenes_block(ui);
+        });
+        // висота змінилася — наступний кадр одразу, щоб картки не налазили одна на одну
+        if (re.height() - he).abs() > 0.5 || (rs.height() - hs).abs() > 0.5 {
+            ui.ctx().request_repaint();
+        }
+        ui.data_mut(|d| {
+            d.insert_temp(hid("e"), re.height());
+            d.insert_temp(hid("s"), rs.height());
+        });
+        ui.allocate_rect(Rect::from_min_size(top, vec2(w, re.height() + rs.height() + S4)), Sense::hover());
+        if first { rs } else { Rect::from_min_max(rs.min, pos2(rs.right(), rs.bottom() + 400.0)) }
     }
 
     /// Палітра поруч із колом: клік — колір на вибрані (або всі), Alt + утримання — спалах кольором.
@@ -1488,9 +1682,10 @@ impl App {
             String::new()
         };
         let on_top = !self.v.prefs.scenes_first;
+        let edit = self.layout_edit;
         let mut swap = false;
         Self::panel_head(ui, "Ефекти", |ui| {
-            swap = Self::swap_button(ui, on_top);
+            swap = edit && Self::swap_button(ui, on_top);
             ui.label(widgets::muted(state));
         });
         if swap {
@@ -1831,4 +2026,59 @@ fn window_button(ui: &mut Ui, tip: &str, paint: impl FnOnce(&egui::Painter, Pos2
     }
     paint(ui.painter(), r.center());
     resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// Стовпці головного вікна: ідентифікатор, стандартна частка ширини, найменша ширина
+/// (менше — вміст обрізався б) і назва для редагування вигляду.
+const COLS: [(&str, f32, f32, &str); 3] =
+    [("fixtures", 1.0, 410.0, "Прилади"), ("color", 1.35, 360.0, "Колір"), ("side", 1.0, 350.0, "Ефекти й сцени")];
+
+fn col_min(id: &str) -> f32 {
+    COLS.iter().find(|c| c.0 == id).map_or(0.0, |c| c.2)
+}
+
+/// Порядок стовпців з налаштувань: невідомі й повтори відкидаються, пропущені — дописуються в кінець.
+fn col_order(saved: &[String]) -> [&'static str; 3] {
+    let mut out: Vec<&'static str> = vec![];
+    for id in saved.iter().filter_map(|s| COLS.iter().find(|c| c.0 == s).map(|c| c.0)).chain(COLS.map(|c| c.0)) {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    [out[0], out[1], out[2]]
+}
+
+/// Ширина стовпців у заданому порядку: збережена або стандартна частка, не менша за найменшу.
+/// Зайве місце дістається останньому стовпцю; якщо не вміщається — стискаються з кінця.
+fn col_widths(order: &[&str; 3], saved: &std::collections::BTreeMap<String, f32>, total: f32) -> [f32; 3] {
+    let shares: f32 = COLS.iter().map(|c| c.1).sum();
+    let mut w = order.map(|id| {
+        let c = COLS.iter().find(|c| c.0 == id).copied().unwrap_or(COLS[0]);
+        saved.get(id).copied().unwrap_or(total * c.1 / shares).max(c.2)
+    });
+    w[2] = (total - w[0] - w[1]).max(col_min(order[2]));
+    let mut over = w.iter().sum::<f32>() - total;
+    for i in (0..3).rev() {
+        let cut = over.min(w[i] - col_min(order[i])).max(0.0);
+        w[i] -= cut;
+        over -= cut;
+    }
+    w
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn columns_fit_window() {
+        let none = Default::default();
+        assert_eq!(col_order(&["side".into(), "x".into(), "side".into()]), ["side", "fixtures", "color"]);
+        let w = col_widths(&col_order(&[]), &none, 1340.0);
+        assert!((w.iter().sum::<f32>() - 1340.0).abs() < 0.01 && (w[0] - 410.0).abs() < 0.01);
+        // збережена ширина, що не вміщається, стискається, але не менше за найменшу
+        let big: std::collections::BTreeMap<String, f32> = [("fixtures".into(), 900.0)].into();
+        let w = col_widths(&col_order(&[]), &big, 1200.0);
+        assert!((w[0] - 490.0).abs() < 0.01 && w[1] == 360.0 && w[2] == 350.0, "{w:?}");
+    }
 }

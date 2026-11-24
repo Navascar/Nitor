@@ -399,23 +399,38 @@ impl Shown {
 /// значень у %). Поле на місці числа й того самого розміру; одиниця (%) лишається поруч і не редагується.
 /// Enter або втрата фокусу — застосувати, Esc — скасувати.
 pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown: Shown, width: f32) -> bool {
+    value_box_sized(ui, id, value, min, max, shown, width, FS_SM)
+}
+
+/// Те саме число, але заданого розміру шрифту (майстер — крупніше).
+#[allow(clippy::too_many_arguments)]
+pub fn value_box_sized(
+    ui: &mut Ui,
+    id: Id,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    shown: Shown,
+    width: f32,
+    size: f32,
+) -> bool {
     let edit_id = id.with("edit");
     let mut editing: Option<String> = ui.data(|d| d.get_temp(edit_id));
     let mut changed = false;
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 18.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, size + 6.0), Sense::click());
     let unit = shown.unit();
-    let unit_w = if unit.is_empty() { 0.0 } else { text_width(ui, unit, font(FS_SM)) };
+    let unit_w = if unit.is_empty() { 0.0 } else { text_width(ui, unit, font(size)) };
     let right = rect.right() - S1;
     if let Some(text) = editing.as_mut() {
         ui.painter().rect(rect, radius(R_SM), RAISED, Stroke::new(1.0_f32, ACCENT), StrokeKind::Inside);
-        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(FS_SM), MUTED);
+        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(size), MUTED);
         let field = Rect::from_min_max(pos2(rect.left() + S1, rect.top()), pos2(right - unit_w, rect.bottom()));
         // поле — поверх уже зайнятого місця, курсор розкладки не зсувається
         let r = ui.new_child(egui::UiBuilder::new().max_rect(field)).add_sized(
             field.size(),
             TextEdit::singleline(text)
                 .id(edit_id.with("field"))
-                .font(font(FS_SM))
+                .font(font(size))
                 .frame(false)
                 .margin(egui::Margin::ZERO)
                 .horizontal_align(egui::Align::Max)
@@ -451,8 +466,8 @@ pub fn value_box(ui: &mut Ui, id: Id, value: &mut f32, min: f32, max: f32, shown
         if resp.hovered() {
             ui.painter().rect_filled(rect, radius(R_SM), RAISED);
         }
-        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(FS_SM), MUTED);
-        ui.painter().text(pos2(right - unit_w, rect.center().y), Align2::RIGHT_CENTER, &num, font(FS_SM), TEXT);
+        ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(size), MUTED);
+        ui.painter().text(pos2(right - unit_w, rect.center().y), Align2::RIGHT_CENTER, &num, font(size), TEXT);
         let text = format!("{num}{unit}");
         resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, format!("{text}, ввести значення")));
         let resp = resp.on_hover_cursor(CursorIcon::Text).on_hover_text("Клікніть, щоб ввести значення");

@@ -166,6 +166,8 @@ pub enum Act {
     AskDeleteSelected,
     /// Поміняти місцями «Ефекти» і «Сцени».
     SwapSide,
+    /// Показати чи сховати назву кнопки верхньої панелі (`clear`, `flash`, `blackout`).
+    ToggleShortButton(&'static str),
     CheckUpdate,
     OpenUpdate,
     OpenSettings(Option<crate::dialogs::Tab>),
@@ -221,6 +223,16 @@ pub struct App {
     pub scene_with_effect: bool,
     pub scene_fade: f64,
     pub monitor_open: bool,
+    /// редагування вигляду головного екрана (олівець): ширина й порядок стовпців
+    pub layout_edit: bool,
+    /// ширина стовпців, поки тягнуть межу (у налаштування — коли відпустили)
+    pub col_live: Option<std::collections::BTreeMap<String, f32>>,
+    /// анімація обміну стовпців: коли почали і де стовпці були до того
+    pub col_anim: Option<(f64, Vec<(&'static str, egui::Rect)>)>,
+    /// коли «Ефекти» і «Сцени» помінялися місцями (для анімації)
+    pub side_anim: Option<f64>,
+    /// де стовпці намальовано в цьому кадрі
+    pub col_rects: Vec<(&'static str, egui::Rect)>,
     pub toast: Option<Toast>,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
@@ -295,6 +307,11 @@ impl App {
             scene_with_effect: false,
             scene_fade: 1.0,
             monitor_open: false,
+            layout_edit: false,
+            col_live: None,
+            col_anim: None,
+            side_anim: None,
+            col_rects: vec![],
             toast: None,
             flash: HashMap::new(),
             color_clipboard: None,
@@ -923,7 +940,17 @@ impl App {
                 let ids = self.sel_fixtures();
                 self.act(ctx, Act::AskDeleteFixtures { ids, close_props: false });
             }
-            Act::SwapSide => self.set_prefs(|p| p.scenes_first = !p.scenes_first),
+            Act::SwapSide => {
+                self.side_anim = Some(ctx.input(|i| i.time));
+                self.set_prefs(|p| p.scenes_first = !p.scenes_first)
+            }
+            Act::ToggleShortButton(id) => self.set_prefs(|p| {
+                if p.short_buttons.iter().any(|b| b == id) {
+                    p.short_buttons.retain(|b| b != id);
+                } else {
+                    p.short_buttons.push(id.into());
+                }
+            }),
             Act::CheckUpdate => self.updater.check(),
             Act::OpenUpdate => self.open_update_dialog(),
             Act::OpenSettings(tab) => self.open_settings(tab),

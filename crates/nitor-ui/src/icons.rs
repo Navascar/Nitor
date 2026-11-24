@@ -51,6 +51,8 @@ pub const PATHS: &[(&str, &str)] = &[
     ("refresh", "M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"),
     ("arrowUp", "M12 19V5M5 12l7-7 7 7"),
     ("arrowDown", "M12 5v14M19 12l-7 7-7-7"),
+    ("arrowLeft", "M19 12H5M12 19l-7-7 7-7"),
+    ("arrowRight", "M5 12h14M12 5l7 7-7 7"),
     ("download", "M12 3v12M7 10l5 5 5-5M5 21h14"),
     ("upload", "M12 15V3M7 8l5-5 5 5M5 21h14"),
     ("wrench", "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"),

@@ -27,6 +27,11 @@ pub enum Item {
     },
 }
 
+/// Меню з назвою й одним пунктом.
+pub fn toggle_menu(title: &str, label: &str, act: Act) -> Vec<Item> {
+    vec![Item::Title(title.into()), item("edit", label, act)]
+}
+
 fn item(icon: &'static str, label: impl Into<String>, act: Act) -> Item {
     Item::Entry { icon: Some(icon), label: label.into(), key: None, danger: false, disabled: false, act }
 }
