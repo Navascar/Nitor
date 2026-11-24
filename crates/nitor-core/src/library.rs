@@ -129,6 +129,7 @@ fn library() -> &'static Library {
             builtin: true,
         };
         let mut models = vec![builtin];
+        models.extend(clones());
         match decode(LIBRARY_GZ) {
             Ok(base) => models.extend(base),
             Err(e) => log::error!("Не вдалося завантажити бібліотеку приладів: {e}"),
@@ -139,6 +140,30 @@ fn library() -> &'static Library {
         }
         Library { models, by_key }
     })
+}
+
+/// Безіменні китайські копії (продаються під різними назвами, напр. «Power Light 5433»).
+/// Таблиця каналів у більшості продавців однакова: 1 — яскравість, 2–4 — RGB, 5 — строб,
+/// 6 — програми (0 — звичайний колір з DMX), 7 — швидкість програм.
+// shortcut: програми й швидкість тримаються на 0 (у копій різні таблиці програм), якщо попросять — окремі пресети
+fn clones() -> Vec<LibModel> {
+    let r = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let par = |n: &str| LibModel {
+        m: "Китайська копія".into(),
+        n: n.into(),
+        t: "par".into(),
+        modes: vec![
+            Mode(
+                "7 кан. (Dim, RGB, строб, програми, швидкість)".into(),
+                r(&["dim", "r", "g", "b", "strobe", "zero", "zero"]),
+                None,
+            ),
+            Mode("4 кан. (Dim + RGB)".into(), r(&["dim", "r", "g", "b"]), None),
+            Mode("3 кан. (RGB)".into(), r(&["r", "g", "b"]), None),
+        ],
+        builtin: true,
+    };
+    vec![par("LED PAR 54x3 Вт RGB (5433, Power Light)"), par("LED PAR 18x1 Вт RGB"), par("LED PAR 36x1 Вт RGB")]
 }
 
 /// Розпаковує файл бібліотеки (`{"fixtures": [...]}` у gzip).
@@ -267,5 +292,14 @@ mod tests {
         };
         assert_eq!(m.profile_name(&m.modes[0]), "Acme Par · 3ch (3 кан.)");
         assert_eq!(m.color_summary(), "RGB");
+    }
+
+    #[test]
+    fn chinese_clones_are_found() {
+        let hits = search("5433", 10, "", 0, &[]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].modes[0].channels(), ["dim", "r", "g", "b", "strobe", "zero", "zero"]);
+        assert!(!search("power light", 10, "par", 0, &[]).is_empty());
+        assert!(!search("китайська", 10, "", 0, &[]).is_empty());
     }
 }
