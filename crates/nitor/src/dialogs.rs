@@ -117,7 +117,7 @@ const TABS: [(Tab, &str, &str, &str); 11] = [
     (
         Tab::Access,
         "Доступність",
-        "Розмір усього інтерфейсу: тексту, кнопок і повзунків. «Як у Windows» бере масштаб із налаштувань дисплея Windows; більший відсоток — усе крупніше, менший — дрібніше й більше вміщається.",
+        "Розмір усього інтерфейсу: тексту, кнопок і повзунків. «Стандартний» — звичайний розмір; більший відсоток — усе крупніше, менший — дрібніше й більше вміщається на екрані.",
         "масштаб розмір шрифт крупніше дрібніше збільшити зменшити екран дисплей зір",
     ),
     (
@@ -733,14 +733,12 @@ impl App {
 
     fn tab_access(&mut self, ui: &mut Ui) {
         widgets::field_label(ui, "Масштаб інтерфейсу");
-        let win = (ui.ctx().native_pixels_per_point().unwrap_or(1.0) * 100.0).round();
         let zoom = self.v.prefs.zoom;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(S1, S1);
             let opts = [0.0, 0.75, 0.9, 1.1, 1.25, 1.5, 1.75, 2.0];
             for z in opts {
-                let label =
-                    if z == 0.0 { format!("Як у Windows ({win:.0} %)") } else { format!("{:.0} %", z * 100.0) };
+                let label = if z == 0.0 { "Стандартний".to_string() } else { format!("{:.0} %", z * 100.0) };
                 let on = (zoom - z).abs() < 0.001 || (z == 0.0 && zoom == 1.0);
                 if btn(label).small().kind(if on { Kind::Toggled } else { Kind::Normal }).show(ui).clicked() {
                     self.set_prefs(|p| p.zoom = z);
@@ -748,10 +746,7 @@ impl App {
             }
         });
         ui.add_space(S2);
-        ui.label(widgets::muted(
-            "Відсоток — від масштабу Windows: 125 % робить усе на чверть більшим, ніж в інших програмах. \
-             Масштаб самої Windows змінюють у «Параметри → Система → Дисплей».",
-        ));
+        ui.label(widgets::muted("125 % робить усе на чверть більшим, 75 % — на чверть меншим. Зміна діє одразу."));
     }
 
     fn tab_output(&mut self, ui: &mut Ui, st: &mut SettingsState) {
@@ -865,7 +860,10 @@ impl App {
                     self.flash("outApply");
                 }
             }
-            ui.label(widgets::muted(cap(&self.v.output.status)));
+            // назва помилки виходу — лише тут; на головному екрані кнопка виходу просто блимає червоним
+            let o = &self.v.output;
+            let c = if o.ok { MUTED } else { DANGER };
+            ui.label(RichText::new(cap(&o.status)).size(FS_SM).color(c));
         });
         ui.add_space(S4);
         let mut dev = self.v.prefs.output_device;

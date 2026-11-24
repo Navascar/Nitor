@@ -409,16 +409,16 @@ impl App {
             _ => "sACN",
         };
         let kind = names(o.kind);
-        let text = match o.lost_since {
-            Some(t) if !o.ok => {
-                let s = t.elapsed().as_secs();
-                format!("{kind} · Від'єднано · {}:{:02}", s / 60, s % 60)
-            }
-            _ if o.ok && o.paused => format!("{kind} · Пауза"),
-            _ if !o.ok || self.v.prefs.output_device => format!("{kind} · {}", cap(&o.status)),
+        // помилка: лише назва інтерфейсу й червоне переливання, сам текст помилки — у налаштуваннях виходу
+        let text = match () {
+            _ if !o.ok => kind.to_string(),
+            _ if o.paused => format!("{kind} · Пауза"),
+            _ if self.v.prefs.output_device => format!("{kind} · {}", cap(&o.status)),
             _ => kind.to_string(),
         };
-        let tip = if o.ok && o.paused {
+        let tip = if !o.ok {
+            "Проблема з DMX-виходом. Клацніть, щоб побачити, що сталося, і змінити вихід.".to_string()
+        } else if o.paused {
             "Кадри не відправляються, бо все світло вимкнене. Відправка продовжиться, щойно щось увімкнеться."
                 .to_string()
         } else {
@@ -443,14 +443,17 @@ impl App {
                 StrokeKind::Outside,
             );
         }
-        p.rect(
-            r,
-            egui::CornerRadius::same(255),
-            RAISED,
-            Stroke::new(1.0_f32, if resp.hovered() { LINE_STRONG } else { LINE }),
-            StrokeKind::Inside,
-        );
-        let dot = if o.ok { OK } else { DANGER };
+        let (fill, stroke) = if o.ok {
+            (RAISED, if resp.hovered() { LINE_STRONG } else { LINE })
+        } else {
+            // плавне червоне переливання, період 1,6 с
+            let t = ui.input(|i| i.time) as f32;
+            let k = 0.5 - 0.5 * (t * std::f32::consts::TAU / 1.6).cos();
+            ui.ctx().request_repaint();
+            (RAISED.lerp_to_gamma(DANGER_STRONG, 0.15 + 0.45 * k), alpha(DANGER, 0.4 + 0.6 * k))
+        };
+        p.rect(r, egui::CornerRadius::same(255), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
+        let dot = if o.ok { OK } else { WHITE };
         p.circle_filled(pos2(r.left() + S3 + 4.0, r.center().y), 4.0, dot);
         if show_text {
             p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
