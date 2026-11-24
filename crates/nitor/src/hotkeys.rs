@@ -24,7 +24,7 @@ pub fn table() -> Vec<Entry> {
         a("effectStop", "Зупинити всі ефекти", &[]),
         Entry::Group("Вибір приладів"),
         a("selectAll", "Вибрати всі прилади", &["Ctrl+KeyA"]),
-        a("selectNone", "Зняти вибір", &["Escape"]),
+        a("selectNone", "Зняти вибір (без вибору — закрити Nitor)", &["Escape"]),
         a("selectInvert", "Інвертувати вибір", &[]),
         a("deleteFixtures", "Видалити вибрані прилади (з підтвердженням)", &["Delete"]),
         Entry::Group("Скасування"),

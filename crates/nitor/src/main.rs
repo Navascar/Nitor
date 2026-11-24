@@ -200,6 +200,9 @@ fn main() {
     log::info!("Nitor завершено");
 }
 
+/// Скільки секунд після попереднього Esc (знятий вибір, закрите вікно) Esc не закриває програму.
+const ESC_QUIT_DELAY: f64 = 0.6;
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh();
@@ -320,8 +323,10 @@ impl App {
         if self.settings.as_ref().is_some_and(|s| s.capturing.is_some()) {
             return;
         }
+        let now = ctx.input(|i| i.time);
         // у полях введення — своє скасування й виділення
         if ctx.wants_keyboard_input() || self.any_dialog() || self.menu.is_some() {
+            self.esc_t = now; // Esc, що закрив вікно чи меню, не просить одразу закрити програму
             return;
         }
         let events: Vec<(egui::Key, egui::Modifiers, bool)> = ctx.input(|i| {
@@ -348,6 +353,16 @@ impl App {
             if action == "flash" {
                 self.flash_color(app::FLASH_WHITE, app::FlashHold::Key(key));
                 continue;
+            }
+            // Esc без вибору — закрити програму (з підтвердженням), але не одразу після іншого Esc:
+            // затиснута чи двічі натиснута клавіша не відкриває питання випадково
+            if action == "selectNone" {
+                let quit = self.sel.is_empty() && now - self.esc_t > ESC_QUIT_DELAY;
+                self.esc_t = now;
+                if quit {
+                    self.request_close();
+                    continue;
+                }
             }
             self.run_hotkey(ctx, &action);
         }

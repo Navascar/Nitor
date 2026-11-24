@@ -121,7 +121,7 @@ fn tab_icon(tab: Tab) -> &'static str {
 }
 
 /// Ширина списку вкладок налаштувань.
-const SIDE_W: f32 = 200.0;
+const SIDE_W: f32 = 240.0;
 
 /// Вкладки налаштувань: назва, пояснення для новачка (знак питання біля назви) і слова для пошуку.
 const TABS: [(Tab, &str, &str, &str); 11] = [
@@ -559,7 +559,20 @@ impl App {
                         let mut go = None;
                         ui.horizontal(|ui| {
                             ui.add_space(S2);
-                            let r = widgets::input(ui, &mut st.q, "Пошук налаштувань", SIDE_W - 2.0 * S2);
+                            // поле з лупою ліворуч
+                            let pad = egui::Margin { left: (S2 + 16.0 + S2) as i8, right: S2 as i8, top: 8, bottom: 8 };
+                            let r = ui.add_sized(
+                                vec2(SIDE_W - 2.0 * S2, CONTROL_H),
+                                egui::TextEdit::singleline(&mut st.q)
+                                    .hint_text(RichText::new("Пошук").color(MUTED))
+                                    .margin(pad)
+                                    .vertical_align(Align::Center),
+                            );
+                            let ir = Rect::from_center_size(
+                                pos2(r.rect.left() + S2 + 8.0, r.rect.center().y),
+                                vec2(16.0, 16.0),
+                            );
+                            nitor_ui::icons::image("search", 16.0, MUTED).paint_at(ui, ir);
                             // Enter — перейти до першої знайденої вкладки
                             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                 go = TABS.iter().map(|t| t.0).find(|t| tab_matches(*t, &st.q));

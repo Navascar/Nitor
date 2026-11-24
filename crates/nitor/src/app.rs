@@ -245,6 +245,8 @@ pub struct App {
     pub title_slack: f32,
     /// цього кадру в заголовку розгорнута назва кнопки під мишею
     pub title_open: bool,
+    /// коли востаннє натиснули Esc (чи було відкрите вікно або меню) — для затримки перед «Закрити Nitor?»
+    pub esc_t: f64,
     pub toast: Option<Toast>,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
@@ -327,6 +329,7 @@ impl App {
             top_compact: false,
             title_slack: 0.0,
             title_open: false,
+            esc_t: 0.0,
             toast: None,
             flash: HashMap::new(),
             color_clipboard: None,
