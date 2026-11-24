@@ -446,9 +446,12 @@ impl App {
             if let Some(text) = d.input.as_mut() {
                 let w = ui.available_width();
                 let secret = matches!(d.on_ok, Act::EnterOperator(_) | Act::ExitOperator(_));
-                let hint =
-                    if matches!(d.on_ok, Act::EnterOperator(_)) { "PIN (необов'язково)" } else { "" };
-                let r = widgets::input_secret(ui, text, hint, w, secret);
+                let r = if secret {
+                    // PIN — окремі клітинки на 8 цифр, перші 4 обов'язкові (якщо PIN задають)
+                    widgets::pin_cells(ui, text, 8, 4)
+                } else {
+                    widgets::input_secret(ui, text, "", w, false)
+                };
                 if !d.focused {
                     r.request_focus();
                     if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), r.id) {
@@ -514,7 +517,7 @@ impl App {
             ui.label(widgets::muted(format!("Встановлено: {}  →  нова версія: {}", u.current, u.latest)));
             notes_box(ui, if u.notes.is_empty() { "Опис змін відсутній." } else { &u.notes });
             if let Some(b) = &u.blocked {
-                ui.label(RichText::new(format!("Автооновлення недоступне: {b}")).size(FS_SM).color(WARN));
+                widgets::alert(ui, widgets::Tone::Warn, "Автооновлення недоступне", &cap(b), None);
                 ui.add_space(S2);
             }
             ui.horizontal(|ui| {
@@ -722,6 +725,7 @@ impl App {
                                         Tab::About => self.tab_about(ui),
                                     }
                                 });
+                                widgets::scroll_shadow(ui, &out, SURFACE);
                                 // прокрутка сама перемикає MIDI ↔ VirtualDJ у списку вкладок
                                 if let (Some(top), None) = (vdj_top, jumped) {
                                     let vp = out.inner_rect;
@@ -748,7 +752,7 @@ impl App {
 
     fn tab_general(&mut self, ui: &mut Ui) {
         let mut keys = !self.v.prefs.hide_keys;
-        if widgets::check(ui, &mut keys, "Показувати підказки клавіш на кнопках").changed()
+        if widgets::switch(ui, &mut keys, "Показувати підказки клавіш на кнопках").changed()
         {
             self.set_prefs(|p| p.hide_keys = !keys);
         }
@@ -757,20 +761,20 @@ impl App {
         ));
         ui.add_space(S3);
         let mut help = !self.v.prefs.hide_help;
-        if widgets::check(ui, &mut help, "Показувати пояснення «?» біля розділів").changed()
+        if widgets::switch(ui, &mut help, "Показувати пояснення «?» біля розділів").changed()
         {
             self.set_prefs(|p| p.hide_help = !help);
         }
         ui.label(widgets::muted("Якщо навести мишу на знак питання, з'явиться коротке пояснення до розділу."));
         ui.add_space(S3);
         let mut mon = !self.v.prefs.hide_monitor;
-        if widgets::check(ui, &mut mon, "Показувати DMX-монітор унизу вікна").changed() {
+        if widgets::switch(ui, &mut mon, "Показувати DMX-монітор унизу вікна").changed() {
             self.set_prefs(|p| p.hide_monitor = !mon);
         }
         ui.label(widgets::muted("Монітор лише показує, що йде на прожектори; без нього світло працює так само."));
         ui.add_space(S3);
         let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
-        if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
+        if widgets::switch(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
             match crate::winshell::set_autostart(auto) {
                 Ok(()) => self.autostart = Some(auto),
                 Err(e) => self.toast(&format!("Не вдалося змінити автозапуск: {e}"), false),
@@ -907,14 +911,22 @@ impl App {
                     self.flash("outApply");
                 }
             }
-            // назва помилки виходу — лише тут; на головному екрані кнопка виходу просто блимає червоним
-            let o = &self.v.output;
-            let c = if o.ok { MUTED } else { DANGER };
-            ui.label(RichText::new(cap(&o.status)).size(FS_SM).color(c));
+            if self.v.output.ok {
+                ui.label(widgets::muted(cap(&self.v.output.status)));
+            }
         });
+        // назва помилки виходу — лише тут; на головному екрані кнопка виходу просто блимає червоним
+        if !self.v.output.ok {
+            ui.add_space(S3);
+            let text = format!(
+                "{}. Перевірте кабель і вибраний пристрій, потім натисніть «Застосувати».",
+                cap(&self.v.output.status).trim_end_matches('.')
+            );
+            widgets::alert(ui, widgets::Tone::Danger, "DMX-вихід не працює", &text, None);
+        }
         ui.add_space(S4);
         let mut dev = self.v.prefs.output_device;
-        if widgets::check(ui, &mut dev, "Показувати назву пристрою біля назви програми").changed()
+        if widgets::switch(ui, &mut dev, "Показувати назву пристрою біля назви програми").changed()
         {
             self.set_prefs(|p| p.output_device = dev);
         }
@@ -1102,9 +1114,9 @@ impl App {
         if let Some(mut p) = cur.clone().filter(|p| p.name == custom) {
             ui.horizontal(|ui| {
                 ui.label(widgets::muted("Широта"));
-                let a = widgets::number_f(ui, &mut p.lat, -90.0, 90.0, 0.01, 110.0).changed();
+                let a = widgets::number_f(ui, &mut p.lat, -90.0, 90.0, 0.01, 2, 120.0).changed();
                 ui.label(widgets::muted("Довгота"));
-                let b = widgets::number_f(ui, &mut p.lon, -180.0, 180.0, 0.01, 110.0).changed();
+                let b = widgets::number_f(ui, &mut p.lon, -180.0, 180.0, 0.01, 2, 120.0).changed();
                 if a || b {
                     self.send(Command::SetPlace(Some(p)));
                 }
@@ -1139,7 +1151,7 @@ impl App {
         for (i, e) in ev.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S2;
-                changed |= widgets::check(ui, &mut e.on, "").on_hover_text("Подія увімкнена").changed();
+                changed |= widgets::switch(ui, &mut e.on, "").on_hover_text("Подія увімкнена").changed();
                 let whens = [
                     (At::Time, "О часі".to_string()),
                     (At::Sunrise, "На сході сонця".to_string()),
@@ -1215,7 +1227,7 @@ impl App {
         let mut on = self.v.os2l.is_some();
         let mut port = self.v.os2l.unwrap_or(nitor_core::os2l::PORT) as i64;
         ui.horizontal(|ui| {
-            let a = widgets::check(ui, &mut on, "Приймати з VirtualDJ").changed();
+            let a = widgets::switch(ui, &mut on, "Приймати з VirtualDJ").changed();
             ui.add_space(S3);
             ui.label(widgets::muted("Порт"));
             ui.add_space(S1);
@@ -1740,9 +1752,10 @@ impl App {
                 ui.add_space(S3 - S2);
                 let found = library::search(&st.q, st.shown + 1, &st.kind, 0, &self.v.recent);
                 let more = found.len() > st.shown;
-                egui::ScrollArea::vertical().id_salt(("lib-grid", &st.kind, &st.q)).auto_shrink([false, false]).show(
-                    ui,
-                    |ui| {
+                let sa = egui::ScrollArea::vertical()
+                    .id_salt(("lib-grid", &st.kind, &st.q))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                         let gw = ui.available_width();
                         let gap = S3;
                         let cols = (((gw + gap) / (230.0 + gap)).floor() as usize).max(1);
@@ -1788,8 +1801,8 @@ impl App {
                                 }
                             });
                         }
-                    },
-                );
+                    });
+                widgets::scroll_shadow(ui, &sa, SURFACE);
             });
         });
         pick
@@ -1840,9 +1853,10 @@ impl App {
                 });
             });
             ui.add_space(S3);
-            egui::ScrollArea::vertical().id_salt("modes").max_height(ui.ctx().screen_rect().height() * 0.5).show(
-                ui,
-                |ui| {
+            let sa = egui::ScrollArea::vertical()
+                .id_salt("modes")
+                .max_height(ui.ctx().screen_rect().height() * 0.5)
+                .show(ui, |ui| {
                     let w = ui.available_width();
                     ui.spacing_mut().item_spacing.y = S2;
                     for mode in &st.fx.modes {
@@ -1884,8 +1898,8 @@ impl App {
                             chosen = Some(mode.clone());
                         }
                     }
-                },
-            );
+                });
+            widgets::scroll_shadow(ui, &sa, SURFACE);
         });
         if let Some(mode) = chosen {
             match st.target {
@@ -2259,9 +2273,10 @@ fn notes_box(ui: &mut Ui, text: &str) {
         ui,
         |ui| {
             ui.set_width(ui.available_width());
-            egui::ScrollArea::vertical().id_salt(("notes", text.len())).max_height(220.0).show(ui, |ui| {
+            let sa = egui::ScrollArea::vertical().id_salt(("notes", text.len())).max_height(220.0).show(ui, |ui| {
                 ui.label(RichText::new(text).size(FS_SM));
             });
+            widgets::scroll_shadow(ui, &sa, RAISED);
         },
     );
     ui.add_space(S3 - S2);

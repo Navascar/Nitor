@@ -9,6 +9,7 @@ use egui::{Color32, Image, ImageSource, Vec2};
 
 pub const PATHS: &[(&str, &str)] = &[
     ("plus", "M12 5v14M5 12h14"),
+    ("minus", "M5 12h14"),
     ("chevronDown", "M6 9l6 6 6-6"),
     ("backspace", "M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM18 9l-6 6M12 9l6 6"),
     ("enter", "M9 10l-5 5 5 5M20 4v7a4 4 0 0 1-4 4H4"),
@@ -59,6 +60,10 @@ pub const PATHS: &[(&str, &str)] = &[
     ("bolt", "M13 2L4 14h7l-1 8 9-12h-7z"),
     ("power", "M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"),
     ("check", "M5 12l5 5 9-10"),
+    (
+        "bulb",
+        "M9 18h6M10 22h4M15.1 14c.2-1 .7-1.7 1.4-2.5A4.6 4.6 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5",
+    ),
     ("help", "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"),
     ("lock", "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4"),
     (

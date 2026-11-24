@@ -782,7 +782,7 @@ impl App {
         let inner = rect.shrink2(vec2(S5, 0.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner).id_salt(id), |ui| {
             // смуги прокрутки приховано; прокрутка коліщатком лишається
-            egui::ScrollArea::vertical()
+            let sa = egui::ScrollArea::vertical()
                 .id_salt(("scroll", id))
                 .auto_shrink([false, false])
                 // мишею тягнуть рамку виділення, а не прокручують
@@ -794,6 +794,8 @@ impl App {
                     out = add(self, ui);
                     ui.add_space(S4);
                 });
+            // смуг прокрутки немає — тінь угорі чи внизу підказує, що там є ще вміст
+            widgets::scroll_shadow(ui, &sa, BG);
         });
         out
     }
@@ -892,10 +894,15 @@ impl App {
             self.act(ui.ctx(), a);
         }
         if self.v.show.fixtures.is_empty() {
+            ui.add_space(S5);
+            widgets::empty_state(
+                ui,
+                "bulb",
+                "Приладів ще немає",
+                "Додайте прожектори з адресами, як на самих приладах. Модель можна вибрати з бібліотеки.",
+            );
+            ui.add_space(S3);
             ui.vertical_centered(|ui| {
-                ui.add_space(S5);
-                ui.label(RichText::new("Приладів ще немає.").color(MUTED));
-                ui.add_space(S3);
                 if btn("Додати прилад").icon("plus").primary().show(ui).clicked() {
                     self.open_add();
                 }
@@ -1090,35 +1097,11 @@ impl App {
             ui.set_min_height(CONTROL_H_SM);
             if bars {
                 // перемикач «Пресети / Колір»
-                egui::Frame::new()
-                    .fill(RAISED)
-                    .stroke(Stroke::new(1.0_f32, LINE))
-                    .corner_radius(radius(R_MD))
-                    .inner_margin(egui::Margin::same(S1 as i8))
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        // підсвітка вибраного пункту переїжджає до нового, а не перестрибує
-                        let slot = ui.painter().add(egui::Shape::Noop);
-                        for (pane, label) in [(Pane::Presets, "Пресети"), (Pane::Color, "Колір")] {
-                            let on = (pane == Pane::Presets) == show_presets;
-                            let w = widgets::text_width(ui, label, bold(FS_SM)) + 2.0 * S3;
-                            let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
-                            if on {
-                                let r = anim::glide_rect(ui.ctx(), Id::new("pane-pill"), r, 0.2);
-                                ui.painter().set(slot, egui::Shape::rect_filled(r, radius(R_SM), ACCENT_STRONG));
-                            }
-                            ui.painter().text(
-                                r.center(),
-                                Align2::CENTER_CENTER,
-                                label,
-                                bold(FS_SM),
-                                if on { WHITE } else { MUTED },
-                            );
-                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                self.pane = pane;
-                            }
-                        }
-                    });
+                let mut pane = if show_presets { Pane::Presets } else { Pane::Color };
+                let opts = [(Pane::Presets, "Пресети"), (Pane::Color, "Колір")];
+                if widgets::segmented(ui, Id::new("pane-seg"), &mut pane, &opts, None) {
+                    self.pane = pane;
+                }
                 widgets::help(ui, Self::panel_help(if show_presets { "Пресети" } else { "Колір" }).unwrap_or_default());
             } else {
                 widgets::h2(ui, "Колір");
@@ -1224,7 +1207,7 @@ impl App {
                 continue;
             }
             let mut v = first.as_ref().map_or(0.0, |f| f.channel(key) as f32);
-            if slider_row(ui, Id::new(("sl", key)), label, &mut v, 255.0, color, Shown::Raw, 84.0) {
+            if slider_row(ui, Id::new(("sl", key)), label, &mut v, 255.0, color, Shown::Raw, 84.0, key != "strobe") {
                 let mut cv = ColorValues::default();
                 let b = v as u8;
                 match key {
@@ -1313,7 +1296,8 @@ impl App {
         }
         ui.add_space(S4);
         let mut speed = fx.first().map_or(128.0, |f| f.speed as f32);
-        if slider_row(ui, Id::new("presetSpeed"), "Швидкість", &mut speed, 255.0, ACCENT, Shown::Pct, 84.0) {
+        if slider_row(ui, Id::new("presetSpeed"), "Швидкість", &mut speed, 255.0, ACCENT, Shown::Pct, 84.0, false)
+        {
             self.send(Command::Preset { ids: targets.to_vec(), n: None, speed: Some(speed as u8) });
         }
         ui.add_space(S3 - S2);
@@ -1364,7 +1348,7 @@ impl App {
         widgets::check(ui, &mut self.scene_with_effect, "Зберегти разом з ефектом");
         ui.add_space(S3 - S2);
         widgets::field_label(ui, "Час переходу, с");
-        widgets::number_f(ui, &mut self.scene_fade, 0.0, 60.0, 0.05, w);
+        widgets::number_f(ui, &mut self.scene_fade, 0.0, 60.0, 0.1, 1, w);
         ui.add_space(S3 - S2);
         if btn("Відкрити з файлу").small().icon("upload").show(ui).clicked() {
             self.act(ui.ctx(), Act::OpenSceneFile);
@@ -1372,7 +1356,13 @@ impl App {
         ui.add_space(S3 - S2);
         let names: Vec<String> = self.v.show.scenes.keys().cloned().collect();
         if names.is_empty() {
-            ui.label(widgets::muted("Збережених сцен немає"));
+            ui.add_space(S3);
+            widgets::empty_state(
+                ui,
+                "layers",
+                "Збережених сцен немає",
+                "Налаштуйте світло, введіть назву вгорі й натисніть «Зберегти».",
+            );
         }
         ui.spacing_mut().item_spacing.y = S1;
         for name in names {
@@ -1804,7 +1794,10 @@ impl App {
         let mut swap = false;
         Self::panel_head(ui, "Ефекти", |ui| {
             swap = edit && Self::swap_button(ui, on_top);
-            ui.label(widgets::muted(state));
+            // ефект працює — мітка з назвою й кількістю приладів
+            if !state.is_empty() {
+                widgets::chip(ui, widgets::Tone::Info, &state);
+            }
         });
         if swap {
             self.act(ui.ctx(), Act::SwapSide);
@@ -1870,14 +1863,14 @@ impl App {
             });
         });
         ui.add_space(S3 - S2);
-        if widgets::check(ui, &mut self.eff.by_seg, "По сегментах").changed() {
+        if widgets::switch(ui, &mut self.eff.by_seg, "По сегментах").changed() {
             changed = true;
         }
         ui.add_space(S3 - S2);
-        changed |= widgets::check(ui, &mut self.eff.beat, "У такт музиці").changed();
+        changed |= widgets::switch(ui, &mut self.eff.beat, "У такт музиці").changed();
         if self.eff.beat {
             ui.add_space(S3 - S2);
-            changed |= widgets::check(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
+            changed |= widgets::switch(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
             ui.add_space(S3 - S2);
             ui.horizontal(|ui| {
                 match self.v.bpm {
@@ -1916,14 +1909,11 @@ impl App {
                 });
             });
             ui.add_space(S3 - S2);
-            widgets::field_label(ui, "Удари брати з");
+            widgets::field_label(ui, "Джерело ударів");
             let mut src = self.v.audio;
-            let opts = [
-                (AudioSource::Loopback, "Звуку комп'ютера".to_string()),
-                (AudioSource::Mic, "Мікрофона".to_string()),
-                (AudioSource::Off, "Лише тапу".to_string()),
-            ];
-            if widgets::select(ui, "audioSrc", &mut src, &opts, w) {
+            let opts =
+                [(AudioSource::Loopback, "Комп'ютер"), (AudioSource::Mic, "Мікрофон"), (AudioSource::Off, "Лише тап")];
+            if widgets::segmented(ui, Id::new("audio-seg"), &mut src, &opts, Some(w)) {
                 self.send(Command::SetAudio(src));
             }
             let err = self.audio.as_ref().map(|a| a.error.lock().unwrap().clone()).unwrap_or_default();

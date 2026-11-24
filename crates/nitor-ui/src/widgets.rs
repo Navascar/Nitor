@@ -437,6 +437,25 @@ pub fn slider_named(
     fill: Color32,
     width: f32,
 ) -> Response {
+    slider_impl(ui, name, value, min, max, fill, width, false)
+}
+
+/// Повзунок каналу кольору: доріжка — градієнт від темряви до кольору каналу, бігунець — поточний колір.
+pub fn slider_channel(ui: &mut Ui, name: &str, value: &mut f32, max: f32, color: Color32, width: f32) -> Response {
+    slider_impl(ui, name, value, 0.0, max, color, width, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn slider_impl(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    fill: Color32,
+    width: f32,
+    grad: bool,
+) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width.max(40.0), 18.0), Sense::click_and_drag());
     let thumb = 16.0;
     // мишу тягнуть за край: повзунок трохи розтягується в той бік і стоншується, відпустили — пружинить назад
@@ -485,11 +504,33 @@ pub fn slider_named(
         let p = ui.painter();
         let t = if max > min { (*value - min) / (max - min) } else { 0.0 };
         let cx = rect.left() + thumb / 2.0 + t * (rect.width() - thumb) + over;
-        p.rect_filled(track, CornerRadius::same(3), LINE_STRONG);
-        // при максимумі — заливка до самого кінця
-        let fill_right = if t >= 1.0 { track.right() } else { cx };
-        p.rect_filled(Rect::from_min_max(track.min, pos2(fill_right, track.max.y)), CornerRadius::same(3), fill);
-        p.circle_filled(pos2(cx, rect.center().y), thumb / 2.0 - 1.0, fill);
+        if grad {
+            // від темряви до кольору каналу: видно, що дасть кожне положення
+            let dark = INK.lerp_to_gamma(fill, 0.12);
+            let rr = track.height() / 2.0;
+            let mut m = egui::Mesh::default();
+            let (l, r) = (track.left() + rr, track.right() - rr);
+            m.colored_vertex(pos2(l, track.top()), dark);
+            m.colored_vertex(pos2(r, track.top()), fill);
+            m.colored_vertex(pos2(l, track.bottom()), dark);
+            m.colored_vertex(pos2(r, track.bottom()), fill);
+            m.add_triangle(0, 1, 2);
+            m.add_triangle(1, 3, 2);
+            p.circle_filled(pos2(l, track.center().y), rr, dark);
+            p.circle_filled(pos2(r, track.center().y), rr, fill);
+            p.add(m);
+            let c = dark.lerp_to_gamma(fill, t);
+            let k = pos2(cx, rect.center().y);
+            p.circle_filled(k, thumb / 2.0, c);
+            p.circle_stroke(k, thumb / 2.0 - 1.0, Stroke::new(2.0_f32, WHITE));
+            p.circle_stroke(k, thumb / 2.0 + 0.5, Stroke::new(1.0_f32, alpha(INK, 0.6)));
+        } else {
+            p.rect_filled(track, CornerRadius::same(3), LINE_STRONG);
+            // при максимумі — заливка до самого кінця
+            let fill_right = if t >= 1.0 { track.right() } else { cx };
+            p.rect_filled(Rect::from_min_max(track.min, pos2(fill_right, track.max.y)), CornerRadius::same(3), fill);
+            p.circle_filled(pos2(cx, rect.center().y), thumb / 2.0 - 1.0, fill);
+        }
         if resp.has_focus() {
             p.circle_stroke(pos2(cx, rect.center().y), thumb / 2.0 + 2.0, Stroke::new(2.0_f32, ACCENT));
         }
@@ -634,6 +675,7 @@ pub fn slider_row(
     fill: Color32,
     shown: Shown,
     label_w: f32,
+    grad: bool,
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -641,7 +683,7 @@ pub fn slider_row(
         let (r, _) = ui.allocate_exact_size(vec2(label_w, 18.0), Sense::hover());
         ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, font(FS_SM), MUTED);
         let w = ui.available_width() - 48.0 - S2;
-        changed |= slider_named(ui, label, value, 0.0, max, fill, w).changed();
+        changed |= slider_impl(ui, label, value, 0.0, max, fill, w, grad).changed();
         changed |= value_box(ui, id, value, 0.0, max, shown, 48.0);
     });
     changed
@@ -664,14 +706,17 @@ pub fn input_secret(ui: &mut Ui, text: &mut String, hint: &str, width: f32, secr
     )
 }
 
-/// Ціле число в полі вводу (як `<input type=number>`).
+/// Ціле число в полі вводу (як `<input type=number>`), з кнопками «−» і «+», якщо поле не вузьке.
 pub fn number(ui: &mut Ui, value: &mut i64, min: i64, max: i64, width: f32) -> Response {
-    ui.add_sized(vec2(width, CONTROL_H), egui::DragValue::new(value).range(min..=max).speed(0.2))
+    let mut v = *value as f64;
+    let r = stepper(ui, &mut v, min as f64, max as f64, 1.0, 0, width);
+    *value = (v.round() as i64).clamp(min, max);
+    r
 }
 
-/// Дробове число (час переходу).
-pub fn number_f(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, width: f32) -> Response {
-    ui.add_sized(vec2(width, CONTROL_H), egui::DragValue::new(value).range(min..=max).speed(step).max_decimals(1))
+/// Дробове число: `step` — крок кнопок «−»/«+» і перетягування; `decimals` — знаків після коми.
+pub fn number_f(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals: usize, width: f32) -> Response {
+    stepper(ui, value, min, max, step, decimals, width)
 }
 
 /// Підпис поля (дрібний, приглушений).
@@ -752,4 +797,316 @@ pub fn select<T: PartialEq + Clone>(
 /// Розмір тексту одним рядком.
 pub fn text_width(ui: &Ui, text: &str, font: FontId) -> f32 {
     ui.fonts(|f| f.layout_no_wrap(text.to_string(), font, TEXT).size().x)
+}
+
+/// Перемикач для налаштувань, що діють одразу (на відміну від галочки — вибору перед дією).
+pub fn switch(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
+    let (tw, th) = (32.0, 18.0);
+    let text_w = if text.is_empty() { 0.0 } else { S2 + text_width(ui, text, font(FS_MD)) };
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(tw + text_w, 22.0), Sense::click());
+    if resp.clicked() {
+        *value = !*value;
+        resp.mark_changed();
+    }
+    let on = *value;
+    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
+    let t = ui.ctx().animate_bool_with_time(resp.id.with("sw"), on, 0.15);
+    let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - th / 2.0), vec2(tw, th));
+    let p = ui.painter();
+    let hovered = resp.hovered();
+    let off_fill = if hovered { LINE_FIELD } else { LINE_STRONG };
+    p.rect_filled(track, CornerRadius::same(9), off_fill.lerp_to_gamma(ACCENT_STRONG, t));
+    let knob = pos2(track.left() + th / 2.0 + t * (tw - th), track.center().y);
+    p.circle_filled(knob, th / 2.0 - 2.0, WHITE);
+    if resp.has_focus() {
+        p.rect_stroke(track.expand(2.0), CornerRadius::same(11), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
+    }
+    if !text.is_empty() {
+        p.text(pos2(track.right() + S2, rect.center().y), Align2::LEFT_CENTER, text, font(FS_MD), TEXT);
+    }
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// PIN окремими клітинками (лише цифри). Клітинки після `required` — необов'язкові (тонша рамка).
+/// Повертає відповідь поля вводу, тож фокус і Enter працюють як у звичайного поля.
+pub fn pin_cells(ui: &mut Ui, text: &mut String, max: usize, required: usize) -> Response {
+    let (cw, ch, gap) = (36.0, 44.0, S2);
+    let w = max as f32 * cw + (max as f32 - 1.0) * gap;
+    let (rect, _) = ui.allocate_exact_size(vec2(w, ch), Sense::hover());
+    // справжнє поле — невидиме, на всю ширину клітинок: клік будь-де ставить у нього фокус
+    let r = ui
+        .scope(|ui| {
+            let v = ui.visuals_mut();
+            v.text_cursor.stroke = Stroke::NONE;
+            v.selection.bg_fill = Color32::TRANSPARENT;
+            ui.put(
+                rect,
+                TextEdit::singleline(text).char_limit(max).frame(false).text_color(Color32::TRANSPARENT).password(true),
+            )
+        })
+        .inner;
+    text.retain(|c| c.is_ascii_digit());
+    let n = text.chars().count();
+    let focus = r.has_focus();
+    let p = ui.painter();
+    for i in 0..max {
+        let c = Rect::from_min_size(pos2(rect.left() + i as f32 * (cw + gap), rect.top()), vec2(cw, ch));
+        let current = focus && (i == n || (n == max && i == max - 1));
+        let stroke = if current {
+            Stroke::new(2.0_f32, ACCENT)
+        } else if i < required || i < n {
+            Stroke::new(1.0_f32, LINE_FIELD)
+        } else {
+            Stroke::new(1.0_f32, LINE_STRONG)
+        };
+        p.rect(c, radius(R_MD), RAISED, stroke, StrokeKind::Inside);
+        if i < n {
+            p.circle_filled(c.center(), 5.0, TEXT);
+        } else if current {
+            // миготливий курсор у поточній клітинці
+            let on = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
+            if on {
+                p.vline(c.center().x, c.center().y - 9.0..=c.center().y + 9.0, Stroke::new(2.0_f32, ACCENT));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+    r
+}
+
+/// Число з кнопками «−» і «+» по боках (вузьке поле — без кнопок). Колесо й перетягування теж працюють.
+fn stepper(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals: usize, width: f32) -> Response {
+    fn drag(v: &mut f64, min: f64, max: f64, step: f64, decimals: usize) -> egui::DragValue<'_> {
+        egui::DragValue::new(v).range(min..=max).speed(step).max_decimals(decimals).min_decimals(decimals)
+    }
+    if width < 96.0 {
+        return ui.add_sized(vec2(width, CONTROL_H), drag(value, min, max, step, decimals));
+    }
+    let (rect, _) = ui.allocate_exact_size(vec2(width, CONTROL_H), Sense::hover());
+    let b = CONTROL_H - 6.0;
+    let minus = Rect::from_center_size(pos2(rect.left() + 3.0 + b / 2.0, rect.center().y), Vec2::splat(b));
+    let plus = Rect::from_center_size(pos2(rect.right() - 3.0 - b / 2.0, rect.center().y), Vec2::splat(b));
+    let mid = Rect::from_min_max(pos2(minus.right() + 2.0, rect.top()), pos2(plus.left() - 2.0, rect.bottom()));
+    let mut r = ui
+        .scope(|ui| {
+            let ws = &mut ui.visuals_mut().widgets;
+            for w in [&mut ws.inactive, &mut ws.hovered] {
+                w.bg_fill = Color32::TRANSPARENT;
+                w.weak_bg_fill = Color32::TRANSPARENT;
+                w.bg_stroke = Stroke::NONE;
+            }
+            ui.put(mid, drag(value, min, max, step, decimals))
+        })
+        .inner;
+    let stroke = if r.has_focus() {
+        ACCENT
+    } else if r.hovered() {
+        MUTED
+    } else {
+        LINE_FIELD
+    };
+    ui.painter().rect_stroke(rect, radius(R_MD), Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
+    for (br, icon, d) in [(minus, "minus", -step), (plus, "plus", step)] {
+        let id = r.id.with(icon);
+        let can = if d < 0.0 { *value > min } else { *value < max };
+        let sense = if can { Sense::click() } else { Sense::hover() };
+        let resp = ui.interact(br, id, sense);
+        if resp.hovered() && can {
+            ui.painter().rect_filled(br, radius(R_SM), LINE);
+        }
+        let a = if can { 1.0 } else { 0.35 };
+        icons::image(icon, 16.0, TEXT.gamma_multiply(a))
+            .paint_at(ui, Rect::from_center_size(br.center(), vec2(16.0, 16.0)));
+        let name = if d < 0.0 { "Зменшити" } else { "Збільшити" };
+        resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, can, name));
+        if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+            let p = 10f64.powi(decimals as i32);
+            *value = (((*value + d) * p).round() / p).clamp(min, max);
+            r.mark_changed();
+        }
+    }
+    r
+}
+
+/// Перемикач із кількох варіантів в одній рамці; підсвітка вибраного переїжджає плавно.
+/// `width` — розтягнути на всю ширину, інакше кожен пункт — за довжиною назви.
+pub fn segmented<T: PartialEq + Clone>(
+    ui: &mut Ui,
+    id: Id,
+    value: &mut T,
+    options: &[(T, &str)],
+    width: Option<f32>,
+) -> bool {
+    let mut changed = false;
+    egui::Frame::new()
+        .fill(RAISED)
+        .stroke(Stroke::new(1.0_f32, LINE))
+        .corner_radius(radius(R_MD))
+        .inner_margin(egui::Margin::same(S1 as i8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                let n = options.len().max(1) as f32;
+                // на всю ширину: кожен пункт — за довжиною назви, а решта місця ділиться порівну
+                // (якщо назви не вміщаються — пункти стискаються пропорційно)
+                let pad = if width.is_some() { S2 } else { S3 };
+                let mut natural: Vec<f32> =
+                    options.iter().map(|(_, l)| text_width(ui, l, bold(FS_SM)) + 2.0 * pad).collect();
+                let mut extra = 0.0;
+                if let Some(w) = width {
+                    let room = w - 2.0 * S1 - 2.0 - 2.0 * (n - 1.0);
+                    let sum: f32 = natural.iter().sum();
+                    if sum > room {
+                        natural.iter_mut().for_each(|x| *x *= room / sum);
+                    } else {
+                        extra = (room - sum) / n;
+                    }
+                }
+                let slot = ui.painter().add(egui::Shape::Noop);
+                for ((v, label), nw) in options.iter().zip(&natural) {
+                    let on = v == value;
+                    let w = nw + extra;
+                    let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
+                    resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, on, *label));
+                    if on {
+                        let r = crate::anim::glide_rect(ui.ctx(), id.with("pill"), r, 0.2);
+                        ui.painter().set(slot, egui::Shape::rect_filled(r, radius(R_SM), ACCENT_STRONG));
+                    } else if resp.hovered() {
+                        ui.painter().rect_filled(r, radius(R_SM), LINE);
+                    }
+                    ui.painter().text(
+                        r.center(),
+                        Align2::CENTER_CENTER,
+                        *label,
+                        bold(FS_SM),
+                        if on { WHITE } else { MUTED },
+                    );
+                    if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() && !on {
+                        *value = v.clone();
+                        changed = true;
+                    }
+                }
+            });
+        });
+    changed
+}
+
+/// Тіні зверху й знизу прокручуваної області, коли там є ще вміст. `bg` — колір фону під областю.
+pub fn scroll_shadow<R>(ui: &Ui, out: &egui::scroll_area::ScrollAreaOutput<R>, bg: Color32) {
+    let r = out.inner_rect;
+    let y = out.state.offset.y;
+    let more = out.content_size.y - r.height() - y;
+    let p = ui.painter().with_clip_rect(r);
+    let fade = |top: f32, down: bool, k: f32| {
+        let h = 24.0;
+        let (a, b) = (bg.gamma_multiply(k), Color32::TRANSPARENT);
+        let (c0, c1) = if down { (a, b) } else { (b, a) };
+        let mut m = egui::Mesh::default();
+        let rr = Rect::from_min_size(pos2(r.left(), top), vec2(r.width(), h));
+        let i = m.vertices.len() as u32;
+        m.colored_vertex(rr.left_top(), c0);
+        m.colored_vertex(rr.right_top(), c0);
+        m.colored_vertex(rr.left_bottom(), c1);
+        m.colored_vertex(rr.right_bottom(), c1);
+        m.add_triangle(i, i + 1, i + 2);
+        m.add_triangle(i + 1, i + 3, i + 2);
+        p.add(m);
+    };
+    if y > 0.5 {
+        fade(r.top(), true, (y / 24.0).min(1.0));
+    }
+    if more > 0.5 {
+        fade(r.bottom() - 24.0, false, (more / 24.0).min(1.0));
+    }
+}
+
+/// Тон повідомлення чи мітки.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Tone {
+    Neutral,
+    Info,
+    Ok,
+    Warn,
+    Danger,
+}
+
+impl Tone {
+    fn color(self) -> Color32 {
+        match self {
+            Tone::Neutral => MUTED,
+            Tone::Info => ACCENT,
+            Tone::Ok => OK,
+            Tone::Warn => WARN,
+            Tone::Danger => DANGER,
+        }
+    }
+}
+
+/// Плашка-попередження: значок, заголовок, пояснення й необов'язкова кнопка праворуч.
+/// Повертає `true`, якщо натиснули кнопку.
+pub fn alert(ui: &mut Ui, tone: Tone, title: &str, text: &str, action: Option<&str>) -> bool {
+    let c = tone.color();
+    let icon = match tone {
+        Tone::Ok => "check",
+        Tone::Warn | Tone::Danger => "alert",
+        _ => "info",
+    };
+    let mut clicked = false;
+    egui::Frame::new()
+        .fill(alpha(c, 0.10))
+        .stroke(Stroke::new(1.0_f32, alpha(c, 0.35)))
+        .corner_radius(radius(R_MD))
+        .inner_margin(egui::Margin::same(S3 as i8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = S2;
+                let (ir, _) = ui.allocate_exact_size(vec2(18.0, 20.0), Sense::hover());
+                icons::image(icon, 18.0, c).paint_at(ui, Rect::from_center_size(ir.center(), vec2(18.0, 18.0)));
+                let bw = action.map_or(0.0, |a| text_width(ui, a, font(FS_SM)) + 2.0 * S2 + S2);
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width() - bw);
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.label(RichText::new(title).font(bold(FS_MD)).color(c));
+                    if !text.is_empty() {
+                        ui.label(RichText::new(text).size(FS_SM).color(TEXT));
+                    }
+                });
+                if let Some(a) = action {
+                    let kind = if tone == Tone::Danger { Kind::DangerOn } else { Kind::Primary };
+                    clicked = btn(a).small().kind(kind).show(ui).clicked();
+                }
+            });
+        });
+    clicked
+}
+
+/// Невелика мітка стану в «пігулці».
+pub fn chip(ui: &mut Ui, tone: Tone, text: &str) -> Response {
+    let c = tone.color();
+    let (fill, fg) = if tone == Tone::Neutral { (RAISED, MUTED) } else { (alpha(c, 0.16), c) };
+    let w = text_width(ui, text, font(FS_SM)) + 2.0 * S2;
+    let (r, resp) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
+    ui.painter().rect_filled(r, CornerRadius::same(11), fill);
+    ui.painter().text(r.center(), Align2::CENTER_CENTER, text, font(FS_SM), fg);
+    resp
+}
+
+/// Порожній стан: значок у колі, заголовок і пояснення по центру. Кнопку дії додає викликач нижче.
+pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, text: &str) {
+    ui.vertical_centered(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+        ui.painter().circle_filled(r.center(), 24.0, RAISED);
+        ui.painter().circle_stroke(r.center(), 24.0, Stroke::new(1.0_f32, LINE));
+        icons::image(icon, 22.0, MUTED).paint_at(ui, Rect::from_center_size(r.center(), vec2(22.0, 22.0)));
+        ui.add_space(S2);
+        ui.label(RichText::new(title).font(bold(FS_MD)).color(TEXT));
+        if !text.is_empty() {
+            ui.add_space(2.0);
+            ui.scope(|ui| {
+                ui.set_max_width(280.0);
+                ui.label(RichText::new(text).size(FS_SM).color(MUTED));
+            });
+        }
+    });
 }
