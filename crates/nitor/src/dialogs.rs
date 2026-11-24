@@ -768,7 +768,7 @@ impl App {
         use nitor_core::schedule::{At, CITIES, Event, Place, all_days, minute_of};
         ui.label(widgets::muted(
             "Сцена, «Очистити» чи Blackout у потрібний час або на сході чи заході сонця. \
-             Поки є увімкнені події, хрестик ховає Nitor у трей, і розклад працює далі.",
+             Розклад працює, поки Nitor відкритий (вікно можна згорнути).",
         ));
         ui.add_space(S3);
         // місце для сходу й заходу сонця

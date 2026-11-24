@@ -1,4 +1,4 @@
-//! Інтеграція з Windows: одна копія програми, ідентифікатор для панелі задач, трей, автозапуск,
+//! Інтеграція з Windows: одна копія програми, ідентифікатор для панелі задач, автозапуск,
 //! місцевий час для розкладу.
 //!
 //! Друга копія не запускається: вона показує попередження й на прохання користувача просить
@@ -81,8 +81,6 @@ mod imp {
             loop {
                 if unsafe { WaitForSingleObject(h as HANDLE, INFINITE) } == WAIT_OBJECT_0 {
                     flag.store(true, Ordering::Relaxed);
-                    // сховане в трей вікно не перемальовується — показуємо, щоб запит виконався
-                    show_window();
                     ctx.request_repaint();
                 } else {
                     break;
@@ -111,35 +109,6 @@ mod imp {
         let id = wide(super::APP_ID);
         unsafe {
             SetCurrentProcessExplicitAppUserModelID(id.as_ptr());
-        }
-    }
-
-    static HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
-    static HIDDEN: AtomicBool = AtomicBool::new(false);
-
-    pub fn set_hwnd(h: isize) {
-        HWND.store(h, Ordering::Relaxed);
-    }
-
-    /// Ховає вікно (програма лишається в треї).
-    pub fn hide_window() {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
-        let h = HWND.load(Ordering::Relaxed);
-        if h != 0 {
-            HIDDEN.store(true, Ordering::Relaxed);
-            unsafe { ShowWindow(h as _, SW_HIDE) };
-        }
-    }
-
-    /// Показує сховане вікно.
-    pub fn show_window() {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOW, SetForegroundWindow, ShowWindow};
-        let h = HWND.load(Ordering::Relaxed);
-        if h != 0 && HIDDEN.swap(false, Ordering::Relaxed) {
-            unsafe {
-                ShowWindow(h as _, SW_SHOW);
-                SetForegroundWindow(h as _);
-            }
         }
     }
 
@@ -181,48 +150,6 @@ mod imp {
             }
         }
     }
-
-    pub struct Tray(#[allow(dead_code)] tray_icon::TrayIcon);
-
-    /// Значок у треї: клік або «Показати Nitor» — вікно, «Закрити Nitor» — вікно й запит на закриття.
-    pub fn tray(ask_quit: Arc<AtomicBool>, ctx: egui::Context) -> Result<Tray, String> {
-        use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-        use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-        let img = image::load_from_memory(include_bytes!("../../../assets/icon.ico"))
-            .map_err(|e| e.to_string())?
-            .resize(32, 32, image::imageops::FilterType::Triangle)
-            .into_rgba8();
-        let (w, h) = img.dimensions();
-        let icon = tray_icon::Icon::from_rgba(img.into_raw(), w, h).map_err(|e| e.to_string())?;
-        let show = MenuItem::new("Показати Nitor", true, None);
-        let quit = MenuItem::new("Закрити Nitor", true, None);
-        let menu = Menu::new();
-        menu.append_items(&[&show, &quit]).map_err(|e| e.to_string())?;
-        let (show_id, quit_id) = (show.id().clone(), quit.id().clone());
-        let c = ctx.clone();
-        MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
-            if e.id == quit_id {
-                ask_quit.store(true, Ordering::Relaxed);
-            }
-            if e.id == quit_id || e.id == show_id {
-                show_window();
-                c.request_repaint();
-            }
-        }));
-        TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                show_window();
-                ctx.request_repaint();
-            }
-        }));
-        let t = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_tooltip("Nitor — світло працює")
-            .with_icon(icon)
-            .build()
-            .map_err(|e| e.to_string())?;
-        Ok(Tray(t))
-    }
 }
 
 #[cfg(not(windows))]
@@ -250,8 +177,6 @@ mod imp {
         let _ = super::APP_ID;
     }
 
-    pub fn hide_window() {}
-
     // shortcut: без Windows вважаємо місцевий час UTC (програма — для Windows), для розробки на Linux цього досить
     pub fn local_offset_min() -> i32 {
         0
@@ -263,12 +188,6 @@ mod imp {
 
     pub fn set_autostart(_on: bool) -> Result<(), String> {
         Err("автозапуск доступний лише у Windows".into())
-    }
-
-    pub struct Tray;
-
-    pub fn tray(_ask_quit: Arc<AtomicBool>, _ctx: egui::Context) -> Result<Tray, String> {
-        Err("трей доступний лише у Windows".into())
     }
 }
 

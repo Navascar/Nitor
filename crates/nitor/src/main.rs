@@ -186,15 +186,6 @@ fn main() {
             } else if with_splash {
                 app.boot = Some(t0);
             }
-            #[cfg(windows)]
-            {
-                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                if let Ok(h) = cc.window_handle() {
-                    if let RawWindowHandle::Win32(w) = h.as_raw() {
-                        winshell::set_hwnd(w.hwnd.get());
-                    }
-                }
-            }
             winshell::listen_show(app.show_request.clone(), cc.egui_ctx.clone());
             winshell::listen_quit(app.quit_request.clone(), cc.egui_ctx.clone());
             Ok(Box::new(app))
@@ -216,16 +207,6 @@ impl eframe::App for App {
         self.audio_tick();
         self.midi_tick(ctx);
         self.os2l_tick();
-        if self.ask_quit.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            self.menu = None;
-            self.ui_dlg = Some(dialogs::UiDlg::confirm(
-                "Закрити Nitor?",
-                "Прожектори згаснуть, розклад зупиниться.",
-                "Закрити",
-                true,
-                Act::Quit,
-            ));
-        }
         self.pending_menu = None;
 
         // інсталятор оновлення запущено — програма завершується, світло не гасне
@@ -263,7 +244,7 @@ impl eframe::App for App {
         // закриття вікна (хрестик, Alt+F4) — лише після підтвердження
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.request_close(ctx);
+            self.request_close();
         }
 
         self.text_ops(ctx);
@@ -390,7 +371,7 @@ impl App {
                                 self.open_props(&id);
                             }
                         }
-                        "close" => self.request_close(ctx),
+                        "close" => self.request_close(),
                         "flash" => {
                             let w = ctx.screen_rect().width();
                             self.flash_cfg =

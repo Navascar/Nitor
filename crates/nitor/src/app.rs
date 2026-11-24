@@ -259,10 +259,6 @@ pub struct App {
     pub midi_error: String,
     /// Дія, якій чекаємо повідомлення MIDI (режим «Навчити»).
     pub midi_learn: Option<String>,
-    /// Значок у треї (з'являється, коли вікно вперше сховали).
-    pub tray: Option<crate::winshell::Tray>,
-    /// «Закрити Nitor» у меню трею: показати вікно й спитати.
-    pub ask_quit: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub os2l: Option<crate::os2l::Server>,
     /// Помилка сервера OS2L для порту, який не вдалося відкрити.
     pub os2l_error: Option<(u16, String)>,
@@ -329,8 +325,6 @@ impl App {
             midi: None,
             midi_error: String::new(),
             midi_learn: None,
-            tray: None,
-            ask_quit: Default::default(),
             os2l: None,
             os2l_error: None,
             autostart: None,
@@ -603,7 +597,7 @@ impl App {
         }
     }
 
-    /// Розклад має хоч одну увімкнену подію — тоді хрестик ховає програму в трей.
+    /// Розклад має хоч одну увімкнену подію.
     pub fn schedule_active(&self) -> bool {
         self.v.schedule.iter().any(|e| e.on)
     }
@@ -1117,26 +1111,17 @@ impl App {
     }
 
     /// Закриття вікна (хрестик, Alt+F4) — лише після підтвердження.
-    pub fn request_close(&mut self, ctx: &Context) {
+    pub fn request_close(&mut self) {
         if self.ui_dlg.as_ref().is_some_and(|d| matches!(d.on_ok, Act::Quit)) {
             return;
         }
-        // з увімкненим розкладом програма лишається в треї, щоб розклад працював
-        if self.schedule_active() {
-            if self.tray.is_none() {
-                match crate::winshell::tray(self.ask_quit.clone(), ctx.clone()) {
-                    Ok(t) => self.tray = Some(t),
-                    Err(e) => log::warn!("Трей недоступний: {e}"),
-                }
-            }
-            if self.tray.is_some() {
-                self.menu = None;
-                crate::winshell::hide_window();
-                return;
-            }
-        }
         self.menu = None;
-        self.ui_dlg = Some(UiDlg::confirm("Закрити Nitor?", "Прожектори згаснуть.", "Закрити", true, Act::Quit));
+        let text = if self.schedule_active() {
+            "Прожектори згаснуть, розклад не працюватиме, поки Nitor закритий."
+        } else {
+            "Прожектори згаснуть."
+        };
+        self.ui_dlg = Some(UiDlg::confirm("Закрити Nitor?", text, "Закрити", true, Act::Quit));
     }
 
     pub fn quit(&mut self, ctx: &Context) {
