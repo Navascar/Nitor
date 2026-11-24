@@ -69,6 +69,8 @@ impl LibState {
 
 /// Висота вмісту вкладок налаштувань: однакова для всіх, щоб вікно не стрибало (довгі — прокручуються).
 const SETTINGS_BODY_H: f32 = 520.0;
+/// Ширина списку вкладок налаштувань.
+const SIDE_W: f32 = 200.0;
 
 /// Вкладки налаштувань: назва й підказка про розділ (знак питання біля назви).
 const TABS: [(Tab, &str, &str); 8] = [
@@ -447,80 +449,104 @@ impl App {
         let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
         let esc_close = modal(ctx, "settings", 1080.0, |ui| {
             close |= dialog_head(ui, "Налаштування");
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = S5;
-                // вкладки збоку, як розділи бібліотеки
-                ui.vertical(|ui| {
-                    ui.set_width(200.0);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    for (tab, label, _) in TABS {
-                        let on = st.tab == tab;
-                        let (r, resp) = ui.allocate_exact_size(vec2(200.0, CONTROL_H), Sense::click());
-                        resp.widget_info(|| {
-                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
-                        });
-                        if on {
-                            ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
-                        } else if resp.hovered() {
-                            ui.painter().rect_filled(r, radius(R_MD), RAISED);
+            // вкладки — на темній підкладці позаду; поле налаштувань — картка поверх неї
+            let back = ui.painter().add(egui::Shape::Noop);
+            let row = ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let side = ui
+                    .vertical(|ui| {
+                        ui.set_width(SIDE_W);
+                        ui.add_space(S3);
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        for (tab, label, _) in TABS {
+                            let on = st.tab == tab;
+                            let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
+                            let r = r.shrink2(vec2(S2, 0.0));
+                            resp.widget_info(|| {
+                                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+                            });
+                            if on {
+                                ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(r, radius(R_MD), RAISED);
+                            }
+                            ui.painter().text(
+                                pos2(r.left() + S3, r.center().y),
+                                Align2::LEFT_CENTER,
+                                label,
+                                font(FS_MD),
+                                if on { ACCENT } else { MUTED },
+                            );
+                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                                st.tab = tab;
+                                st.capturing = None;
+                                st.tab_t = now;
+                            }
                         }
-                        ui.painter().text(
-                            pos2(r.left() + S3, r.center().y),
-                            Align2::LEFT_CENTER,
-                            label,
-                            font(FS_MD),
-                            if on { ACCENT } else { TEXT },
-                        );
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                            st.tab = tab;
-                            st.capturing = None;
-                            st.tab_t = now;
-                        }
-                    }
-                });
-                ui.vertical(|ui| {
-                    let ctx = ui.ctx().clone();
-                    // назва вкладки й підказка про розділ
-                    let (_, title, help) = TABS.iter().find(|t| t.0 == st.tab).copied().unwrap_or(TABS[0]);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = S2;
-                        ui.label(RichText::new(title).font(bold(FS_LG)));
-                        let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
-                        let c = if resp.hovered() { TEXT } else { MUTED };
-                        nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
-                        resp.on_hover_ui(|ui| {
-                            ui.set_max_width(360.0);
-                            ui.label(help);
+                    })
+                    .response
+                    .rect;
+                egui::Frame::new()
+                    .fill(SURFACE)
+                    .stroke(Stroke::new(1.0_f32, LINE_STRONG))
+                    .corner_radius(radius(R_LG))
+                    .inner_margin(egui::Margin::same(S5 as i8))
+                    .shadow(egui::Shadow { offset: [-6, 6], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.5) })
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.vertical(|ui| {
+                            let ctx = ui.ctx().clone();
+                            // назва вкладки й підказка про розділ
+                            let (_, title, help) = TABS.iter().find(|t| t.0 == st.tab).copied().unwrap_or(TABS[0]);
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = S2;
+                                ui.label(RichText::new(title).font(bold(FS_LG)));
+                                let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
+                                let c = if resp.hovered() { TEXT } else { MUTED };
+                                nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
+                                resp.on_hover_ui(|ui| {
+                                    ui.set_max_width(360.0);
+                                    ui.label(help);
+                                });
+                            });
+                            ui.add_space(S3);
+                            // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
+                            let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
+                            let ease = 1.0 - (1.0 - t).powi(3);
+                            if t < 1.0 {
+                                ctx.request_repaint();
+                            }
+                            egui::ScrollArea::vertical()
+                                .id_salt(("settings-scroll", st.tab as u8))
+                                .auto_shrink([false, false])
+                                .max_height(body_h)
+                                .show(ui, |ui| {
+                                    ui.multiply_opacity(ease);
+                                    ui.add_space((1.0 - ease) * S2);
+                                    match st.tab {
+                                        Tab::Output => self.tab_output(ui, &mut st),
+                                        Tab::Patch => self.tab_patch(ui, &mut st),
+                                        Tab::Profiles => self.tab_profiles(ui, &mut st),
+                                        Tab::Keys => self.tab_keys(ui, &mut st),
+                                        Tab::Midi => self.tab_midi(ui),
+                                        Tab::Schedule => self.tab_schedule(ui),
+                                        Tab::General => self.tab_general(ui),
+                                        Tab::About => self.tab_about(ui),
+                                    }
+                                });
                         });
                     });
-                    ui.add_space(S3);
-                    // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
-                    let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
-                    let ease = 1.0 - (1.0 - t).powi(3);
-                    if t < 1.0 {
-                        ctx.request_repaint();
-                    }
-                    egui::ScrollArea::vertical()
-                        .id_salt(("settings-scroll", st.tab as u8))
-                        .auto_shrink([false, false])
-                        .max_height(body_h)
-                        .show(ui, |ui| {
-                            ui.multiply_opacity(ease);
-                            ui.add_space((1.0 - ease) * S2);
-                            match st.tab {
-                                Tab::Output => self.tab_output(ui, &mut st),
-                                Tab::Patch => self.tab_patch(ui, &mut st),
-                                Tab::Profiles => self.tab_profiles(ui, &mut st),
-                                Tab::Keys => self.tab_keys(ui, &mut st),
-                                Tab::Midi => self.tab_midi(ui),
-                                Tab::Schedule => self.tab_schedule(ui),
-                                Tab::General => self.tab_general(ui),
-                                Tab::About => self.tab_about(ui),
-                            }
-                        });
-                });
+                side
             });
+            // підкладка заходить під картку, тож вкладки ніби лежать позаду
+            let side = row.inner;
+            let under =
+                Rect::from_min_max(side.min, pos2(side.right() + 2.0 * R_LG as f32, row.response.rect.bottom()));
+            ui.painter().set(
+                back,
+                egui::Shape::rect_filled(under, egui::CornerRadius { nw: R_LG, sw: R_LG, ne: 0, se: 0 }, BG),
+            );
         });
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
         let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
