@@ -206,6 +206,11 @@ const ESC_QUIT_DELAY: f64 = 0.6;
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh();
+        // «Зменшити рух»: вбудовані анімації egui (поява вікон, списків) теж миттєві
+        let want = if self.reduce_motion() { 0.0 } else { nitor_ui::theme::ANIMATION_TIME };
+        if ctx.style().animation_time != want {
+            ctx.style_mut(|s| s.animation_time = want);
+        }
         self.flash_release(ctx);
         self.audio_tick();
         self.midi_tick(ctx);
@@ -265,6 +270,18 @@ impl eframe::App for App {
             self.main_layout(ctx);
         }
         self.dialogs(ctx);
+        // вікно закрилося — фокус назад на елемент, з якого його відкрили (для роботи з клавіатури)
+        let open = self.any_dialog();
+        if !open {
+            if self.dialog_was {
+                if let Some(id) = self.focus_back.take() {
+                    ctx.memory_mut(|m| m.request_focus(id));
+                }
+            } else {
+                self.focus_back = ctx.memory(|m| m.focused());
+            }
+        }
+        self.dialog_was = open;
         self.hotkeys(ctx);
         // права кнопка на знаку «?» — його меню, а не меню розділу під ним
         if ctx.data_mut(|d| d.remove_temp::<bool>(nitor_ui::widgets::help_menu_id())).is_some() {

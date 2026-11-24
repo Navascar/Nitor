@@ -304,6 +304,20 @@ fn modal_with(ctx: &egui::Context, id: &str, width: f32, frame: egui::Frame, add
     r.should_close()
 }
 
+/// Фокус у поле в перший кадр після відкриття вікна: одразу можна друкувати й ходити Tab.
+/// Текст у полі виділено: друк замінює його, а не дописує.
+fn focus_on_open(ui: &Ui, r: &egui::Response, key: &str, len: usize) {
+    if nitor_ui::anim::shown_for(ui.ctx(), Id::new(("open-focus", key))) == 0.0 {
+        r.request_focus();
+        let mut st = egui::TextEdit::load_state(ui.ctx(), r.id).unwrap_or_default();
+        st.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new(len),
+        )));
+        st.store(ui.ctx(), r.id);
+    }
+}
+
 pub fn model_label(m: &Model) -> String {
     if m.mode.is_empty() { format!("{} {}", m.m, m.n) } else { format!("{} {} · {}", m.m, m.n, m.mode) }
 }
@@ -578,6 +592,7 @@ impl App {
                                 vec2(16.0, 16.0),
                             );
                             nitor_ui::icons::image("search", 16.0, MUTED).paint_at(ui, ir);
+                            focus_on_open(ui, &r, "settings", st.q.chars().count());
                             // Enter — перейти до першої знайденої вкладки
                             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                 go = TABS.iter().map(|t| t.0).find(|t| tab_matches(*t, &st.q));
@@ -674,7 +689,7 @@ impl App {
                             });
                             ui.add_space(S3);
                             // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
-                            let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
+                            let t = nitor_ui::anim::progress(&ctx, st.tab_t, 0.18);
                             let ease = 1.0 - (1.0 - t).powi(3);
                             if t < 1.0 {
                                 ctx.request_repaint();
@@ -798,6 +813,15 @@ impl App {
         });
         ui.add_space(S2);
         ui.label(widgets::muted("125 % робить усе на чверть більшим, 75 % — на чверть меншим. Зміна діє одразу."));
+        ui.add_space(S5);
+        widgets::field_label(ui, "Рух в інтерфейсі");
+        let mut on = self.reduce_motion();
+        if widgets::switch(ui, &mut on, "Зменшити рух").changed() {
+            self.set_prefs(|p| p.reduce_motion = Some(on));
+        }
+        ui.label(widgets::muted(
+            "Кнопки, вкладки й меню не ковзають і не збільшуються; кольори й підсвітка змінюються одразу, без руху.",
+        ));
     }
 
     fn tab_output(&mut self, ui: &mut Ui, st: &mut SettingsState) {
@@ -1630,7 +1654,9 @@ impl App {
                 ui.spacing_mut().item_spacing.x = S3;
                 ui.vertical(|ui| {
                     widgets::field_label(ui, "Назва");
-                    if widgets::input(ui, &mut a.name, "Прожектор", cw * 2.0).changed() {
+                    let r = widgets::input(ui, &mut a.name, "Прожектор", cw * 2.0);
+                    focus_on_open(ui, &r, "add", a.name.chars().count());
+                    if r.changed() {
                         a.name_auto = false;
                     }
                 });

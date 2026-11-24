@@ -109,7 +109,7 @@ impl App {
         // shortcut: ширина розгорнутої кнопки — оцінка з запасом на значок і відступи; рахувати точно, якщо кнопки стрибатимуть
         let fits = self.title_slack >= text_w + 3.0 * S4 + 18.0;
         let open = fits && (near || since.is_some_and(|t| now - t >= 1.0));
-        let t = ui.ctx().animate_bool_with_time(oid.with("anim"), open, 0.22);
+        let t = anim::anim_bool(ui.ctx(), oid.with("anim"), open, 0.22);
         // плавний початок і кінець руху
         let t = t * t * (3.0 - 2.0 * t);
         let b = if t > 0.0 { btn(label).icon(icon).reveal(t) } else { icon_btn(icon) };
@@ -588,10 +588,9 @@ impl App {
                 target[2] = Rect::from_min_max(pos2(top.left(), top.top() + h), top.max);
             }
             // обмін стовпців — плавно, за 0,25 с
-            let now = ui.input(|i| i.time);
             let mut rects = target;
             if let Some((t0, from)) = &self.col_anim {
-                let t = (((now - t0) / 0.25) as f32).clamp(0.0, 1.0);
+                let t = anim::progress(ui.ctx(), *t0, 0.25);
                 let e = 1.0 - (1.0 - t).powi(3);
                 for (i, id) in order.iter().enumerate() {
                     if let Some((_, f)) = from.iter().find(|(fid, _)| fid == id) {
@@ -1313,6 +1312,8 @@ impl App {
     fn hex_row(&mut self, ui: &mut Ui) {
         let cur = self.first_sel_color().map(|(c, _)| c);
         let id = Id::new("hex-edit");
+        let err_id = Id::new("hex-err");
+        let mut field = Rect::NOTHING;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = S2;
             widgets::field_label(ui, "HEX");
@@ -1330,21 +1331,36 @@ impl App {
             let r = widgets::input(ui, &mut text, "#RRGGBB", 110.0).on_hover_text(
                 "Вписати колір, наприклад #FF8000. Діє на вибрані прилади або на всі, якщо нічого не вибрано",
             );
+            field = r.rect;
+            if r.changed() {
+                ui.data_mut(|d| d.remove::<bool>(err_id));
+            }
             if r.has_focus() {
                 ui.data_mut(|d| d.insert_temp(id, text.clone()));
-            } else {
+            } else if !ui.data(|d| d.get_temp::<bool>(err_id).unwrap_or(false)) {
                 ui.data_mut(|d| d.remove::<String>(id));
             }
             if r.lost_focus() && text.trim() != shown {
                 match nitor_core::Rgb::from_hex(text.trim()) {
-                    Ok(c) => self.set_color(ColorValues { hex: Some(c), ..Default::default() }),
-                    Err(_) => self.toast("Колір вписують шістьма знаками: #RRGGBB", false),
+                    Ok(c) => {
+                        self.set_color(ColorValues { hex: Some(c), ..Default::default() });
+                        ui.data_mut(|d| d.remove::<String>(id));
+                    }
+                    // неправильне значення лишається в полі, щоб його можна було виправити
+                    Err(_) => ui.data_mut(|d| {
+                        d.insert_temp(err_id, true);
+                        d.insert_temp(id, text.clone());
+                    }),
                 }
             }
             if let Some(c) = cur {
                 ui.label(widgets::muted(format!("R {} · G {} · B {}", c.0, c.1, c.2)));
             }
         });
+        if ui.data(|d| d.get_temp::<bool>(err_id).unwrap_or(false)) {
+            ui.painter().rect_stroke(field, radius(R_MD), Stroke::new(2.0_f32, DANGER), StrokeKind::Inside);
+            ui.label(RichText::new("Потрібно шість знаків після #, наприклад #FF8000").size(FS_SM).color(DANGER));
+        }
     }
 
     /// Смужка з 8 умовних приладів: вибраний ефект ще до запуску, з тією ж швидкістю, розкидом і палітрою.
@@ -1375,8 +1391,10 @@ impl App {
             p.circle_filled(at, 13.0, alpha(col, 0.25));
             p.circle_filled(at, 9.0, col);
         }
-        // 20 кадрів/с досить для перегляду; згорнуте вікно не будимо
-        if !ui.input(|i| i.viewport().minimized.unwrap_or(false)) {
+        // 20 кадрів/с досить для перегляду; не будимо програму, коли смужки не видно: прокручено за край,
+        // відкрито вікно чи меню поверх або вікно згорнуто
+        let seen = ui.is_rect_visible(r) && !self.any_dialog() && self.menu.is_none();
+        if seen && !ui.input(|i| i.viewport().minimized.unwrap_or(false)) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
@@ -1704,7 +1722,7 @@ impl App {
         let offs = |scenes_first: bool| if scenes_first { (hs + S4, 0.0) } else { (0.0, he + S4) };
         let (mut oe, mut os) = offs(first);
         if let Some(t0) = self.side_anim {
-            let t = (((ui.input(|i| i.time) - t0) / 0.25) as f32).clamp(0.0, 1.0);
+            let t = anim::progress(ui.ctx(), t0, 0.25);
             let e = 1.0 - (1.0 - t).powi(3);
             let (fe, fs) = offs(!first);
             (oe, os) = (fe + (oe - fe) * e, fs + (os - fs) * e);
@@ -1747,6 +1765,12 @@ impl App {
             vec2(cols as f32 * (cell + gap) - gap, rows as f32 * (cell + gap) - gap),
             Sense::hover(),
         );
+        // з клавіатури палітра — одна зупинка Tab: фокус на «поточному» кольорі, далі стрілками
+        let (cur_id, go_id) = (Id::new("pal-cur"), Id::new("pal-go"));
+        let n = colors.len();
+        let cur = ui.data(|d| d.get_temp::<usize>(cur_id)).unwrap_or(0).min(n.saturating_sub(1));
+        let go: Option<usize> = ui.data_mut(|d| d.remove_temp(go_id));
+        let mut next = None;
         for (i, c) in colors.iter().enumerate() {
             let r = Rect::from_min_size(
                 pos2(grid.left() + (i % cols) as f32 * (cell + gap), grid.top() + (i / cols) as f32 * (cell + gap)),
@@ -1757,7 +1781,32 @@ impl App {
                 Some(k) => format!("{} — {k}\nAlt + утримання — спалах цим кольором", c.name),
                 None => format!("{}\nAlt + утримання — спалах цим кольором", c.name),
             };
-            let resp = ui.interact(r, Id::new(("swatch", i)), Sense::click()).on_hover_text(tip);
+            let sense = if i == cur { Sense::click() } else { Sense::CLICK };
+            let resp = ui.interact(r, Id::new(("swatch", i)), sense).on_hover_text(tip);
+            if go == Some(i) {
+                resp.request_focus();
+            }
+            if resp.has_focus() {
+                // стрілки — для палітри, а не для переходу egui до сусіднього елемента
+                let filter = egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() };
+                ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, filter));
+                let step = |k: egui::Key| ui.input_mut(|inp| inp.consume_key(egui::Modifiers::NONE, k));
+                let to = if step(egui::Key::ArrowRight) {
+                    Some(i + 1)
+                } else if step(egui::Key::ArrowLeft) {
+                    i.checked_sub(1)
+                } else if step(egui::Key::ArrowDown) {
+                    Some(i + cols)
+                } else if step(egui::Key::ArrowUp) {
+                    i.checked_sub(cols)
+                } else {
+                    None
+                };
+                next = to.filter(|t| *t < n);
+            }
+            if resp.clicked() {
+                ui.data_mut(|d| d.insert_temp(cur_id, i));
+            }
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &c.name));
             let rr = if resp.is_pointer_button_down_on() { r.shrink(1.0) } else { r };
             paint_static_chip(ui, rr, c.hex, c.w.is_some_and(|w| w > 0), R_SM);
@@ -1794,6 +1843,14 @@ impl App {
             }
             resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
+        // новий «поточний» колір стає фокусованим у наступному кадрі
+        if let Some(t) = next {
+            ui.data_mut(|d| {
+                d.insert_temp(cur_id, t);
+                d.insert_temp(go_id, t);
+            });
+            ui.ctx().request_repaint();
+        }
         let i = colors.len();
         let r = Rect::from_min_size(
             pos2(grid.left() + (i % cols) as f32 * (cell + gap), grid.top() + (i / cols) as f32 * (cell + gap)),
@@ -1818,7 +1875,7 @@ impl App {
             StrokeKind::Inside,
         );
         // щойно збережено — галочка, що трохи підстрибує
-        let saved = ui.ctx().animate_bool_with_time(Id::new("swatch-saved"), self.flashing("colorSave"), 0.2);
+        let saved = anim::anim_bool(ui.ctx(), Id::new("swatch-saved"), self.flashing("colorSave"), 0.2);
         let (icon, fg, s) = if saved > 0.0 {
             ("check", OK, 0.6 + 0.4 * saved + 0.35 * (saved * std::f32::consts::PI).sin())
         } else {
@@ -2189,10 +2246,13 @@ impl App {
             let id = Id::new(("toast", t.seq));
             let age = now.duration_since(t.born).as_secs_f32();
             let left = t.until.duration_since(now).as_secs_f32();
+            // зі «Зменшити рух» повідомлення не виїжджає й не з'їжджає, лише проявляється
+            let still = anim::reduced_motion();
             let k = anim::ease_out(age / 0.2);
             let fade = (left / 0.3).min(1.0) * k;
             moving |= age < 0.2 || left < 0.3;
-            let y = ctx.animate_value_with_time(id.with("y"), bottom, 0.18) + 16.0 * (1.0 - k);
+            let y =
+                if still { bottom } else { ctx.animate_value_with_time(id.with("y"), bottom, 0.18) + 16.0 * (1.0 - k) };
             let h = egui::Area::new(id)
                 .order(egui::Order::Tooltip)
                 .pivot(Align2::CENTER_BOTTOM)

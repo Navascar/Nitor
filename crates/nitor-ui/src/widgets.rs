@@ -279,7 +279,7 @@ impl<'a> Btn<'a> {
         if !done {
             ui.data_mut(|d| d.insert_temp(kind_id, self.kind));
         }
-        let dt = ui.ctx().animate_bool_with_time(resp.id.with("done"), done, 0.2);
+        let dt = crate::anim::anim_bool(ui.ctx(), resp.id.with("done"), done, 0.2);
         if dt > 0.0 && dt < 1.0 {
             let base = ui.data(|d| d.get_temp::<Kind>(kind_id)).unwrap_or_default();
             let (bf, bs, bg) = colors(base, hovered);
@@ -474,7 +474,7 @@ fn slider_impl(
     let thumb = 16.0;
     // мишу тягнуть за край: повзунок трохи розтягується в той бік і стоншується, відпустили — пружинить назад
     let over = match resp.interact_pointer_pos() {
-        Some(p) if resp.dragged() => {
+        Some(p) if resp.dragged() && !crate::anim::reduced_motion() => {
             let d = if p.x < rect.left() { p.x - rect.left() } else { (p.x - rect.right()).max(0.0) };
             d.signum() * 10.0 * (1.0 - (-d.abs() / 60.0).exp())
         }
@@ -827,7 +827,7 @@ pub fn switch(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
     }
     let on = *value;
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
-    let t = ui.ctx().animate_bool_with_time(resp.id.with("sw"), on, 0.15);
+    let t = crate::anim::anim_bool(ui.ctx(), resp.id.with("sw"), on, 0.15);
     let track = Rect::from_min_size(pos2(rect.left(), rect.center().y - th / 2.0), vec2(tw, th));
     let p = ui.painter();
     let hovered = resp.hovered();

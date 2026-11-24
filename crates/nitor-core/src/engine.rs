@@ -232,6 +232,9 @@ pub struct Prefs {
     /// Крива переходу між сценами.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fade_curve: FadeCurve,
+    /// «Зменшити рух»: `None` — як у налаштуваннях системи.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduce_motion: Option<bool>,
 }
 
 /// Як світло рухається під час переходу до сцени.

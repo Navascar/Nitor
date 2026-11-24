@@ -105,6 +105,14 @@ mod imp {
         (size.x > 0.0 && size.y > 0.0).then_some(size)
     }
 
+    /// У Windows вимкнено ефекти анімації (Спеціальні можливості → Візуальні ефекти).
+    pub fn system_reduce_motion() -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW};
+        let mut on: i32 = 1;
+        let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&mut on as *mut i32).cast(), 0) };
+        ok != 0 && on == 0
+    }
+
     pub fn set_app_id() {
         let id = wide(super::APP_ID);
         unsafe {
@@ -175,6 +183,10 @@ mod imp {
 
     pub fn set_app_id() {
         let _ = super::APP_ID;
+    }
+
+    pub fn system_reduce_motion() -> bool {
+        false
     }
 
     // shortcut: без Windows вважаємо місцевий час UTC (програма — для Windows), для розробки на Linux цього досить

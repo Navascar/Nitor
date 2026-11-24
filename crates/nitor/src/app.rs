@@ -258,6 +258,11 @@ pub struct App {
     /// коли востаннє натиснули Esc (чи було відкрите вікно або меню) — для затримки перед «Закрити Nitor?»
     pub esc_t: f64,
     pub toasts: Vec<Toast>,
+    /// у системі вимкнено анімацію (зчитано під час запуску)
+    pub sys_reduce_motion: bool,
+    /// елемент, що мав фокус перед відкриттям вікна: після закриття фокус повертається на нього
+    pub focus_back: Option<egui::Id>,
+    pub dialog_was: bool,
     pub toast_seq: u64,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
@@ -342,6 +347,9 @@ impl App {
             title_open: false,
             esc_t: 0.0,
             toasts: vec![],
+            sys_reduce_motion: crate::winshell::system_reduce_motion(),
+            focus_back: None,
+            dialog_was: false,
             toast_seq: 0,
             flash: HashMap::new(),
             color_clipboard: None,
@@ -389,6 +397,7 @@ impl App {
         self.v = snapshot(&self.core);
         nitor_ui::widgets::set_show_keys(!self.v.prefs.hide_keys);
         nitor_ui::widgets::set_show_help(!self.v.prefs.hide_help);
+        nitor_ui::anim::set_reduced_motion(self.reduce_motion());
         // вибір без видалених приладів
         let ids: BTreeSet<String> = self.v.show.fixtures.iter().map(|f| f.id.clone()).collect();
         self.sel.retain(|s| ids.contains(s.split('#').next().unwrap_or("")));
@@ -554,6 +563,11 @@ impl App {
             return;
         }
         self.pane = Pane::Presets;
+    }
+
+    /// «Зменшити рух» діє: власний вибір, а без нього — як у системі.
+    pub fn reduce_motion(&self) -> bool {
+        self.v.prefs.reduce_motion.unwrap_or(self.sys_reduce_motion)
     }
 
     pub fn set_prefs(&mut self, f: impl FnOnce(&mut Prefs)) {

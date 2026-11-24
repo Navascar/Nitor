@@ -153,6 +153,9 @@ pub fn install_fonts(ctx: &egui::Context) {
 }
 
 /// Стилі egui під токени дизайн-системи.
+/// Тривалість вбудованих анімацій egui, секунди.
+pub const ANIMATION_TIME: f32 = 0.12;
+
 pub fn apply(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
     ctx.style_mut(|s| {
@@ -171,7 +174,7 @@ pub fn apply(ctx: &egui::Context) {
         s.spacing.menu_margin = egui::Margin::same(S1 as i8);
         s.spacing.scroll = egui::style::ScrollStyle::floating();
         s.interaction.selectable_labels = false;
-        s.animation_time = 0.12;
+        s.animation_time = ANIMATION_TIME;
 
         let v: &mut Visuals = &mut s.visuals;
         v.dark_mode = true;

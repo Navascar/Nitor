@@ -4,6 +4,34 @@
 use egui::emath::TSTransform;
 use egui::{Align2, Color32, Context, FontId, Id, LayerId, Painter, Pos2, Rect, Stroke, Ui, pos2, vec2};
 
+static REDUCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// «Зменшити рух» (налаштування доступності): без ковзання, збільшення й прокручування —
+/// елементи одразу на місці, зміни кольору й підсвітки миттєві.
+pub fn set_reduced_motion(on: bool) {
+    REDUCED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn reduced_motion() -> bool {
+    REDUCED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Як `animate_bool_with_time`, але зі «Зменшити рух» — одразу кінцеве значення.
+pub fn anim_bool(ctx: &Context, id: Id, on: bool, time: f32) -> f32 {
+    if reduced_motion() {
+        return if on { 1.0 } else { 0.0 };
+    }
+    ctx.animate_bool_with_time(id, on, time)
+}
+
+/// Частка 0..1 анімації, що почалася в `t0` і триває `dur` с; зі «Зменшити рух» — одразу 1.
+pub fn progress(ctx: &Context, t0: f64, dur: f32) -> f32 {
+    if reduced_motion() {
+        return 1.0;
+    }
+    ((now(ctx) - t0) as f32 / dur).clamp(0.0, 1.0)
+}
+
 /// Плавне сповільнення в кінці (cubic ease-out).
 pub fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
@@ -38,7 +66,7 @@ pub fn glide_rect(ctx: &Context, id: Id, target: Rect, dur: f32) -> Rect {
         Some(g) => g,
     };
     ctx.data_mut(|d| d.insert_temp(id, g));
-    let k = ((t - g.t0) as f32 / dur).min(1.0);
+    let k = if reduced_motion() { 1.0 } else { ((t - g.t0) as f32 / dur).min(1.0) };
     if k < 1.0 {
         ctx.request_repaint();
     }
@@ -70,7 +98,7 @@ pub fn slot_rect(ctx: &Context, id: Id, slot: u64, target: Rect, appear: bool) -
         Some(s) if s.slot != slot => Slot { slot, shown: s.shown, from: s.shown, t0: t },
         Some(s) => s,
     };
-    let k = ((t - s.t0) as f32 / DUR).min(1.0);
+    let k = if reduced_motion() { 1.0 } else { ((t - s.t0) as f32 / DUR).min(1.0) };
     let shown = if k < 1.0 {
         ctx.request_repaint();
         lerp_rect(s.from, target, ease_out(k))
@@ -96,7 +124,7 @@ pub fn shown_for(ctx: &Context, id: Id) -> f32 {
 /// розміру навколо `origin`. Прозорість egui наростає сам (fade_in у `Area`).
 pub fn pop_in(ctx: &Context, layer: LayerId, origin: Pos2, from: f32) {
     let k = shown_for(ctx, Id::new(("pop", layer.id))) / 0.14;
-    if k >= 1.0 {
+    if k >= 1.0 || reduced_motion() {
         return;
     }
     let s = from + (1.0 - from) * ease_out(k);
@@ -137,7 +165,7 @@ pub fn rolling_text(ui: &Ui, id: Id, right: Pos2, text: &str, font: FontId, colo
     ctx.data_mut(|d| d.insert_temp(id, r.clone()));
     let k = ((t - r.t0) as f32 / DUR).min(1.0);
     let p = ui.painter();
-    if k >= 1.0 {
+    if k >= 1.0 || reduced_motion() {
         p.text(right, Align2::RIGHT_CENTER, text, font, color);
         return;
     }
@@ -177,7 +205,8 @@ pub fn ring(ui: &Ui, rect: Rect, age: f32, color: Color32, radius: f32) {
         return;
     }
     let e = ease_out(age / DUR);
-    let grow = 2.0 + 10.0 * e;
+    // зі «Зменшити рух» кільце не розходиться, лише гасне на місці
+    let grow = if reduced_motion() { 3.0 } else { 2.0 + 10.0 * e };
     ui.painter().rect_stroke(
         rect.expand(grow),
         egui::CornerRadius::same((radius + grow).min(255.0) as u8),
