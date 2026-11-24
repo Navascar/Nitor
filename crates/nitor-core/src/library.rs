@@ -143,8 +143,8 @@ fn library() -> &'static Library {
 }
 
 /// Безіменні китайські копії (продаються під різними назвами, напр. «Power Light 5433»).
-/// Таблиця каналів у більшості продавців однакова: 1 — яскравість, 2–4 — RGB, 5 — строб,
-/// 6 — програми (0 — звичайний колір з DMX), 7 — швидкість програм.
+/// Таблиця каналів — як у Betopper LPC007/LPC008 (посібник виробника): меню A001 — 7 кан.
+/// (1 яскравість, 2–4 RGB, 5 строб, 6 вибір режиму: 0–50 — колір з DMX, 7 швидкість), d001 — 3 кан. RGB.
 // shortcut: програми й швидкість тримаються на 0 (у копій різні таблиці програм), якщо попросять — окремі пресети
 fn clones() -> Vec<LibModel> {
     let r = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -153,13 +153,8 @@ fn clones() -> Vec<LibModel> {
         n: n.into(),
         t: "par".into(),
         modes: vec![
-            Mode(
-                "7 кан. (Dim, RGB, строб, програми, швидкість)".into(),
-                r(&["dim", "r", "g", "b", "strobe", "zero", "zero"]),
-                None,
-            ),
-            Mode("4 кан. (Dim + RGB)".into(), r(&["dim", "r", "g", "b"]), None),
-            Mode("3 кан. (RGB)".into(), r(&["r", "g", "b"]), None),
+            Mode("A001 · 7 кан. (Dim, RGB, строб)".into(), r(&["dim", "r", "g", "b", "strobe", "zero", "zero"]), None),
+            Mode("d001 · 3 кан. (RGB)".into(), r(&["r", "g", "b"]), None),
         ],
         builtin: true,
     };
@@ -193,8 +188,17 @@ fn alias(maker: &str) -> &'static str {
     MAKER_ALIASES.iter().find(|(k, _)| *k == low).map_or("", |(_, v)| v)
 }
 
+/// Що пишуть на коробках китайських копій — щоб пошук знаходив відповідну модель бібліотеки.
+const TAGS: [(&str, &str, &str); 4] = [
+    ("Betopper", "LPC-007", "lpc007 lpc008 54x3 5433 54x1.5"),
+    ("Shehds", "LED Flat Par 54x3W", "5433"),
+    ("Eyourlife", "LED RGBW 54x3 Par64", "54x3w gohyo coidak gbgs"),
+    ("Китайська копія", "LED PAR 54x3 Вт RGB (5433, Power Light)", "54x3w powerlight"),
+];
+
 fn matches(fx: &LibModel, words: &[String]) -> bool {
-    let text = format!("{} {} {}", fx.m, alias(&fx.m), fx.n).to_lowercase();
+    let tags = TAGS.iter().find(|t| t.0 == fx.m && t.1 == fx.n).map_or("", |t| t.2);
+    let text = format!("{} {} {} {tags}", fx.m, alias(&fx.m), fx.n).to_lowercase();
     words.iter().all(|w| text.contains(w.as_str()))
 }
 
@@ -297,8 +301,11 @@ mod tests {
     #[test]
     fn chinese_clones_are_found() {
         let hits = search("5433", 10, "", 0, &[]);
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].modes[0].channels(), ["dim", "r", "g", "b", "strobe", "zero", "zero"]);
+        assert!(hits.iter().any(|f| f.m == "Китайська копія"));
+        assert!(hits.iter().any(|f| f.n == "LPC-007"), "та сама таблиця, що в Betopper");
+        let own = hits.iter().find(|f| f.m == "Китайська копія").unwrap();
+        let lpc = find("Betopper", "LPC-007").unwrap();
+        assert_eq!(own.modes[0].channels(), lpc.mode("7 Channel").unwrap().channels(), "як у посібнику Betopper");
         assert!(!search("power light", 10, "par", 0, &[]).is_empty());
         assert!(!search("китайська", 10, "", 0, &[]).is_empty());
     }
