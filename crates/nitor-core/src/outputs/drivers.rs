@@ -386,12 +386,12 @@ pub fn check_udmx() -> (Vec<String>, i32) {
     let mut drv = Udmx { index: 0, dev: None, name: String::new() };
     let code = match drv.open() {
         Ok(()) => {
-            out.push("Тестовий кадр відправлено успішно — uDMX готовий до роботи.".into());
+            out.push("Тестовий кадр відправлено, uDMX працює.".into());
             0
         }
         Err(e) => {
             out.push(format!("Пристрій знайдено, але відправка не вдалася: {e}"));
-            out.push("  Найчастіше причина — не той драйвер. Встановіть WinUSB через Zadig.".into());
+            out.push("  Найчастіше причина в драйвері. Встановіть WinUSB через Zadig.".into());
             1
         }
     };

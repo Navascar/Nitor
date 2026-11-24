@@ -189,7 +189,7 @@ fn run_uninstall(job: &Shared, app_dir: &Path, removal: &Removal) -> Result<Stri
         String::new()
     } else if removal == &Removal::ProgramOnly {
         format!(
-            "Збережені дані залишилися в теці {} — після повторного встановлення вони з'являться знову.",
+            "Збережені дані залишилися в теці {}. Після повторного встановлення вони з'являться знову.",
             app_dir.display()
         )
     } else {

@@ -97,5 +97,5 @@ fn run(core: &Core, source: AudioSource, stop: &AtomicBool) -> Result<(), String
 fn run(core: &Core, _source: AudioSource, _stop: &AtomicBool) -> Result<(), String> {
     let _ = feed; // викликається лише у Windows
     let _ = core;
-    Err("звук доступний лише у Windows — користуйтеся тапом".into())
+    Err("звук доступний лише у Windows, користуйтеся тапом".into())
 }

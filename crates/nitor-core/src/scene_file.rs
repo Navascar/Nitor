@@ -124,7 +124,7 @@ pub(crate) fn import(engine: &mut Engine, data: &Value, name: Option<&str>) -> R
         bail!("це не файл сцени Nitor");
     }
     if data.get("version").and_then(Value::as_u64).unwrap_or(0) > SCENE_VERSION {
-        bail!("файл сцени створено новішою версією Nitor — оновіть програму");
+        bail!("файл сцени створено новішою версією Nitor, оновіть програму");
     }
     let Some(list) = data.get("fixtures").and_then(Value::as_array) else {
         bail!("файл сцени пошкоджено");
