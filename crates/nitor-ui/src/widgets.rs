@@ -46,6 +46,13 @@ pub struct Btn<'a> {
     kbd: Option<String>,
 }
 
+static SHOW_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Показувати підказки клавіш на кнопках (загальне налаштування програми).
+pub fn set_show_keys(on: bool) {
+    SHOW_KEYS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
     Btn {
         text: Some(text.into()),
@@ -107,9 +114,9 @@ impl<'a> Btn<'a> {
         self.left_align = true;
         self
     }
-    /// Підказка гарячої клавіші в кнопці («F», «Ctrl+A»).
+    /// Підказка гарячої клавіші в кнопці («F», «Ctrl+A»); не показується, якщо підказки вимкнено.
     pub fn key(mut self, k: Option<String>) -> Self {
-        self.kbd = k.filter(|k| !k.is_empty());
+        self.kbd = k.filter(|k| !k.is_empty() && SHOW_KEYS.load(std::sync::atomic::Ordering::Relaxed));
         self
     }
 

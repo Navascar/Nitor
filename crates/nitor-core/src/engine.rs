@@ -202,6 +202,9 @@ pub struct Prefs {
     /// Мерехтіння «Спалаху», Гц: 0 — постійне світло, більше — строб.
     #[serde(default)]
     pub flash_rate: f64,
+    /// Не показувати підказки клавіш на кнопках.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_keys: bool,
 }
 
 impl Prefs {

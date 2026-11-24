@@ -340,6 +340,7 @@ impl App {
 
     pub fn refresh(&mut self) {
         self.v = snapshot(&self.core);
+        nitor_ui::widgets::set_show_keys(!self.v.prefs.hide_keys);
         // вибір без видалених приладів
         let ids: BTreeSet<String> = self.v.show.fixtures.iter().map(|f| f.id.clone()).collect();
         self.sel.retain(|s| ids.contains(s.split('#').next().unwrap_or("")));

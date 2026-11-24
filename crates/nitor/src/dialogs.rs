@@ -15,6 +15,7 @@ use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
+    General,
     Output,
     Patch,
     Profiles,
@@ -68,6 +69,42 @@ impl LibState {
 
 /// Висота вмісту вкладок налаштувань: однакова для всіх, щоб вікно не стрибало (довгі — прокручуються).
 const SETTINGS_BODY_H: f32 = 520.0;
+
+/// Вкладки налаштувань: назва й підказка про розділ (знак питання біля назви).
+const TABS: [(Tab, &str, &str); 8] = [
+    (Tab::General, "Загальні", "Налаштування самої програми: підказки клавіш на кнопках і запуск разом із Windows."),
+    (
+        Tab::Output,
+        "DMX-вихід",
+        "Куди Nitor надсилає світло: USB-адаптер (uDMX, Enttec, Open DMX), мережа (Art-Net, sACN) або симулятор без обладнання.",
+    ),
+    (
+        Tab::Patch,
+        "Патч приладів",
+        "Усі прилади з адресами DMX і профілями. Тут видно, чи не перетинаються адреси, і можна змінити порядок приладів.",
+    ),
+    (
+        Tab::Profiles,
+        "Профілі",
+        "Профіль — це перелік каналів приладу по порядку. Власний профіль потрібен приладу, якого немає в бібліотеці.",
+    ),
+    (
+        Tab::Keys,
+        "Гарячі клавіші",
+        "Клавіші для швидких дій: Blackout, «Спалах», тап, кольори палітри. Будь-яку клавішу можна змінити або прибрати.",
+    ),
+    (
+        Tab::Midi,
+        "MIDI і VirtualDJ",
+        "Керування з MIDI-контролера (кнопки й повзунки) і удари та кнопки сцен з VirtualDJ.",
+    ),
+    (
+        Tab::Schedule,
+        "Розклад",
+        "Сцена, «Очистити» чи Blackout у потрібний час або на сході чи заході сонця. Розклад працює, поки Nitor відкритий.",
+    ),
+    (Tab::About, "Про програму", "Версія Nitor, перевірка оновлень і журнал роботи."),
+];
 
 pub enum ModesFor {
     Add,
@@ -155,7 +192,7 @@ fn dialog_head(ui: &mut Ui, title: &str) -> bool {
     ui.horizontal(|ui| {
         ui.label(RichText::new(title).font(bold(FS_LG)));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            close = icon_btn("x").kind(Kind::Ghost).key(Some("Esc".into())).tip("Закрити").show(ui).clicked();
+            close = icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked();
         });
     });
     ui.add_space(S4 - S2);
@@ -188,9 +225,9 @@ impl App {
             OutputConfig::Sacn { host, universe } => (0, String::new(), host.clone(), *universe as i64),
             OutputConfig::None => (0, String::new(), String::new(), 0),
         };
-        let prev = self.settings.take();
         self.settings = Some(SettingsState {
-            tab: tab.or(prev.as_ref().map(|p| p.tab)).unwrap_or(Tab::Output),
+            // кнопка налаштувань завжди відкриває «Загальні»; інші вкладки — лише за прямим запитом
+            tab: tab.unwrap_or(Tab::General),
             out_kind: o.kind().into(),
             udmx_index: index,
             port,
@@ -408,75 +445,103 @@ impl App {
         let capturing = st.capturing.is_some();
         let now = ctx.input(|i| i.time);
         let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
-        let esc_close = modal(ctx, "settings", 880.0, |ui| {
+        let esc_close = modal(ctx, "settings", 1080.0, |ui| {
             close |= dialog_head(ui, "Налаштування");
-            // вкладки; риска під активною плавно переїжджає
-            let mut active = Rect::NOTHING;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = S1;
-                for (tab, label) in [
-                    (Tab::Output, "DMX-вихід"),
-                    (Tab::Patch, "Патч приладів"),
-                    (Tab::Profiles, "Профілі"),
-                    (Tab::Keys, "Гарячі клавіші"),
-                    (Tab::Midi, "MIDI і VirtualDJ"),
-                    (Tab::Schedule, "Розклад"),
-                    (Tab::About, "Про програму"),
-                ] {
-                    let on = st.tab == tab;
-                    let w = widgets::text_width(ui, label, font(FS_MD)) + 2.0 * S3;
-                    let (r, resp) = ui.allocate_exact_size(vec2(w, CONTROL_H), Sense::click());
-                    ui.painter().text(
-                        r.center(),
-                        Align2::CENTER_CENTER,
-                        label,
-                        font(FS_MD),
-                        if on { TEXT } else { MUTED },
-                    );
-                    if on {
-                        active = r;
-                    }
-                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                        st.tab = tab;
-                        st.capturing = None;
-                        st.tab_t = now;
-                    }
-                }
-            });
-            let ctx = ui.ctx().clone();
-            let x0 = ctx.animate_value_with_time(Id::new("settings-tab-x0"), active.left(), 0.18);
-            let x1 = ctx.animate_value_with_time(Id::new("settings-tab-x1"), active.right(), 0.18);
-            ui.painter().hline(x0..=x1, active.bottom() - 1.0, Stroke::new(2.0_f32, ACCENT));
-            widgets::hline(ui);
-            ui.add_space(S4 - S2);
-            // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
-            let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
-            let ease = 1.0 - (1.0 - t).powi(3);
-            if t < 1.0 {
-                ctx.request_repaint();
-            }
-            egui::ScrollArea::vertical()
-                .id_salt(("settings-scroll", st.tab as u8))
-                .auto_shrink([false, false])
-                .max_height(body_h)
-                .show(ui, |ui| {
-                    ui.multiply_opacity(ease);
-                    ui.add_space((1.0 - ease) * S2);
-                    match st.tab {
-                        Tab::Output => self.tab_output(ui, &mut st),
-                        Tab::Patch => self.tab_patch(ui, &mut st),
-                        Tab::Profiles => self.tab_profiles(ui, &mut st),
-                        Tab::Keys => self.tab_keys(ui, &mut st),
-                        Tab::Midi => self.tab_midi(ui),
-                        Tab::Schedule => self.tab_schedule(ui),
-                        Tab::About => self.tab_about(ui),
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = S5;
+                // вкладки збоку, як розділи бібліотеки
+                ui.vertical(|ui| {
+                    ui.set_width(200.0);
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (tab, label, _) in TABS {
+                        let on = st.tab == tab;
+                        let (r, resp) = ui.allocate_exact_size(vec2(200.0, CONTROL_H), Sense::click());
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+                        });
+                        if on {
+                            ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(r, radius(R_MD), RAISED);
+                        }
+                        ui.painter().text(
+                            pos2(r.left() + S3, r.center().y),
+                            Align2::LEFT_CENTER,
+                            label,
+                            font(FS_MD),
+                            if on { ACCENT } else { TEXT },
+                        );
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                            st.tab = tab;
+                            st.capturing = None;
+                            st.tab_t = now;
+                        }
                     }
                 });
+                ui.vertical(|ui| {
+                    let ctx = ui.ctx().clone();
+                    // назва вкладки й підказка про розділ
+                    let (_, title, help) = TABS.iter().find(|t| t.0 == st.tab).copied().unwrap_or(TABS[0]);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = S2;
+                        ui.label(RichText::new(title).font(bold(FS_LG)));
+                        let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
+                        let c = if resp.hovered() { TEXT } else { MUTED };
+                        nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
+                        resp.on_hover_ui(|ui| {
+                            ui.set_max_width(360.0);
+                            ui.label(help);
+                        });
+                    });
+                    ui.add_space(S3);
+                    // новий вміст проявляється за 0,18 с, трохи з'їжджаючи вгору
+                    let t = (((now - st.tab_t) / 0.18) as f32).clamp(0.0, 1.0);
+                    let ease = 1.0 - (1.0 - t).powi(3);
+                    if t < 1.0 {
+                        ctx.request_repaint();
+                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt(("settings-scroll", st.tab as u8))
+                        .auto_shrink([false, false])
+                        .max_height(body_h)
+                        .show(ui, |ui| {
+                            ui.multiply_opacity(ease);
+                            ui.add_space((1.0 - ease) * S2);
+                            match st.tab {
+                                Tab::Output => self.tab_output(ui, &mut st),
+                                Tab::Patch => self.tab_patch(ui, &mut st),
+                                Tab::Profiles => self.tab_profiles(ui, &mut st),
+                                Tab::Keys => self.tab_keys(ui, &mut st),
+                                Tab::Midi => self.tab_midi(ui),
+                                Tab::Schedule => self.tab_schedule(ui),
+                                Tab::General => self.tab_general(ui),
+                                Tab::About => self.tab_about(ui),
+                            }
+                        });
+                });
+            });
         });
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
         let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
         if !(close || esc_close) && self.settings.is_none() {
             self.settings = Some(st);
+        }
+    }
+
+    fn tab_general(&mut self, ui: &mut Ui) {
+        let mut keys = !self.v.prefs.hide_keys;
+        if widgets::check(ui, &mut keys, "Показувати підказки клавіш на кнопках").changed()
+        {
+            self.set_prefs(|p| p.hide_keys = !keys);
+        }
+        ui.add_space(S3);
+        let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
+        if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
+            match crate::winshell::set_autostart(auto) {
+                Ok(()) => self.autostart = Some(auto),
+                Err(e) => self.toast(&format!("Не вдалося змінити автозапуск: {e}"), false),
+            }
         }
     }
 
@@ -766,11 +831,6 @@ impl App {
 
     fn tab_schedule(&mut self, ui: &mut Ui) {
         use nitor_core::schedule::{At, CITIES, Event, Place, all_days, minute_of};
-        ui.label(widgets::muted(
-            "Сцена, «Очистити» чи Blackout у потрібний час або на сході чи заході сонця. \
-             Розклад працює, поки Nitor відкритий (вікно можна згорнути).",
-        ));
-        ui.add_space(S3);
         // місце для сходу й заходу сонця
         widgets::field_label(ui, "Місто для сходу й заходу сонця");
         let custom = "Свої координати".to_string();
@@ -831,7 +891,7 @@ impl App {
                     (At::Sunset, "На заході сонця".to_string()),
                 ];
                 let was = e.at;
-                if widgets::select(ui, ("at", i), &mut e.at, &whens, 160.0) {
+                if widgets::select(ui, ("at", i), &mut e.at, &whens, 150.0) {
                     e.minutes = if e.at == At::Time { 19 * 60 } else { 0 };
                     changed |= e.at != was;
                 }
@@ -866,7 +926,7 @@ impl App {
                 if !actions.iter().any(|o| o.0 == a) {
                     actions.push((a.clone(), format!("Сцени «{}» вже немає", a.trim_start_matches("scene:"))));
                 }
-                if widgets::select(ui, ("act", i), &mut a, &actions, 170.0) {
+                if widgets::select(ui, ("act", i), &mut a, &actions, 150.0) {
                     e.action = a;
                     changed = true;
                 }
@@ -887,14 +947,6 @@ impl App {
         }
         if changed {
             self.send(Command::SetSchedule(ev));
-        }
-        ui.add_space(S4);
-        let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
-        if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
-            match crate::winshell::set_autostart(auto) {
-                Ok(()) => self.autostart = Some(auto),
-                Err(e) => self.toast(&format!("Не вдалося змінити автозапуск: {e}"), false),
-            }
         }
     }
 

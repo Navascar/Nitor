@@ -1295,7 +1295,7 @@ impl App {
                 pos2(grid.left() + (i % cols) as f32 * (cell + gap), grid.top() + (i / cols) as f32 * (cell + gap)),
                 vec2(cell, cell),
             );
-            let key = short_key(&h, &format!("static{}", i + 1));
+            let key = short_key(&h, &format!("static{}", i + 1)).filter(|_| !self.v.prefs.hide_keys);
             let tip = match &key {
                 Some(k) => format!("{} — {k}\nAlt + утримання — спалах цим кольором", c.name),
                 None => format!("{}\nAlt + утримання — спалах цим кольором", c.name),
