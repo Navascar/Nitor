@@ -50,6 +50,8 @@ pub struct Btn<'a> {
     kbd: Option<String>,
     /// підказка лише для екранного диктора, без спливаючого вікна
     quiet: bool,
+    /// частка розгорнутої назви (0 — лише значок, 1 — кнопка з назвою): плавне розгортання
+    reveal: f32,
 }
 
 static SHOW_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -119,6 +121,7 @@ pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
         left_align: false,
         kbd: None,
         quiet: false,
+        reveal: 1.0,
     }
 }
 
@@ -149,6 +152,11 @@ impl<'a> Btn<'a> {
     }
     pub fn tip(mut self, t: impl Into<String>) -> Self {
         self.tooltip = Some(t.into());
+        self
+    }
+    /// Назва розгортається з кнопки-значка: 0 — лише значок, 1 — повністю (для анімації).
+    pub fn reveal(mut self, t: f32) -> Self {
+        self.reveal = t.clamp(0.0, 1.0);
         self
     }
     /// Підказка не спливає (назва кнопки показується інакше), але лишається для екранного диктора.
@@ -209,6 +217,12 @@ impl<'a> Btn<'a> {
             (Some(g), None) => pad * 2.0 + g.size().x + kbd_w,
             (None, None) => h,
         };
+        // розгортання назви: ширина — між кнопкою-значком і повною, значок їде від центру до краю
+        let icon_w = if kbd.is_some() { pad * 2.0 + isz + kbd_w } else { h };
+        let revealing = self.reveal < 1.0 && galley.is_some() && self.icon.is_some();
+        if revealing {
+            w = icon_w + (w - icon_w) * self.reveal;
+        }
         w = w.max(self.min_width);
         if self.full_width {
             w = w.max(ui.available_width());
@@ -253,6 +267,10 @@ impl<'a> Btn<'a> {
             } + kbd_w;
             let mut x = if self.left_align { rect.left() + pad } else { rect.center().x - content_w / 2.0 };
             x = x.max(rect.left() + if galley.is_some() || kbd.is_some() { pad } else { 0.0 });
+            if revealing {
+                let from = (icon_w - isz - kbd_w) / 2.0;
+                x = rect.left() + from + (pad - from) * self.reveal;
+            }
             // клавіша — праворуч: рамка-клавіша, як на клавіатурі
             let text_right = rect.right() - pad - kbd_w;
             if let (Some(kw), Some(k)) = (kbd, &self.kbd) {
@@ -275,7 +293,12 @@ impl<'a> Btn<'a> {
             if let Some(g) = galley {
                 let max_w = text_right - x;
                 let pos = pos2(x, rect.center().y - g.size().y / 2.0);
-                if g.size().x > max_w + 0.5 {
+                if revealing {
+                    // назва проявляється з-під краю кнопки, без трикрапки
+                    let clip = Rect::from_min_max(pos2(x, rect.top()), pos2(text_right, rect.bottom()));
+                    let fg = fg.gamma_multiply(self.reveal);
+                    p.with_clip_rect(clip.intersect(p.clip_rect())).galley(pos, g, fg);
+                } else if g.size().x > max_w + 0.5 {
                     // довгий текст: обрізаємо з трикрапкою
                     let text = self.text.as_ref().map(|t| t.text().to_string()).unwrap_or_default();
                     let mut job = egui::text::LayoutJob::simple_singleline(text, font.clone(), fg);

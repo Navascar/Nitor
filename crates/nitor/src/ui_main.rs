@@ -96,13 +96,22 @@ impl App {
         tip: &str,
     ) -> egui::Response {
         let hid = Id::new(("title-hover", id));
+        let oid = Id::new(("title-open", id));
         let now = ui.input(|i| i.time);
         let since: Option<f64> = ui.data(|d| d.get_temp(hid));
+        // розгорнута кнопка не згортається, поки миша поруч (на сусідній кнопці теж),
+        // інакше кнопки під курсором стрибали б назад
+        let last: Option<Rect> = ui.data(|d| d.get_temp(oid));
+        let pointer = ui.input(|i| i.pointer.hover_pos());
+        let near = last.zip(pointer).is_some_and(|(r, p)| r.expand2(vec2(44.0, 12.0)).contains(p));
         let text_w = ui.fonts(|f| f.layout_no_wrap(label.to_string(), bold(FS_MD), TEXT).size().x);
         // shortcut: ширина розгорнутої кнопки — оцінка з запасом на значок і відступи; рахувати точно, якщо кнопки стрибатимуть
         let fits = self.title_slack >= text_w + 3.0 * S4 + 18.0;
-        let open = fits && since.is_some_and(|t| now - t >= 1.0);
-        let b = if open { btn(label).icon(icon) } else { icon_btn(icon) };
+        let open = fits && (near || since.is_some_and(|t| now - t >= 1.0));
+        let t = ui.ctx().animate_bool_with_time(oid.with("anim"), open, 0.22);
+        // плавний початок і кінець руху
+        let t = t * t * (3.0 - 2.0 * t);
+        let b = if t > 0.0 { btn(label).icon(icon).reveal(t) } else { icon_btn(icon) };
         let r = b.kind(kind).key(key).tip(tip).quiet_tip(fits).show(ui);
         if r.hovered() {
             if since.is_none() {
@@ -114,7 +123,12 @@ impl App {
         } else if since.is_some() {
             ui.data_mut(|d| d.remove::<f64>(hid));
         }
-        self.title_open |= open;
+        if open {
+            ui.data_mut(|d| d.insert_temp(oid, r.rect));
+        } else if last.is_some() {
+            ui.data_mut(|d| d.remove::<Rect>(oid));
+        }
+        self.title_open |= t > 0.0;
         r
     }
 
@@ -455,7 +469,6 @@ impl App {
         // помилка: лише назва інтерфейсу й червоне переливання, сам текст помилки — у налаштуваннях виходу
         let text = match () {
             _ if !o.ok => kind.to_string(),
-            _ if o.paused => format!("{kind} · Пауза"),
             _ if self.v.prefs.output_device => format!("{kind} · {}", cap(&o.status)),
             _ => kind.to_string(),
         };
@@ -497,7 +510,15 @@ impl App {
         };
         p.rect(r, egui::CornerRadius::same(255), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
         let dot = if o.ok { OK } else { WHITE };
-        p.circle_filled(pos2(r.left() + S3 + 4.0, r.center().y), 4.0, dot);
+        let c = pos2(r.left() + S3 + 4.0, r.center().y);
+        if o.ok && o.paused {
+            // пауза — дві риски замість крапки, без зміни ширини
+            for dx in [-2.25, 2.25] {
+                p.rect_filled(Rect::from_center_size(c + vec2(dx, 0.0), vec2(2.5, 9.0)), 1.0, MUTED);
+            }
+        } else {
+            p.circle_filled(c, 4.0, dot);
+        }
         if show_text {
             p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
         }
@@ -2142,12 +2163,16 @@ fn col_order(saved: &[String]) -> [&'static str; 3] {
 /// Зайве місце дістається останньому стовпцю; якщо не вміщається — стискаються з кінця.
 fn col_widths(order: &[&str; 3], saved: &std::collections::BTreeMap<String, f32>, total: f32) -> [f32; 3] {
     let shares: f32 = COLS.iter().map(|c| c.1).sum();
-    let color_share = COLS[1].1;
-    let color = (total * color_share / shares).min(COLOR_W_MAX);
+    let color = (total * COLS[1].1 / shares).min(COLOR_W_MAX);
+    let side = total * COLS[2].1 / shares;
     let mut w = order.map(|id| {
         let c = COLS.iter().find(|c| c.0 == id).copied().unwrap_or(COLS[0]);
-        // що «Колір» не забрав — ділять інші стовпці
-        let def = if id == "color" { color } else { (total - color) * c.1 / (shares - color_share) };
+        // що «Колір» не забрав — дістається «Приладам»; «Ефекти й сцени» — своєї частки
+        let def = match id {
+            "color" => color,
+            "side" => side,
+            _ => total - color - side,
+        };
         saved.get(id).copied().unwrap_or(def).max(c.2)
     });
     w[2] = (total - w[0] - w[1]).max(col_min(order[2]));
@@ -2169,13 +2194,13 @@ mod tests {
         let none = Default::default();
         assert_eq!(col_order(&["side".into(), "x".into(), "side".into()]), ["side", "fixtures", "color"]);
         let w = col_widths(&col_order(&[]), &none, 1340.0);
-        assert!((w.iter().sum::<f32>() - 1340.0).abs() < 0.01 && (w[0] - 420.0).abs() < 0.01, "{w:?}");
+        assert!((w.iter().sum::<f32>() - 1340.0).abs() < 0.01 && (w[0] - 440.0).abs() < 0.01, "{w:?}");
         // збережена ширина, що не вміщається, стискається, але не менше за найменшу
         let big: std::collections::BTreeMap<String, f32> = [("fixtures".into(), 900.0)].into();
         let w = col_widths(&col_order(&[]), &big, 1200.0);
         assert!((w[0] - 490.0).abs() < 0.01 && w[1] == 360.0 && w[2] == 350.0, "{w:?}");
         // на широкому екрані «Колір» не розтягується
         let w = col_widths(&col_order(&[]), &none, 1920.0);
-        assert!(w[1] == COLOR_W_MAX && (w[0] - w[2]).abs() < 0.01, "{w:?}");
+        assert!(w[1] == COLOR_W_MAX && (w[2] - 1920.0 / 3.35).abs() < 0.01, "{w:?}");
     }
 }
