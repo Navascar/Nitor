@@ -302,11 +302,11 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
             let f = if hovered { ACCENT_HOVER } else { ACCENT_STRONG };
             (f, ACCENT_STRONG, WHITE)
         }
-        Kind::Danger => (if hovered { RAISED.lerp_to_gamma(DANGER, 0.12) } else { RAISED }, DANGER, DANGER),
+        Kind::Danger => (if hovered { alpha(DANGER, 0.12) } else { Color32::TRANSPARENT }, DANGER, DANGER),
         Kind::DangerOn => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Ghost => (if hovered { RAISED } else { Color32::TRANSPARENT }, Color32::TRANSPARENT, TEXT),
-        Kind::Warn => (if hovered { RAISED.lerp_to_gamma(WARN, 0.12) } else { RAISED }, WARN, WARN),
-        Kind::Outline => (if hovered { RAISED.lerp_to_gamma(TEXT, 0.08) } else { RAISED }, TEXT, TEXT),
+        Kind::Warn => (if hovered { alpha(WARN, 0.12) } else { Color32::TRANSPARENT }, WARN, WARN),
+        Kind::Outline => (if hovered { alpha(TEXT, 0.12) } else { Color32::TRANSPARENT }, TEXT, TEXT),
         Kind::Close if hovered => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Close => (Color32::TRANSPARENT, Color32::TRANSPARENT, TEXT),
         Kind::Update => (ACCENT_SOFT, ACCENT, ACCENT),

@@ -103,6 +103,23 @@ fn tab_matches(tab: Tab, q: &str) -> bool {
                 .any(|e| matches!(e, Entry::Action { label, .. } if label.to_lowercase().contains(&q)))
 }
 
+/// Значок вкладки в списку налаштувань.
+fn tab_icon(tab: Tab) -> &'static str {
+    match tab {
+        Tab::General => "settings",
+        Tab::Access => "eye",
+        Tab::Output => "plug",
+        Tab::Patch => "list",
+        Tab::Library => "book",
+        Tab::Profiles => "sliders",
+        Tab::Keys => "keyboard",
+        Tab::Midi => "music",
+        Tab::Os2l => "disc",
+        Tab::Schedule => "clock",
+        Tab::About => "info",
+    }
+}
+
 /// Ширина списку вкладок налаштувань.
 const SIDE_W: f32 = 200.0;
 
@@ -113,12 +130,6 @@ const TABS: [(Tab, &str, &str, &str); 11] = [
         "Загальні",
         "Як виглядає й запускається сама програма: чи показувати на кнопках їхні клавіші, чи показувати ці пояснення й DMX-монітор унизу і чи вмикати Nitor разом із комп'ютером.",
         "підказки клавіші кнопки пояснення автозапуск windows запуск dmx-монітор монітор",
-    ),
-    (
-        Tab::Access,
-        "Доступність",
-        "Розмір усього інтерфейсу: тексту, кнопок і повзунків. «Стандартний» — звичайний розмір; більший відсоток — усе крупніше, менший — дрібніше й більше вміщається на екрані.",
-        "масштаб розмір шрифт крупніше дрібніше збільшити зменшити екран дисплей зір",
     ),
     (
         Tab::Output,
@@ -167,6 +178,12 @@ const TABS: [(Tab, &str, &str, &str); 11] = [
         "Розклад",
         "Автоматичні дії за часом: увімкнути сцену, очистити кольори чи вимкнути світло в певну годину або на сході чи заході сонця. Працює, лише поки Nitor відкритий.",
         "час таймер схід захід сонця автоматично",
+    ),
+    (
+        Tab::Access,
+        "Доступність",
+        "Розмір усього інтерфейсу: тексту, кнопок і повзунків. «Стандартний» — звичайний розмір; більший відсоток — усе крупніше, менший — дрібніше й більше вміщається на екрані.",
+        "масштаб розмір шрифт крупніше дрібніше збільшити зменшити екран дисплей зір",
     ),
     (
         Tab::About,
@@ -569,12 +586,18 @@ impl App {
                             }
                             // VirtualDJ — підрозділ MIDI: з відступом
                             let indent = if tab == Tab::Os2l { S4 } else { 0.0 };
+                            let fg = if on { ACCENT } else { MUTED };
+                            let ir = egui::Rect::from_center_size(
+                                pos2(r.left() + S3 + indent + 8.0, r.center().y),
+                                vec2(16.0, 16.0),
+                            );
+                            nitor_ui::icons::image(tab_icon(tab), 16.0, fg).paint_at(ui, ir);
                             ui.painter().text(
-                                pos2(r.left() + S3 + indent, r.center().y),
+                                pos2(r.left() + S3 + indent + 16.0 + S2, r.center().y),
                                 Align2::LEFT_CENTER,
                                 label,
                                 font(FS_MD),
-                                if on { ACCENT } else { MUTED },
+                                fg,
                             );
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 go = Some(tab);

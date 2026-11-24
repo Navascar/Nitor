@@ -2120,6 +2120,9 @@ fn window_button(ui: &mut Ui, tip: &str, paint: impl FnOnce(&egui::Painter, Pos2
 const COLS: [(&str, f32, f32, &str); 3] =
     [("fixtures", 1.0, 410.0, "Прилади"), ("color", 1.35, 360.0, "Колір"), ("side", 1.0, 350.0, "Ефекти й сцени")];
 
+/// Стандартна ширина «Кольору» не більша за цю: ширше коло й палітра лише розтягують порожнечу.
+const COLOR_W_MAX: f32 = 500.0;
+
 fn col_min(id: &str) -> f32 {
     COLS.iter().find(|c| c.0 == id).map_or(0.0, |c| c.2)
 }
@@ -2139,9 +2142,13 @@ fn col_order(saved: &[String]) -> [&'static str; 3] {
 /// Зайве місце дістається останньому стовпцю; якщо не вміщається — стискаються з кінця.
 fn col_widths(order: &[&str; 3], saved: &std::collections::BTreeMap<String, f32>, total: f32) -> [f32; 3] {
     let shares: f32 = COLS.iter().map(|c| c.1).sum();
+    let color_share = COLS[1].1;
+    let color = (total * color_share / shares).min(COLOR_W_MAX);
     let mut w = order.map(|id| {
         let c = COLS.iter().find(|c| c.0 == id).copied().unwrap_or(COLS[0]);
-        saved.get(id).copied().unwrap_or(total * c.1 / shares).max(c.2)
+        // що «Колір» не забрав — ділять інші стовпці
+        let def = if id == "color" { color } else { (total - color) * c.1 / (shares - color_share) };
+        saved.get(id).copied().unwrap_or(def).max(c.2)
     });
     w[2] = (total - w[0] - w[1]).max(col_min(order[2]));
     let mut over = w.iter().sum::<f32>() - total;
@@ -2167,5 +2174,8 @@ mod tests {
         let big: std::collections::BTreeMap<String, f32> = [("fixtures".into(), 900.0)].into();
         let w = col_widths(&col_order(&[]), &big, 1200.0);
         assert!((w[0] - 490.0).abs() < 0.01 && w[1] == 360.0 && w[2] == 350.0, "{w:?}");
+        // на широкому екрані «Колір» не розтягується
+        let w = col_widths(&col_order(&[]), &none, 1920.0);
+        assert!(w[1] == COLOR_W_MAX && (w[0] - w[2]).abs() < 0.01, "{w:?}");
     }
 }
