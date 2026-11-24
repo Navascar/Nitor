@@ -229,6 +229,34 @@ pub struct Prefs {
     /// Плавність Blackout (згасання й повернення світла), секунди: 0 — одразу.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub blackout_fade: f64,
+    /// Крива переходу між сценами.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_curve: FadeCurve,
+}
+
+/// Як світло рухається під час переходу до сцени.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FadeCurve {
+    /// рівномірно
+    #[default]
+    Linear,
+    /// спершу повільно, наприкінці швидко
+    EaseIn,
+    /// спершу швидко, наприкінці повільно
+    EaseOut,
+}
+
+impl FadeCurve {
+    /// Частка переходу 0..1 з урахуванням кривої.
+    pub fn apply(self, k: f64) -> f64 {
+        let k = k.clamp(0.0, 1.0);
+        match self {
+            FadeCurve::Linear => k,
+            FadeCurve::EaseIn => k * k * k,
+            FadeCurve::EaseOut => 1.0 - (1.0 - k).powi(3),
+        }
+    }
 }
 
 fn is_zero<T: Default + PartialEq>(v: &T) -> bool {
@@ -601,6 +629,8 @@ impl Command {
 struct Fade {
     start: f64,
     dur: f64,
+    /// крива на момент виклику сцени: зміна в налаштуваннях не смикає перехід, що вже йде
+    curve: FadeCurve,
     /// прилад → (стан на початку, стан сцени)
     targets: Vec<(String, SceneState, SceneState)>,
 }
@@ -1240,7 +1270,7 @@ impl Engine {
             .filter(|(_, a, b)| a != b)
             .collect();
         self.apply_fade(&targets, 0.0);
-        self.fade = Some(Fade { start: now, dur, targets });
+        self.fade = Some(Fade { start: now, dur, curve: FadeCurve::Linear, targets });
     }
 
     /// Рівень світла з урахуванням плавного Blackout: 1 — світло, 0 — темно.
@@ -1471,7 +1501,7 @@ impl Engine {
             self.show.effect = e.clamped();
         }
         if fade > 0.0 {
-            self.fade = Some(Fade { start: now, dur: fade, targets });
+            self.fade = Some(Fade { start: now, dur: fade, curve: self.prefs.fade_curve, targets });
         } else {
             self.apply_fade(&targets, 1.0);
             self.fade = None;
@@ -1512,7 +1542,7 @@ impl Engine {
     pub fn render(&mut self, now: f64) -> [u8; DMX_CHANNELS] {
         if let Some(fade) = self.fade.take() {
             let k = ((now - fade.start) / fade.dur).min(1.0);
-            self.apply_fade(&fade.targets, k);
+            self.apply_fade(&fade.targets, fade.curve.apply(k));
             if k < 1.0 {
                 self.fade = Some(fade);
             }

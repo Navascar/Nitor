@@ -1185,6 +1185,8 @@ impl App {
             }
             self.palette_grid(ui);
         });
+        ui.add_space(S3);
+        self.hex_row(ui);
         ui.add_space(S4);
         // показувати лише ті канали, що є у вибраних приладів (або всі, якщо нічого не вибрано)
         let items = self.sel_items();
@@ -1307,6 +1309,130 @@ impl App {
         }
     }
 
+    /// Поле HEX під колом: показує колір першого вибраного, Enter чи клік поза полем — застосувати.
+    fn hex_row(&mut self, ui: &mut Ui) {
+        let cur = self.first_sel_color().map(|(c, _)| c);
+        let id = Id::new("hex-edit");
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S2;
+            widgets::field_label(ui, "HEX");
+            let (sw, _) = ui.allocate_exact_size(vec2(CONTROL_H, CONTROL_H), Sense::hover());
+            match cur {
+                Some(c) => {
+                    ui.painter().rect(sw, radius(R_MD), c32(c), Stroke::new(1.0_f32, LINE_STRONG), StrokeKind::Inside);
+                }
+                None => {
+                    ui.painter().rect_stroke(sw, radius(R_MD), Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
+                }
+            }
+            let shown = cur.map(|c| c.hex().to_uppercase()).unwrap_or_default();
+            let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| shown.clone());
+            let r = widgets::input(ui, &mut text, "#RRGGBB", 110.0).on_hover_text(
+                "Вписати колір, наприклад #FF8000. Діє на вибрані прилади або на всі, якщо нічого не вибрано",
+            );
+            if r.has_focus() {
+                ui.data_mut(|d| d.insert_temp(id, text.clone()));
+            } else {
+                ui.data_mut(|d| d.remove::<String>(id));
+            }
+            if r.lost_focus() && text.trim() != shown {
+                match nitor_core::Rgb::from_hex(text.trim()) {
+                    Ok(c) => self.set_color(ColorValues { hex: Some(c), ..Default::default() }),
+                    Err(_) => self.toast("Колір вписують шістьма знаками: #RRGGBB", false),
+                }
+            }
+            if let Some(c) = cur {
+                ui.label(widgets::muted(format!("R {} · G {} · B {}", c.0, c.1, c.2)));
+            }
+        });
+    }
+
+    /// Смужка з 8 умовних приладів: вибраний ефект ще до запуску, з тією ж швидкістю, розкидом і палітрою.
+    fn effect_preview(&mut self, ui: &mut Ui, w: f32) {
+        widgets::field_label(ui, "Перегляд");
+        let eff = nitor_core::Effect {
+            kind: self.eff.kind,
+            speed: speed_from_slider(self.eff.speed),
+            spread: self.eff.spread as f64 / 100.0,
+            colors: self.eff.colors.clone(),
+            ..Default::default()
+        };
+        // без палітри ефект бере власний колір приладу — тут колір першого вибраного (або білий)
+        let base = self.first_sel_color().map_or(Rgb(255, 255, 255), |(c, _)| c);
+        let base = nitor_core::fixtures::Color::rgb(base.0 as f64, base.1 as f64, base.2 as f64);
+        let t = ui.input(|i| i.time);
+        let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
+        resp.on_hover_text("Так ефект виглядатиме на приладах; «Запустити» вмикає його на прожекторах");
+        let p = ui.painter();
+        p.rect(r, radius(R_MD), INK, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
+        let n = 8;
+        let d = (r.width() - 2.0 * S3) / n as f32;
+        for i in 0..n {
+            let c = nitor_core::effects::effect_color(&eff, i, n, t, 1.0, base);
+            let ch = |v: f64| v.clamp(0.0, 255.0) as u8;
+            let col = Color32::from_rgb(ch(c.r), ch(c.g), ch(c.b));
+            let at = pos2(r.left() + S3 + d * (i as f32 + 0.5), r.center().y);
+            p.circle_filled(at, 13.0, alpha(col, 0.25));
+            p.circle_filled(at, 9.0, col);
+        }
+        // 20 кадрів/с досить для перегляду; згорнуте вікно не будимо
+        if !ui.input(|i| i.viewport().minimized.unwrap_or(false)) {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// Крива переходу між сценами: три плитки з графіком (налаштування зберігається).
+    fn fade_curve_row(&mut self, ui: &mut Ui, w: f32) {
+        use nitor_core::engine::FadeCurve;
+        widgets::field_label(ui, "Крива переходу");
+        let cur = self.v.prefs.fade_curve;
+        let mut pick = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S1;
+            let curves = [
+                (FadeCurve::Linear, "Рівно", "Світло змінюється рівномірно"),
+                (FadeCurve::EaseIn, "М'який старт", "Спершу повільно, наприкінці швидше"),
+                (FadeCurve::EaseOut, "М'який кінець", "Спершу швидко, наприкінці плавно сповільнюється"),
+            ];
+            let cw = (w - 2.0 * S1) / 3.0;
+            for (c, name, tip) in curves {
+                let on = c == cur;
+                let (r, resp) = ui.allocate_exact_size(vec2(cw, 58.0), Sense::click());
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, name));
+                let (fill, stroke) = if on {
+                    (ACCENT_SOFT, ACCENT)
+                } else if resp.hovered() {
+                    (RAISED, LINE_STRONG)
+                } else {
+                    (RAISED, LINE)
+                };
+                let p = ui.painter();
+                p.rect(r, radius(R_MD), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
+                let g = Rect::from_min_size(r.min + vec2(S3, S2), vec2(r.width() - 2.0 * S3, 26.0));
+                let pts: Vec<Pos2> = (0..=24)
+                    .map(|k| {
+                        let t = k as f64 / 24.0;
+                        pos2(g.left() + t as f32 * g.width(), g.bottom() - c.apply(t) as f32 * g.height())
+                    })
+                    .collect();
+                p.add(egui::Shape::line(pts, Stroke::new(2.0_f32, if on { ACCENT } else { MUTED })));
+                p.text(
+                    pos2(r.center().x, r.bottom() - S2),
+                    Align2::CENTER_BOTTOM,
+                    name,
+                    font(FS_XS),
+                    if on { TEXT } else { MUTED },
+                );
+                if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                    pick = Some(c);
+                }
+            }
+        });
+        if let Some(c) = pick {
+            self.set_prefs(|p| p.fade_curve = c);
+        }
+    }
+
     // ------------------------------------------------------------------ сцени --
     fn scenes_block(&mut self, ui: &mut Ui) -> Rect {
         let start = ui.cursor().min;
@@ -1349,6 +1475,8 @@ impl App {
         ui.add_space(S3 - S2);
         widgets::field_label(ui, "Час переходу, с");
         widgets::number_f(ui, &mut self.scene_fade, 0.0, 60.0, 0.1, 1, w);
+        ui.add_space(S3 - S2);
+        self.fade_curve_row(ui, w);
         ui.add_space(S3 - S2);
         if btn("Відкрити з файлу").small().icon("upload").show(ui).clicked() {
             self.act(ui.ctx(), Act::OpenSceneFile);
@@ -1814,7 +1942,7 @@ impl App {
         let compact = |ui: &mut Ui, label: &str, id: &str, v: &mut f32, min: f32, tip: Option<String>| -> bool {
             widgets::field_label(ui, label);
             ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
-                let r = widgets::slider_named(ui, label, v, min, 100.0, ACCENT, w - 52.0 - S2);
+                let r = widgets::slider_ticked(ui, label, v, min, 100.0, ACCENT, w - 52.0 - S2);
                 let r = match tip {
                     Some(t) => r.on_hover_text(t),
                     None => r,
@@ -1826,6 +1954,8 @@ impl App {
         changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")));
         ui.add_space(S2);
         changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None);
+        ui.add_space(S2);
+        self.effect_preview(ui, w);
         ui.add_space(S2);
         ui.horizontal(|ui| {
             ui.label(widgets::muted("Палітра"));

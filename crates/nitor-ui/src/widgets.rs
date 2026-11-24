@@ -437,12 +437,25 @@ pub fn slider_named(
     fill: Color32,
     width: f32,
 ) -> Response {
-    slider_impl(ui, name, value, min, max, fill, width, false)
+    slider_impl(ui, name, value, min, max, fill, width, false, false)
+}
+
+/// Повзунок з рисками на 25, 50 і 75 %: легше повторити те саме значення.
+pub fn slider_ticked(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    fill: Color32,
+    width: f32,
+) -> Response {
+    slider_impl(ui, name, value, min, max, fill, width, false, true)
 }
 
 /// Повзунок каналу кольору: доріжка — градієнт від темряви до кольору каналу, бігунець — поточний колір.
 pub fn slider_channel(ui: &mut Ui, name: &str, value: &mut f32, max: f32, color: Color32, width: f32) -> Response {
-    slider_impl(ui, name, value, 0.0, max, color, width, true)
+    slider_impl(ui, name, value, 0.0, max, color, width, true, false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -455,6 +468,7 @@ fn slider_impl(
     fill: Color32,
     width: f32,
     grad: bool,
+    ticks: bool,
 ) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width.max(40.0), 18.0), Sense::click_and_drag());
     let thumb = 16.0;
@@ -519,13 +533,16 @@ fn slider_impl(
             p.circle_filled(pos2(l, track.center().y), rr, dark);
             p.circle_filled(pos2(r, track.center().y), rr, fill);
             p.add(m);
-            let c = dark.lerp_to_gamma(fill, t);
-            let k = pos2(cx, rect.center().y);
-            p.circle_filled(k, thumb / 2.0, c);
-            p.circle_stroke(k, thumb / 2.0 - 1.0, Stroke::new(2.0_f32, WHITE));
-            p.circle_stroke(k, thumb / 2.0 + 0.5, Stroke::new(1.0_f32, alpha(INK, 0.6)));
+            // бігунець — колір каналу, як у звичайного повзунка, без обводки
+            p.circle_filled(pos2(cx, rect.center().y), thumb / 2.0 - 1.0, fill);
         } else {
             p.rect_filled(track, CornerRadius::same(3), LINE_STRONG);
+            if ticks {
+                for k in [0.25, 0.5, 0.75] {
+                    let x = rect.left() + thumb / 2.0 + k * (rect.width() - thumb);
+                    p.vline(x, track.bottom() + 3.0..=track.bottom() + 7.0, Stroke::new(1.0_f32, LINE_FIELD));
+                }
+            }
             // при максимумі — заливка до самого кінця
             let fill_right = if t >= 1.0 { track.right() } else { cx };
             p.rect_filled(Rect::from_min_max(track.min, pos2(fill_right, track.max.y)), CornerRadius::same(3), fill);
@@ -683,7 +700,7 @@ pub fn slider_row(
         let (r, _) = ui.allocate_exact_size(vec2(label_w, 18.0), Sense::hover());
         ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, font(FS_SM), MUTED);
         let w = ui.available_width() - 48.0 - S2;
-        changed |= slider_impl(ui, label, value, 0.0, max, fill, w, grad).changed();
+        changed |= slider_impl(ui, label, value, 0.0, max, fill, w, grad, false).changed();
         changed |= value_box(ui, id, value, 0.0, max, shown, 48.0);
     });
     changed

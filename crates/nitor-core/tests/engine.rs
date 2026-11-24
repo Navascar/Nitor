@@ -901,3 +901,23 @@ fn smooth_clear_and_blackout() {
     ok(&mut e, Command::SetPrefs(Prefs { clear_fade: f64::NAN, blackout_fade: 99.0, ..Default::default() }));
     assert_eq!((e.prefs.clear_fade, e.prefs.blackout_fade), (0.0, nitor_core::engine::FADE_MAX));
 }
+
+#[test]
+fn scene_fade_curve() {
+    use nitor_core::engine::FadeCurve;
+    let k = |c: FadeCurve| {
+        let mut e = Engine::new();
+        let fx = add(&mut e, "RGB (3 кан.)", 1);
+        ok(&mut e, hex(&[&fx], "#ff0000"));
+        ok(&mut e, Command::SaveScene { name: "s".into(), with_effect: false });
+        ok(&mut e, hex(&[&fx], "#000000"));
+        ok(&mut e, Command::SetPrefs(Prefs { fade_curve: c, ..Default::default() }));
+        e.handle(Command::RecallScene { name: "s".into(), fade: 2.0 }, 10.0).unwrap();
+        let half = e.render(11.0)[0];
+        assert_eq!(e.render(12.0)[0], 255, "наприкінці — колір сцени за будь-якої кривої");
+        half
+    };
+    assert!((125..=130).contains(&k(FadeCurve::Linear)), "рівно: половина на половині часу");
+    assert!((30..=34).contains(&k(FadeCurve::EaseIn)), "м'який старт: 1/8 на половині часу");
+    assert!((221..=225).contains(&k(FadeCurve::EaseOut)), "м'який кінець: 7/8 на половині часу");
+}
