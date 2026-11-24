@@ -359,6 +359,7 @@ impl App {
                         "patch" => self.open_settings(Some(dialogs::Tab::Patch)),
                         "keys" => self.open_settings(Some(dialogs::Tab::Keys)),
                         "midi" => self.open_settings(Some(dialogs::Tab::Midi)),
+                        "vdj" => self.open_settings(Some(dialogs::Tab::Os2l)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "add" => self.open_add(),
                         "library" => {

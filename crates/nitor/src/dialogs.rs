@@ -21,6 +21,7 @@ pub enum Tab {
     Profiles,
     Keys,
     Midi,
+    Os2l,
     Schedule,
     About,
 }
@@ -73,7 +74,7 @@ const SETTINGS_BODY_H: f32 = 520.0;
 const SIDE_W: f32 = 200.0;
 
 /// Вкладки налаштувань: назва й підказка про розділ (знак питання біля назви).
-const TABS: [(Tab, &str, &str); 8] = [
+const TABS: [(Tab, &str, &str); 9] = [
     (Tab::General, "Загальні", "Налаштування самої програми: підказки клавіш на кнопках і запуск разом із Windows."),
     (
         Tab::Output,
@@ -97,8 +98,13 @@ const TABS: [(Tab, &str, &str); 8] = [
     ),
     (
         Tab::Midi,
-        "MIDI і VirtualDJ",
-        "Керування з MIDI-контролера (кнопки й повзунки) і удари та кнопки сцен з VirtualDJ.",
+        "MIDI",
+        "Керування з MIDI-контролера: кнопки й повзунки виконують дії Nitor. Контролер підключається, лише коли є хоч одна прив'язка.",
+    ),
+    (
+        Tab::Os2l,
+        "VirtualDJ",
+        "Зв'язок з VirtualDJ через OS2L: удари задають темп «у такт музиці», а кнопки VirtualDJ з назвою сцени викликають цю сцену. VirtualDJ знаходить Nitor у мережі сам.",
     ),
     (
         Tab::Schedule,
@@ -202,11 +208,16 @@ fn dialog_head(ui: &mut Ui, title: &str) -> bool {
 }
 
 fn modal(ctx: &egui::Context, id: &str, width: f32, add: impl FnOnce(&mut Ui)) -> bool {
+    modal_with(ctx, id, width, dialog_frame(width), add)
+}
+
+fn modal_with(ctx: &egui::Context, id: &str, width: f32, frame: egui::Frame, add: impl FnOnce(&mut Ui)) -> bool {
     let screen = ctx.screen_rect();
     let w = width.min(screen.width() * 0.96);
-    let r = egui::Modal::new(Id::new(id)).frame(dialog_frame(w)).backdrop_color(rgba(0, 0, 0, 0.6)).show(ctx, |ui| {
-        ui.set_width(w - 2.0 * S5);
-        ui.set_max_height(screen.height() * 0.9 - 2.0 * S5);
+    let pad = frame.inner_margin.sum();
+    let r = egui::Modal::new(Id::new(id)).frame(frame).backdrop_color(rgba(0, 0, 0, 0.6)).show(ctx, |ui| {
+        ui.set_width(w - pad.x);
+        ui.set_max_height(screen.height() * 0.9 - pad.y);
         add(ui);
     });
     r.should_close()
@@ -447,49 +458,49 @@ impl App {
         let capturing = st.capturing.is_some();
         let now = ctx.input(|i| i.time);
         let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
-        let esc_close = modal(ctx, "settings", 1080.0, |ui| {
-            close |= dialog_head(ui, "Налаштування");
-            // вкладки — на темній підкладці позаду; поле налаштувань — картка поверх неї
-            let back = ui.painter().add(egui::Shape::Noop);
-            let row = ui.horizontal_top(|ui| {
+        // без внутрішніх полів: підкладка вкладок і картка налаштувань доходять до країв вікна
+        let frame = dialog_frame(1080.0).fill(BG).inner_margin(0);
+        let esc_close = modal_with(ctx, "settings", 1080.0, frame, |ui| {
+            egui::Frame::new()
+                .inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S4 as i8, bottom: 0 })
+                .show(ui, |ui| close |= dialog_head(ui, "Налаштування"));
+            // вкладки — на темній підкладці вікна; поле налаштувань — картка поверх неї
+            ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                let side = ui
-                    .vertical(|ui| {
-                        ui.set_width(SIDE_W);
-                        ui.add_space(S3);
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        for (tab, label, _) in TABS {
-                            let on = st.tab == tab;
-                            let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
-                            let r = r.shrink2(vec2(S2, 0.0));
-                            resp.widget_info(|| {
-                                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
-                            });
-                            if on {
-                                ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
-                            } else if resp.hovered() {
-                                ui.painter().rect_filled(r, radius(R_MD), RAISED);
-                            }
-                            ui.painter().text(
-                                pos2(r.left() + S3, r.center().y),
-                                Align2::LEFT_CENTER,
-                                label,
-                                font(FS_MD),
-                                if on { ACCENT } else { MUTED },
-                            );
-                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                                st.tab = tab;
-                                st.capturing = None;
-                                st.tab_t = now;
-                            }
+                ui.vertical(|ui| {
+                    ui.set_width(SIDE_W);
+                    ui.add_space(S3);
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (tab, label, _) in TABS {
+                        let on = st.tab == tab;
+                        let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
+                        let r = r.shrink2(vec2(S2, 0.0));
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+                        });
+                        if on {
+                            ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(r, radius(R_MD), RAISED);
                         }
-                    })
-                    .response
-                    .rect;
+                        ui.painter().text(
+                            pos2(r.left() + S3, r.center().y),
+                            Align2::LEFT_CENTER,
+                            label,
+                            font(FS_MD),
+                            if on { ACCENT } else { MUTED },
+                        );
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                            st.tab = tab;
+                            st.capturing = None;
+                            st.tab_t = now;
+                        }
+                    }
+                });
                 egui::Frame::new()
                     .fill(SURFACE)
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
-                    .corner_radius(radius(R_LG))
+                    .corner_radius(egui::CornerRadius { nw: R_LG, ne: 0, sw: 0, se: R_LG })
                     .inner_margin(egui::Margin::same(S5 as i8))
                     .shadow(egui::Shadow { offset: [-6, 6], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.5) })
                     .show(ui, |ui| {
@@ -530,6 +541,7 @@ impl App {
                                         Tab::Profiles => self.tab_profiles(ui, &mut st),
                                         Tab::Keys => self.tab_keys(ui, &mut st),
                                         Tab::Midi => self.tab_midi(ui),
+                                        Tab::Os2l => self.os2l_block(ui),
                                         Tab::Schedule => self.tab_schedule(ui),
                                         Tab::General => self.tab_general(ui),
                                         Tab::About => self.tab_about(ui),
@@ -537,16 +549,7 @@ impl App {
                                 });
                         });
                     });
-                side
             });
-            // підкладка заходить під картку, тож вкладки ніби лежать позаду
-            let side = row.inner;
-            let under =
-                Rect::from_min_max(side.min, pos2(side.right() + 2.0 * R_LG as f32, row.response.rect.bottom()));
-            ui.painter().set(
-                back,
-                egui::Shape::rect_filled(under, egui::CornerRadius { nw: R_LG, sw: R_LG, ne: 0, se: 0 }, BG),
-            );
         });
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
         let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
@@ -908,7 +911,7 @@ impl App {
             vec![("blackout".into(), "Blackout".into()), ("clear".into(), "Очистити".into())];
         actions.extend(self.v.show.scenes.keys().map(|n| (format!("scene:{n}"), format!("Сцена «{n}»"))));
         for (i, e) in ev.iter_mut().enumerate() {
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S2;
                 changed |= widgets::check(ui, &mut e.on, "").on_hover_text("Подія увімкнена").changed();
                 let whens = [
@@ -921,29 +924,34 @@ impl App {
                     e.minutes = if e.at == At::Time { 19 * 60 } else { 0 };
                     changed |= e.at != was;
                 }
-                if e.at == At::Time {
-                    let (mut h, mut m) = ((e.minutes / 60) as i64, (e.minutes % 60) as i64);
-                    let a = widgets::number(ui, &mut h, 0, 23, 48.0).changed();
-                    ui.label(":");
-                    let b = widgets::number(ui, &mut m, 0, 59, 48.0).changed();
-                    if a || b {
-                        e.minutes = (h * 60 + m) as i32;
-                        changed = true;
+                // час і зсув — колонка однакової ширини, щоб дні й дії стояли рівно
+                ui.allocate_ui_with_layout(vec2(124.0, CONTROL_H), Layout::left_to_right(Align::Center), |ui| {
+                    ui.set_min_width(124.0);
+                    if e.at == At::Time {
+                        let (mut h, mut m) = ((e.minutes / 60) as i64, (e.minutes % 60) as i64);
+                        let a = widgets::number(ui, &mut h, 0, 23, 54.0).changed();
+                        ui.label(":");
+                        let b = widgets::number(ui, &mut m, 0, 59, 54.0).changed();
+                        if a || b {
+                            e.minutes = (h * 60 + m) as i32;
+                            changed = true;
+                        }
+                    } else {
+                        let mut m = e.minutes as i64;
+                        if widgets::number(ui, &mut m, -720, 720, 96.0)
+                            .on_hover_text("Зсув у хвилинах: мінус — раніше")
+                            .changed()
+                        {
+                            e.minutes = m as i32;
+                            changed = true;
+                        }
+                        ui.label(widgets::muted("хв"));
                     }
-                } else {
-                    let mut m = e.minutes as i64;
-                    if widgets::number(ui, &mut m, -720, 720, 64.0)
-                        .on_hover_text("Зсув у хвилинах: мінус — раніше")
-                        .changed()
-                    {
-                        e.minutes = m as i32;
-                        changed = true;
-                    }
-                    ui.label(widgets::muted("хв"));
-                }
+                });
                 for (d, label) in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].iter().enumerate() {
                     let on = e.days & (1 << d) != 0;
-                    if btn(*label).small().kind(if on { Kind::Toggled } else { Kind::Ghost }).show(ui).clicked() {
+                    let kind = if on { Kind::Toggled } else { Kind::Normal };
+                    if btn(*label).small().min_width(36.0).kind(kind).show(ui).clicked() {
                         e.days ^= 1 << d;
                         changed = true;
                     }
@@ -978,19 +986,13 @@ impl App {
 
     /// VirtualDJ (OS2L): удари й кнопки сцен.
     fn os2l_block(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("VirtualDJ (OS2L)").font(bold(FS_LG)));
-        ui.add_space(S2);
-        ui.label(widgets::muted(
-            "Удари з VirtualDJ задають темп «у такт музиці», а кнопки VirtualDJ з назвою сцени викликають цю сцену. \
-             VirtualDJ знаходить Nitor у мережі сам.",
-        ));
-        ui.add_space(S2);
         let mut on = self.v.os2l.is_some();
         let mut port = self.v.os2l.unwrap_or(nitor_core::os2l::PORT) as i64;
         ui.horizontal(|ui| {
             let a = widgets::check(ui, &mut on, "Приймати з VirtualDJ").changed();
             ui.add_space(S3);
             ui.label(widgets::muted("Порт"));
+            ui.add_space(S1);
             let b = widgets::number(ui, &mut port, 1024, 65535, 80.0).changed();
             if a || (b && on) {
                 self.send(Command::SetOs2l(on.then_some(port as u16)));
@@ -1001,17 +1003,10 @@ impl App {
         } else if self.os2l.is_some() {
             ui.label(widgets::muted("Чекаю на VirtualDJ"));
         }
-        ui.add_space(S5);
-        ui.label(RichText::new("MIDI-контролер").font(bold(FS_LG)));
-        ui.add_space(S2);
     }
 
     fn tab_midi(&mut self, ui: &mut Ui) {
-        self.os2l_block(ui);
-        ui.label(widgets::muted(
-            "Натисніть «Навчити» біля дії, а потім кнопку чи повзунок на контролері. \
-             Контролер підключається, лише коли є хоч одна прив'язка.",
-        ));
+        ui.label(widgets::muted("Натисніть «Навчити» біля дії, а потім кнопку чи повзунок на контролері."));
         ui.add_space(S3 - S2);
         let status = if !self.midi_error.is_empty() {
             format!("Контролер: {}", self.midi_error)
