@@ -37,6 +37,8 @@ pub struct View {
     pub has_pin: bool,
     pub audio: AudioSource,
     pub bpm: Option<f64>,
+    /// момент останнього удару (годинник рушія); 0 — ударів ще не було
+    pub beat_at: f64,
     pub midi: Vec<MidiBinding>,
     pub schedule: Vec<nitor_core::schedule::Event>,
     pub place: Option<nitor_core::schedule::Place>,
@@ -109,8 +111,14 @@ pub enum Pane {
 pub struct Toast {
     pub text: String,
     pub info: bool,
+    pub born: Instant,
     pub until: Instant,
+    /// номер для власної області egui: повідомлення рухаються незалежно
+    pub seq: u64,
 }
+
+/// Скільки повідомлень видно одночасно (старіші зникають).
+pub const TOASTS_MAX: usize = 3;
 
 /// Дії з меню, гарячих клавіш і вікон підтвердження.
 #[derive(Clone, Debug)]
@@ -249,7 +257,8 @@ pub struct App {
     pub title_open: bool,
     /// коли востаннє натиснули Esc (чи було відкрите вікно або меню) — для затримки перед «Закрити Nitor?»
     pub esc_t: f64,
-    pub toast: Option<Toast>,
+    pub toasts: Vec<Toast>,
+    pub toast_seq: u64,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
     pub settings: Option<SettingsState>,
@@ -332,7 +341,8 @@ impl App {
             title_slack: 0.0,
             title_open: false,
             esc_t: 0.0,
-            toast: None,
+            toasts: vec![],
+            toast_seq: 0,
             flash: HashMap::new(),
             color_clipboard: None,
             settings: None,
@@ -422,7 +432,18 @@ impl App {
     }
 
     pub fn toast(&mut self, text: &str, info: bool) {
-        self.toast = Some(Toast { text: cap(text), info, until: Instant::now() + Duration::from_millis(3500) });
+        let (text, now) = (cap(text), Instant::now());
+        let until = now + Duration::from_millis(3500);
+        // те саме повідомлення ще раз — лише довше показується, без дубля
+        if let Some(t) = self.toasts.iter_mut().find(|t| t.text == text && t.info == info) {
+            t.until = until;
+            return;
+        }
+        self.toast_seq += 1;
+        self.toasts.push(Toast { text, info, born: now, until, seq: self.toast_seq });
+        if self.toasts.len() > TOASTS_MAX {
+            self.toasts.remove(0);
+        }
     }
 
     pub fn flash(&mut self, key: &'static str) {
@@ -908,6 +929,7 @@ impl App {
                 Some((hex, w)) => {
                     if self.send(Command::AddStaticColor { name: String::new(), hex, w }) {
                         self.toast("Колір збережено в палітру", true);
+                        self.flash("colorSave");
                     }
                 }
             },
@@ -1212,6 +1234,7 @@ pub fn snapshot(core: &Core) -> View {
         has_pin: e.pin.is_some(),
         audio: e.audio,
         bpm: e.tempo.bpm,
+        beat_at: e.tempo.anchor,
         midi: e.midi.clone(),
         schedule: e.schedule.clone(),
         place: e.place.clone(),

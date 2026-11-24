@@ -52,6 +52,12 @@ pub struct Btn<'a> {
     quiet: bool,
     /// частка розгорнутої назви (0 — лише значок, 1 — кнопка з назвою): плавне розгортання
     reveal: f32,
+    /// заливка зліва (0..1): скільки вже втримано кнопку
+    progress: f32,
+    /// замість значка — обертовий сегмент (дія триває)
+    busy: bool,
+    /// секунди від удару: кільце навколо кнопки
+    ring: Option<f32>,
 }
 
 static SHOW_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -89,13 +95,16 @@ pub fn help(ui: &mut Ui, text: &str) {
     if resp.secondary_clicked() {
         ui.ctx().data_mut(|d| d.insert_temp(help_menu_id(), true));
     }
-    let open = egui::Popup::from_toggle_button_response(&resp)
+    let popup = egui::Popup::from_toggle_button_response(&resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.set_max_width(360.0);
             ui.label(text);
-        })
-        .is_some();
+        });
+    if let Some(p) = &popup {
+        crate::anim::pop_in(ui.ctx(), p.response.layer_id, r.center(), 0.96);
+    }
+    let open = popup.is_some();
     let c = if resp.hovered() || open { TEXT } else { MUTED };
     icons::image("help", 16.0, c).paint_at(ui, r);
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
@@ -122,6 +131,9 @@ pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
         kbd: None,
         quiet: false,
         reveal: 1.0,
+        progress: 0.0,
+        busy: false,
+        ring: None,
     }
 }
 
@@ -157,6 +169,21 @@ impl<'a> Btn<'a> {
     /// Назва розгортається з кнопки-значка: 0 — лише значок, 1 — повністю (для анімації).
     pub fn reveal(mut self, t: f32) -> Self {
         self.reveal = t.clamp(0.0, 1.0);
+        self
+    }
+    /// Заливка зліва направо, поки кнопку тримають: 0 — немає, 1 — уся кнопка.
+    pub fn progress(mut self, t: f32) -> Self {
+        self.progress = t.clamp(0.0, 1.0);
+        self
+    }
+    /// Дія триває: значок замінює обертовий сегмент.
+    pub fn busy(mut self, on: bool) -> Self {
+        self.busy = on;
+        self
+    }
+    /// Кільце, що розходиться від кнопки: `age` — секунди від удару.
+    pub fn ring(mut self, age: Option<f32>) -> Self {
+        self.ring = age;
         self
     }
     /// Підказка не спливає (назва кнопки показується інакше), але лишається для екранного диктора.
@@ -245,7 +272,21 @@ impl<'a> Btn<'a> {
             }
         });
         let hovered = resp.hovered() && self.enabled;
-        let (fill, stroke, fg) = colors(self.kind, hovered);
+        let (mut fill, mut stroke, mut fg) = colors(self.kind, hovered);
+        // «Готово» проявляється плавно з попереднього вигляду кнопки, галочка трохи підстрибує
+        let done = self.kind == Kind::Done;
+        let kind_id = resp.id.with("kind");
+        if !done {
+            ui.data_mut(|d| d.insert_temp(kind_id, self.kind));
+        }
+        let dt = ui.ctx().animate_bool_with_time(resp.id.with("done"), done, 0.2);
+        if dt > 0.0 && dt < 1.0 {
+            let base = ui.data(|d| d.get_temp::<Kind>(kind_id)).unwrap_or_default();
+            let (bf, bs, bg) = colors(base, hovered);
+            let (df, ds, dg) = colors(Kind::Done, hovered);
+            (fill, stroke, fg) = (bf.lerp_to_gamma(df, dt), bs.lerp_to_gamma(ds, dt), bg.lerp_to_gamma(dg, dt));
+        }
+        let pop = if done && dt < 1.0 { 0.6 + 0.4 * dt + 0.35 * (dt * std::f32::consts::PI).sin() } else { 1.0 };
         if ui.is_rect_visible(rect) {
             let a = if self.enabled { 1.0 } else { 0.45 };
             let p = ui.painter();
@@ -256,6 +297,14 @@ impl<'a> Btn<'a> {
                 Stroke::new(1.0_f32, stroke.gamma_multiply(a)),
                 StrokeKind::Inside,
             );
+            if self.progress > 0.0 {
+                let clip =
+                    Rect::from_min_max(rect.min, pos2(rect.left() + rect.width() * self.progress, rect.bottom()));
+                p.with_clip_rect(clip.intersect(p.clip_rect())).rect_filled(rect, radius(R_MD), alpha(ACCENT, 0.35));
+            }
+            if let Some(age) = self.ring {
+                crate::anim::ring(ui, rect, age, ACCENT, R_MD as f32);
+            }
             if resp.has_focus() {
                 p.rect_stroke(rect.expand(2.0), radius(R_MD + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
             }
@@ -287,7 +336,11 @@ impl<'a> Btn<'a> {
             }
             if let Some(name) = self.icon {
                 let r = Rect::from_min_size(pos2(x, rect.center().y - isz / 2.0), Vec2::splat(isz));
-                icons::image(name, isz, fg).paint_at(ui, r);
+                if self.busy {
+                    crate::anim::spinner(ui, r, fg);
+                } else {
+                    icons::image(name, isz, fg).paint_at(ui, Rect::from_center_size(r.center(), r.size() * pop));
+                }
                 x += isz + gap;
             }
             if let Some(g) = galley {
@@ -386,7 +439,21 @@ pub fn slider_named(
 ) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(width.max(40.0), 18.0), Sense::click_and_drag());
     let thumb = 16.0;
-    let track = Rect::from_min_max(pos2(rect.left(), rect.center().y - 3.0), pos2(rect.right(), rect.center().y + 3.0));
+    // мишу тягнуть за край: повзунок трохи розтягується в той бік і стоншується, відпустили — пружинить назад
+    let over = match resp.interact_pointer_pos() {
+        Some(p) if resp.dragged() => {
+            let d = if p.x < rect.left() { p.x - rect.left() } else { (p.x - rect.right()).max(0.0) };
+            d.signum() * 10.0 * (1.0 - (-d.abs() / 60.0).exp())
+        }
+        _ => 0.0,
+    };
+    let over = ui.ctx().animate_value_with_time(resp.id.with("over"), over, 0.12);
+    let squash = (over.abs() / 10.0) * 1.5;
+    let (sl, sr) = if over < 0.0 { (over, 0.0) } else { (0.0, over) };
+    let track = Rect::from_min_max(
+        pos2(rect.left() + sl, rect.center().y - 3.0 + squash),
+        pos2(rect.right() + sr, rect.center().y + 3.0 - squash),
+    );
     if let Some(pos) = resp.interact_pointer_pos() {
         if resp.dragged() || resp.clicked() || resp.drag_started() {
             let t = ((pos.x - rect.left() - thumb / 2.0) / (rect.width() - thumb)).clamp(0.0, 1.0);
@@ -417,7 +484,7 @@ pub fn slider_named(
     if ui.is_rect_visible(rect) {
         let p = ui.painter();
         let t = if max > min { (*value - min) / (max - min) } else { 0.0 };
-        let cx = rect.left() + thumb / 2.0 + t * (rect.width() - thumb);
+        let cx = rect.left() + thumb / 2.0 + t * (rect.width() - thumb) + over;
         p.rect_filled(track, CornerRadius::same(3), LINE_STRONG);
         // при максимумі — заливка до самого кінця
         let fill_right = if t >= 1.0 { track.right() } else { cx };
@@ -533,7 +600,19 @@ pub fn value_box_sized(
             ui.painter().rect_filled(rect, radius(R_SM), RAISED);
         }
         ui.painter().text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, unit, font(size), MUTED);
-        ui.painter().text(pos2(right - unit_w, rect.center().y), Align2::RIGHT_CENTER, &num, font(size), TEXT);
+        if size > FS_SM {
+            // крупне число (майстер) прокручується до нового значення
+            crate::anim::rolling_text(
+                ui,
+                id.with("roll"),
+                pos2(right - unit_w, rect.center().y),
+                &num,
+                font(size),
+                TEXT,
+            );
+        } else {
+            ui.painter().text(pos2(right - unit_w, rect.center().y), Align2::RIGHT_CENTER, &num, font(size), TEXT);
+        }
         let text = format!("{num}{unit}");
         resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, format!("{text}, ввести значення")));
         let resp = resp.on_hover_cursor(CursorIcon::Text).on_hover_text("Клікніть, щоб ввести значення");

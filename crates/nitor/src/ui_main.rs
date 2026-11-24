@@ -14,6 +14,7 @@ use crate::hotkeys::short_key;
 use crate::menus::paint_static_chip;
 use nitor_core::engine::{FlashSource, StaticSource};
 use nitor_core::tempo::AudioSource;
+use nitor_ui::anim;
 use nitor_ui::theme::*;
 use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn, slider_row};
 
@@ -444,6 +445,7 @@ impl App {
             self.set_prefs(|p| p.flash_rate = rate as f64);
         }
         let rect = area.response.rect;
+        nitor_ui::anim::pop_in(ctx, area.response.layer_id, rect.right_top(), 0.96);
         let close = ctx.input(|i| {
             i.key_pressed(egui::Key::Escape)
                 || (i.pointer.any_pressed()
@@ -935,11 +937,16 @@ impl App {
         let rows = rows.max(positions.iter().map(|p| p.1 + 1).max().unwrap_or(0));
         let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (th + gap) - gap), Sense::hover());
         let eff_ids: Vec<String> = if self.v.effect_running() { self.v.show.effect.ids.clone() } else { vec![] };
+        // плитка, що змінила місце (додали чи видалили прилад, змінилася кількість колонок), переїжджає
+        // плавно; новий прилад виростає на своєму місці (крім першого кадру після запуску)
+        let appear = ui.input(|i| i.time) > 1.0;
         for (f, (c, r, span)) in fixtures.iter().zip(positions) {
             let rect = Rect::from_min_size(
                 pos2(area.left() + c as f32 * (cw + gap), area.top() + r as f32 * (th + gap)),
                 vec2(cw * span as f32 + gap * (span as f32 - 1.0), th),
             );
+            let slot = ((c as u64) << 32) | r as u64;
+            let rect = anim::slot_rect(ui.ctx(), Id::new(("tile-slot", &f.id)), slot, rect, appear);
             self.tile(ui, rect, f, &eff_ids);
         }
         area
@@ -1090,12 +1097,15 @@ impl App {
                     .inner_margin(egui::Margin::same(S1 as i8))
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
+                        // підсвітка вибраного пункту переїжджає до нового, а не перестрибує
+                        let slot = ui.painter().add(egui::Shape::Noop);
                         for (pane, label) in [(Pane::Presets, "Пресети"), (Pane::Color, "Колір")] {
                             let on = (pane == Pane::Presets) == show_presets;
                             let w = widgets::text_width(ui, label, bold(FS_SM)) + 2.0 * S3;
                             let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
                             if on {
-                                ui.painter().rect_filled(r, radius(R_SM), ACCENT_STRONG);
+                                let r = anim::glide_rect(ui.ctx(), Id::new("pane-pill"), r, 0.2);
+                                ui.painter().set(slot, egui::Shape::rect_filled(r, radius(R_SM), ACCENT_STRONG));
                             }
                             ui.painter().text(
                                 r.center(),
@@ -1462,9 +1472,11 @@ impl App {
             return;
         }
         let held = self.exit_hold.map_or(0.0, |t| t.elapsed().as_secs_f32());
-        let label =
-            if held > 0.0 { format!("Вийти · {}", (HOLD - held).ceil().max(1.0)) } else { "Вийти".into() };
-        let r = btn(label).icon("lock").tip("Утримуйте 3 секунди, щоб вийти з режиму оператора").show(ui);
+        let r = btn("Вийти")
+            .icon("lock")
+            .progress(held / HOLD)
+            .tip("Утримуйте 3 секунди, щоб вийти з режиму оператора")
+            .show(ui);
         if !r.is_pointer_button_down_on() {
             self.exit_hold = None;
         } else if self.exit_hold.is_none() {
@@ -1687,8 +1699,17 @@ impl App {
             Stroke::new(1.0_f32, if hot { LINE_STRONG } else { LINE_FIELD }.gamma_multiply(a)),
             StrokeKind::Inside,
         );
-        nitor_ui::icons::image("plus", 16.0, TEXT.gamma_multiply(a))
-            .paint_at(ui, Rect::from_center_size(r.center(), vec2(16.0, 16.0)));
+        // щойно збережено — галочка, що трохи підстрибує
+        let saved = ui.ctx().animate_bool_with_time(Id::new("swatch-saved"), self.flashing("colorSave"), 0.2);
+        let (icon, fg, s) = if saved > 0.0 {
+            ("check", OK, 0.6 + 0.4 * saved + 0.35 * (saved * std::f32::consts::PI).sin())
+        } else {
+            ("plus", TEXT.gamma_multiply(a), 1.0)
+        };
+        nitor_ui::icons::image(icon, 16.0, fg).paint_at(ui, Rect::from_center_size(r.center(), vec2(16.0, 16.0) * s));
+        if self.flashing("colorSave") {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        }
         if resp.clicked() {
             self.act(ui.ctx(), Act::SaveColor);
         }
@@ -1859,11 +1880,35 @@ impl App {
             changed |= widgets::check(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
             ui.add_space(S3 - S2);
             ui.horizontal(|ui| {
-                let bpm = self.v.bpm.map_or("темп ще невідомий".to_string(), |b| format!("{b:.0} BPM"));
-                ui.label(RichText::new(format!("Темп: {bpm}")).size(FS_MD));
+                match self.v.bpm {
+                    None => {
+                        ui.label(RichText::new("Темп: темп ще невідомий").size(FS_MD));
+                    }
+                    Some(b) => {
+                        // число BPM прокручується, коли темп змінюється
+                        ui.label(RichText::new("Темп:").size(FS_MD));
+                        let num = format!("{b:.0}");
+                        let nw = widgets::text_width(ui, "000", font(FS_MD));
+                        let (r, _) = ui.allocate_exact_size(vec2(nw, FS_MD * 1.3), Sense::hover());
+                        anim::rolling_text(ui, Id::new("bpm-roll"), r.right_center(), &num, font(FS_MD), TEXT);
+                        ui.label(RichText::new("BPM").size(FS_MD));
+                    }
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let key = short_key(&self.v.hotkeys, "tap");
-                    if btn("Тап").small().key(key).tip("Натискайте в такт музиці").show(ui).clicked()
+                    // кільце на кожен удар: видно, що програма тримає темп
+                    let since = self.core.now() - self.v.beat_at;
+                    let age = match self.v.bpm {
+                        _ if self.v.beat_at <= 0.0 => None,
+                        Some(b) if b > 0.0 => Some(since.rem_euclid(60.0 / b) as f32),
+                        _ => Some(since as f32),
+                    };
+                    // між ударами — проснутися до наступного (поки кільце видно, кадри просить воно саме)
+                    if let (Some(a), Some(b)) = (age, self.v.bpm.filter(|b| *b > 0.0)) {
+                        let wait = (60.0 / b as f32 - a).max(0.01);
+                        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(wait));
+                    }
+                    if btn("Тап").small().key(key).ring(age).tip("Натискайте в такт музиці").show(ui).clicked()
                     {
                         let now = self.core.now();
                         self.send(Command::Beat(now));
@@ -2010,29 +2055,51 @@ impl App {
     }
 
     // ---------------------------------------------------------------- сповіщення --
+    /// Повідомлення внизу по центру: нове виїжджає знизу, старіші піднімаються вище, кожне гасне наприкінці.
     pub fn show_toast(&mut self, ctx: &egui::Context) {
-        let Some(t) = &self.toast else { return };
-        if std::time::Instant::now() > t.until {
-            self.toast = None;
+        let now = std::time::Instant::now();
+        self.toasts.retain(|t| now < t.until);
+        if self.toasts.is_empty() {
             return;
         }
         let screen = ctx.screen_rect();
-        egui::Area::new(Id::new("toast"))
-            .order(egui::Order::Tooltip)
-            .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -S4))
-            .interactable(false)
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(if t.info { RAISED } else { TOAST_ERR_BG })
-                    .stroke(Stroke::new(1.0_f32, if t.info { LINE_STRONG } else { DANGER }))
-                    .corner_radius(radius(R_MD))
-                    .inner_margin(egui::Margin::symmetric(S4 as i8, S2 as i8))
-                    .show(ui, |ui| {
-                        ui.set_max_width(screen.width() * 0.9);
-                        ui.label(RichText::new(&t.text).size(FS_MD));
-                    });
-            });
-        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        let mut bottom = screen.bottom() - S4;
+        let mut moving = false;
+        for t in self.toasts.iter().rev() {
+            let id = Id::new(("toast", t.seq));
+            let age = now.duration_since(t.born).as_secs_f32();
+            let left = t.until.duration_since(now).as_secs_f32();
+            let k = anim::ease_out(age / 0.2);
+            let fade = (left / 0.3).min(1.0) * k;
+            moving |= age < 0.2 || left < 0.3;
+            let y = ctx.animate_value_with_time(id.with("y"), bottom, 0.18) + 16.0 * (1.0 - k);
+            let h = egui::Area::new(id)
+                .order(egui::Order::Tooltip)
+                .pivot(Align2::CENTER_BOTTOM)
+                .fixed_pos(pos2(screen.center().x, y))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    ui.multiply_opacity(fade);
+                    egui::Frame::new()
+                        .fill(if t.info { RAISED } else { TOAST_ERR_BG })
+                        .stroke(Stroke::new(1.0_f32, if t.info { LINE_STRONG } else { DANGER }))
+                        .corner_radius(radius(R_MD))
+                        .inner_margin(egui::Margin::symmetric(S4 as i8, S2 as i8))
+                        .show(ui, |ui| {
+                            ui.set_max_width(screen.width() * 0.9);
+                            ui.label(RichText::new(&t.text).size(FS_MD));
+                        });
+                })
+                .response
+                .rect
+                .height();
+            bottom -= h + S2;
+        }
+        if moving {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
     }
 }
 

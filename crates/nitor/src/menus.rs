@@ -549,6 +549,8 @@ impl App {
                     });
             });
         let rect = area.response.rect;
+        // меню розгортається від точки кліку
+        nitor_ui::anim::pop_in(ctx, area.response.layer_id, menu.pos, 0.96);
         let clicked_out = ctx.input(|i| {
             (i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p)))
                 && i.time - menu.opened > 0.05

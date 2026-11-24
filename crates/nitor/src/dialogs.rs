@@ -299,6 +299,8 @@ fn modal_with(ctx: &egui::Context, id: &str, width: f32, frame: egui::Frame, add
         ui.set_max_height(screen.height() * 0.9 - pad.y);
         add(ui);
     });
+    // вікно з'являється з легким збільшенням від центру (затемнення — той самий шар, тому ледь-ледь)
+    nitor_ui::anim::pop_in(ctx, r.response.layer_id, r.response.rect.center(), 0.98);
     r.should_close()
 }
 
@@ -581,6 +583,10 @@ impl App {
                         ui.add_space(S3);
                         ui.spacing_mut().item_spacing.y = 2.0;
                         let mut found = false;
+                        // підсвітка вибраної вкладки переїжджає до нової
+                        let pill = ui.painter().add(egui::Shape::Noop);
+                        let pill_id = Id::new("settings-tab-pill");
+                        let mut pill_shown = false;
                         for (tab, label, _, _) in TABS {
                             if !tab_matches(tab, &st.q) {
                                 continue;
@@ -593,7 +599,9 @@ impl App {
                                 egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
                             });
                             if on {
-                                ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                                let r = nitor_ui::anim::glide_rect(ui.ctx(), pill_id, r, 0.2);
+                                ui.painter().set(pill, egui::Shape::rect_filled(r, radius(R_MD), ACCENT_SOFT));
+                                pill_shown = true;
                             } else if resp.hovered() {
                                 ui.painter().rect_filled(r, radius(R_MD), RAISED);
                             }
@@ -615,6 +623,9 @@ impl App {
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 go = Some(tab);
                             }
+                        }
+                        if !pill_shown {
+                            nitor_ui::anim::forget(ui.ctx(), pill_id);
                         }
                         if !found {
                             ui.horizontal(|ui| {
@@ -1503,7 +1514,9 @@ impl App {
             } else {
                 "Перевірити оновлення".into()
             };
-            if btn(label).primary().enabled(!busy && u.status != crate::update::Status::Checking).show(ui).clicked() {
+            let checking = u.status == crate::update::Status::Checking;
+            let b = btn(label).icon(if u.available { "download" } else { "refresh" }).busy(checking || busy);
+            if b.primary().enabled(!busy && !checking).show(ui).clicked() {
                 if u.available && u.blocked.is_none() {
                     self.settings = None;
                     self.open_update_dialog();
@@ -1790,7 +1803,7 @@ impl App {
         let screen = ctx.screen_rect();
         let w = 1180f32.min(screen.width() * 0.96);
         let h = 860f32.min(screen.height() * 0.92);
-        let esc = egui::Modal::new(Id::new("lib-dlg"))
+        let modal = egui::Modal::new(Id::new("lib-dlg"))
             .frame(dialog_frame(w))
             .backdrop_color(rgba(0, 0, 0, 0.6))
             .show(ctx, |ui| {
@@ -1798,8 +1811,9 @@ impl App {
                 ui.set_height(h - 2.0 * S5);
                 close |= dialog_head(ui, "Бібліотека приладів");
                 pick = self.library_body(ui, &mut st, 260.0);
-            })
-            .should_close();
+            });
+        nitor_ui::anim::pop_in(ctx, modal.response.layer_id, modal.response.rect.center(), 0.98);
+        let esc = modal.should_close();
         if let Some(fx) = pick {
             let target = if st.for_props { ModesFor::Props } else { ModesFor::Add };
             self.modes = Some(ModesState { fx, current: None, target });
