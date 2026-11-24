@@ -174,6 +174,8 @@ pub enum Act {
     FlashConfig(egui::Rect),
     /// Сховати знаки «?» з поясненнями.
     HideHelp,
+    /// Закінчити редагування вигляду головного екрана.
+    EndLayoutEdit,
     CheckUpdate,
     OpenUpdate,
     OpenSettings(Option<crate::dialogs::Tab>),
@@ -975,6 +977,7 @@ impl App {
                 _ => p.blackout_fade = v,
             }),
             Act::FlashConfig(r) => self.flash_cfg = Some(r),
+            Act::EndLayoutEdit => self.layout_edit = false,
             Act::HideHelp => {
                 self.set_prefs(|p| p.hide_help = true);
                 self.toast("Пояснення сховано. Повернути їх можна в Налаштуваннях, на вкладці «Загальні»", true);

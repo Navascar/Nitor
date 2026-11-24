@@ -354,12 +354,26 @@ impl App {
                 self.flash_color(app::FLASH_WHITE, app::FlashHold::Key(key));
                 continue;
             }
-            // Esc без вибору — закрити програму (з підтвердженням), але не одразу після іншого Esc:
-            // затиснута чи двічі натиснута клавіша не відкриває питання випадково
+            // Esc під час редагування вигляду — закінчити його, без вибору — закрити програму
+            // (обидва з підтвердженням), але не одразу після іншого Esc: затиснута чи двічі
+            // натиснута клавіша не відкриває питання випадково
             if action == "selectNone" {
-                let quit = self.sel.is_empty() && now - self.esc_t > ESC_QUIT_DELAY;
+                let calm = now - self.esc_t > ESC_QUIT_DELAY;
                 self.esc_t = now;
-                if quit {
+                if self.layout_edit {
+                    if calm {
+                        let text = "Ширина й порядок стовпців збережуться так, як є зараз.";
+                        self.ui_dlg = Some(dialogs::UiDlg::confirm(
+                            "Закінчити редагування вигляду?",
+                            text,
+                            "Готово",
+                            false,
+                            Act::EndLayoutEdit,
+                        ));
+                    }
+                    continue;
+                }
+                if self.sel.is_empty() && calm {
                     self.request_close();
                     continue;
                 }
