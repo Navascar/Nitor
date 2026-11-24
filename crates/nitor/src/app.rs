@@ -233,6 +233,8 @@ pub struct App {
     pub side_anim: Option<f64>,
     /// де стовпці намальовано в цьому кадрі
     pub col_rects: Vec<(&'static str, egui::Rect)>,
+    /// у заголовку тісно: кнопки лише зі значками
+    pub top_compact: bool,
     pub toast: Option<Toast>,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
@@ -312,6 +314,7 @@ impl App {
             col_anim: None,
             side_anim: None,
             col_rects: vec![],
+            top_compact: false,
             toast: None,
             flash: HashMap::new(),
             color_clipboard: None,

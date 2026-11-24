@@ -60,6 +60,11 @@ pub fn set_show_help(on: bool) {
     SHOW_HELP.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Чи показуються знаки «?».
+pub fn help_shown() -> bool {
+    SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Знак «?», що пояснює розділ при наведенні. Нічого не малює, якщо пояснення вимкнено.
 pub fn help(ui: &mut Ui, text: &str) {
     if !SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed) {

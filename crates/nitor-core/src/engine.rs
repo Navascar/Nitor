@@ -217,14 +217,32 @@ pub struct Prefs {
     /// Кнопки верхньої панелі без назви, лише значок (`clear`, `flash`, `blackout`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub short_buttons: Vec<String>,
+    /// Не показувати DMX-монітор унизу вікна.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_monitor: bool,
+    /// Масштаб інтерфейсу відносно масштабу Windows: 0 — як у Windows.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub zoom: f32,
 }
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
+}
+
+/// Масштаб інтерфейсу: від 50 % до 300 % від масштабу Windows.
+pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=3.0;
 
 impl Prefs {
     pub fn clamped(self) -> Prefs {
         let rate = if self.flash_rate.is_finite() { self.flash_rate.clamp(0.0, FLASH_RATE_MAX) } else { 0.0 };
         let mut col_width = self.col_width;
         col_width.retain(|_, w| w.is_finite() && *w > 0.0);
-        Prefs { flash_rate: rate, col_width, ..self }
+        let zoom = if self.zoom.is_finite() && self.zoom != 0.0 {
+            self.zoom.clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
+        } else {
+            0.0
+        };
+        Prefs { flash_rate: rate, col_width, zoom, ..self }
     }
 }
 

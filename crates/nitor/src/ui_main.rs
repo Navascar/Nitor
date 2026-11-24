@@ -39,79 +39,6 @@ fn wheel_hsv(h: f64, s: f64, v: f64) -> Rgb {
 
 impl App {
     // ---------------------------------------------------------- верхня панель --
-    pub fn topbar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("topbar")
-            .frame(
-                egui::Frame::new()
-                    .fill(SURFACE)
-                    .inner_margin(egui::Margin::symmetric(S4 as i8, S2 as i8))
-                    .stroke(Stroke::new(1.0_f32, LINE)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = S3;
-                    ui.set_min_height(CONTROL_H);
-                    let narrow = ui.ctx().screen_rect().width() < 1100.0;
-                    // майстер — зліва, дії — справа
-                    let mut m = self.v.show.master as f32;
-                    ui.label(RichText::new("Майстер").size(FS_MD));
-                    let sw = if narrow { 120.0 } else { 200.0 };
-                    let mut changed = widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
-                    changed |=
-                        widgets::value_box_sized(ui, Id::new("master"), &mut m, 0.0, 255.0, Shown::Pct, 60.0, FS_LG);
-                    if changed {
-                        self.send(Command::SetMaster(m as u8));
-                    }
-                    // дії зі світлом — одразу біля майстра
-                    let h = self.v.hotkeys.clone();
-                    let k = |id: &str| short_key(&h, id);
-                    ui.add_space(S2);
-                    let label =
-                        if self.sel.is_empty() { "Очистити все" } else { "Очистити вибрані" };
-                    if self.top_button(ui, "clear", "eraser", label, Kind::Warn, k("clear"), "Очистити кольори")
-                    {
-                        self.clear_colors();
-                    }
-                    self.flash_button(ui, k("flash"));
-                    let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
-                    if self.top_button(
-                        ui,
-                        "blackout",
-                        "bulbOff",
-                        "Blackout",
-                        kind,
-                        k("blackout"),
-                        "Вимкнути все світло",
-                    ) {
-                        self.send(Command::Blackout(None));
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = S3;
-                        let op = self.v.operator;
-                        if op {
-                            self.exit_operator_button(ui);
-                        } else {
-                            if icon_btn("settings")
-                                .kind(Kind::Ghost)
-                                .key(k("settings"))
-                                .tip("Налаштування")
-                                .show(ui)
-                                .clicked()
-                            {
-                                self.open_settings(None);
-                            }
-                            if icon_btn("lock").kind(Kind::Ghost).tip("Режим оператора").show(ui).clicked()
-                            {
-                                self.act(ui.ctx(), Act::AskOperator);
-                            }
-                            self.layout_buttons(ui);
-                            self.update_button(ui);
-                        }
-                    });
-                });
-            });
-    }
-
     /// Кнопка верхньої панелі: з назвою або лише значок (вибір — у меню правої кнопки миші).
     #[allow(clippy::too_many_arguments)]
     fn top_button(
@@ -124,7 +51,8 @@ impl App {
         key: Option<String>,
         tip: &str,
     ) -> bool {
-        let short = self.v.prefs.short_buttons.iter().any(|b| b == id);
+        let short = self.top_compact || self.v.prefs.short_buttons.iter().any(|b| b == id);
+        let key = key.filter(|_| !self.top_compact);
         let r = if short {
             icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
         } else {
@@ -153,16 +81,14 @@ impl App {
             }
             return;
         }
-        if btn("Готово").icon("check").primary().tip("Закінчити редагування вигляду").show(ui).clicked()
+        let c = self.top_compact;
+        let done = if c { icon_btn("check") } else { btn("Готово").icon("check") };
+        if done.primary().tip("Готово: закінчити редагування вигляду").show(ui).clicked()
         {
             self.layout_edit = false;
         }
-        if btn("Скинути вигляд")
-            .icon("reset")
-            .kind(Kind::Ghost)
-            .tip("Стандартні ширина й порядок стовпців")
-            .show(ui)
-            .clicked()
+        let reset = if c { icon_btn("reset") } else { btn("Скинути вигляд").icon("reset") };
+        if reset.kind(Kind::Ghost).tip("Скинути вигляд: стандартні ширина й порядок стовпців").show(ui).clicked()
         {
             self.col_anim = Some((ui.input(|i| i.time), self.col_rects.clone()));
             self.set_prefs(|p| {
@@ -179,7 +105,7 @@ impl App {
         let max = ctx.input(|i| i.viewport().maximized == Some(true));
         egui::TopBottomPanel::top("titlebar")
             .exact_height(56.0)
-            .frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin {
+            .frame(egui::Frame::new().fill(BG).stroke(Stroke::new(1.0_f32, LINE)).inner_margin(egui::Margin {
                 left: S4 as i8,
                 right: S2 as i8,
                 top: 0,
@@ -192,56 +118,148 @@ impl App {
                 } else if drag.drag_started_by(egui::PointerButton::Primary) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
-                ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = S3;
-                    ui.add(
-                        egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
-                            .fit_to_exact_size(vec2(32.0, 32.0)),
-                    );
-                    // назва й версія — однією лінією по низу літер
-                    ui.spacing_mut().item_spacing.x = S2;
-                    ui.label(RichText::new("Nitor").font(bold(22.0)));
-                    ui.label(RichText::new(format!("v{}", nitor_core::VERSION)).size(FS_SM).color(MUTED));
-                    ui.add_space(S3);
-                    ui.spacing_mut().item_spacing.x = S3;
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = S1;
-                        if icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        let tip = if max { "Відновити" } else { "Розгорнути" };
-                        if window_button(ui, tip, |p, c| {
-                            let s = Stroke::new(1.5_f32, TEXT);
-                            if max {
-                                // два вікна одне за одним
-                                p.rect_stroke(
-                                    Rect::from_center_size(c + vec2(-1.5, 1.5), vec2(9.0, 9.0)),
-                                    1.0,
-                                    s,
-                                    StrokeKind::Middle,
-                                );
-                                p.line_segment([c + vec2(-3.0, -4.5), c + vec2(4.5, -4.5)], s);
-                                p.line_segment([c + vec2(4.5, -4.5), c + vec2(4.5, 3.0)], s);
-                            } else {
-                                p.rect_stroke(Rect::from_center_size(c, vec2(11.0, 11.0)), 1.0, s, StrokeKind::Middle);
-                            }
-                        }) {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-                        }
-                        if window_button(ui, "Згорнути", |p, c| {
-                            p.hline(c.x - 6.0..=c.x + 6.0, c.y, Stroke::new(2.0_f32, TEXT));
-                        }) {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                        }
-                        // DMX-вихід — одразу біля назви програми, у місці, що лишилося
-                        // (текст обрізається, щоб на вузькому вікні нічого не накладалося)
-                        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            let room = (ui.available_width() - S4).min(360.0);
-                            self.output_pill(ui, room);
-                        });
-                    });
-                });
+                let row = ui.max_rect();
+                // праворуч — кнопки програми, роздільник і кнопки вікна Windows
+                let right = ui
+                    .scope_builder(
+                        egui::UiBuilder::new().max_rect(row).layout(Layout::right_to_left(Align::Center)),
+                        |ui| {
+                            self.window_controls(ui, max);
+                            ui.add_space(S2);
+                            let (sep, _) = ui.allocate_exact_size(vec2(1.0, 28.0), Sense::hover());
+                            ui.painter().vline(sep.center().x, sep.y_range(), Stroke::new(1.0_f32, LINE_STRONG));
+                            ui.add_space(S2);
+                            ui.spacing_mut().item_spacing.x = S3;
+                            self.app_buttons(ui);
+                        },
+                    )
+                    .response
+                    .rect;
+                // ліворуч — назва, вихід DMX, майстер і дії зі світлом; що не вмістилося — обрізається
+                let left_max = Rect::from_min_max(row.min, pos2((right.left() - S3).max(row.left()), row.max.y));
+                let left = ui
+                    .scope_builder(
+                        egui::UiBuilder::new().max_rect(left_max).layout(Layout::left_to_right(Align::Center)),
+                        |ui| {
+                            ui.set_clip_rect(left_max.intersect(ui.clip_rect()));
+                            self.title_left(ui);
+                        },
+                    )
+                    .response
+                    .rect;
+                // місце для повних назв міряємо, поки назви показано; не вистачає — лише значки
+                let need_id = Id::new("title-need");
+                if !self.top_compact {
+                    // вихід DMX може звузитися до 160 px, перш ніж ховати назви кнопок
+                    let pill: f32 = ui.data(|d| d.get_temp(Id::new("title-pill"))).unwrap_or(0.0);
+                    let need = left.width() - pill + pill.min(160.0) + right.width() + S3;
+                    ui.data_mut(|d| d.insert_temp(need_id, need));
+                }
+                let need: f32 = ui.data(|d| d.get_temp(need_id)).unwrap_or(0.0);
+                let compact = need > row.width();
+                if compact != self.top_compact {
+                    self.top_compact = compact;
+                    ui.ctx().request_repaint();
+                }
             });
+    }
+
+    /// Ліва частина заголовка: логотип, назва, вихід DMX, майстер, «Очистити», «Спалах», Blackout.
+    fn title_left(&mut self, ui: &mut Ui) {
+        ui.spacing_mut().item_spacing.x = S3;
+        ui.add(egui::Image::new(egui::include_image!("../../../assets/icon.svg")).fit_to_exact_size(vec2(32.0, 32.0)));
+        // назва й версія — однією лінією по низу літер
+        ui.spacing_mut().item_spacing.x = S2;
+        // у тісноті лишається лише логотип
+        if !self.top_compact {
+            ui.label(RichText::new("Nitor").font(bold(22.0)));
+            ui.label(RichText::new(format!("v{}", nitor_core::VERSION)).size(FS_SM).color(MUTED));
+        }
+        ui.add_space(S2);
+        ui.spacing_mut().item_spacing.x = S3;
+        // вихід DMX — до 320 px, але не більше, ніж лишається після майстра й кнопок
+        let rest_id = Id::new("title-rest");
+        let rest: f32 = ui.data(|d| d.get_temp(rest_id)).unwrap_or(0.0);
+        let pill = self.output_pill(ui, (ui.available_width() - rest - S3).min(320.0));
+        ui.data_mut(|d| d.insert_temp(Id::new("title-pill"), pill));
+        let start = ui.cursor().min.x;
+        ui.add_space(S2);
+        let mut m = self.v.show.master as f32;
+        ui.spacing_mut().item_spacing.x = S1;
+        ui.label(RichText::new("Майстер").size(FS_MD));
+        widgets::help(
+            ui,
+            "Загальна яскравість усього світла. 100 % — як задано в кольорах і сценах, 50 % — усе вдвічі тьмяніше, \
+             0 % — темно. Кольори при цьому не губляться: підніміть майстер, і світло повернеться.",
+        );
+        ui.spacing_mut().item_spacing.x = S3;
+        let sw = if self.top_compact { 90.0 } else { 160.0 };
+        let mut changed = widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
+        changed |= widgets::value_box_sized(ui, Id::new("master"), &mut m, 0.0, 255.0, Shown::Pct, 56.0, FS_LG);
+        if changed {
+            self.send(Command::SetMaster(m as u8));
+        }
+        // дії зі світлом — одразу біля майстра
+        let h = self.v.hotkeys.clone();
+        let k = |id: &str| short_key(&h, id);
+        ui.add_space(S1);
+        let label = if self.sel.is_empty() { "Очистити все" } else { "Очистити вибрані" };
+        if self.top_button(ui, "clear", "eraser", label, Kind::Warn, k("clear"), "Очистити кольори") {
+            self.clear_colors();
+        }
+        self.flash_button(ui, k("flash"));
+        let kind = if self.v.show.blackout { Kind::DangerOn } else { Kind::Danger };
+        if self.top_button(ui, "blackout", "bulbOff", "Blackout", kind, k("blackout"), "Вимкнути все світло")
+        {
+            self.send(Command::Blackout(None));
+        }
+        let rest = ui.cursor().min.x - start;
+        ui.data_mut(|d| d.insert_temp(rest_id, rest));
+    }
+
+    /// Кнопки програми праворуч у заголовку (справа наліво): налаштування, оператор, олівець, оновлення.
+    fn app_buttons(&mut self, ui: &mut Ui) {
+        if self.v.operator {
+            self.exit_operator_button(ui);
+            return;
+        }
+        let key = short_key(&self.v.hotkeys, "settings");
+        if icon_btn("settings").kind(Kind::Ghost).key(key).tip("Налаштування").show(ui).clicked() {
+            self.open_settings(None);
+        }
+        if icon_btn("lock").kind(Kind::Ghost).tip("Режим оператора").show(ui).clicked() {
+            self.act(ui.ctx(), Act::AskOperator);
+        }
+        self.layout_buttons(ui);
+        self.update_button(ui);
+    }
+
+    /// «Згорнути», «Розгорнути», «Закрити» (справа наліво).
+    fn window_controls(&mut self, ui: &mut Ui, max: bool) {
+        let ctx = ui.ctx().clone();
+        ui.spacing_mut().item_spacing.x = S1;
+        if icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        let tip = if max { "Відновити" } else { "Розгорнути" };
+        if window_button(ui, tip, |p, c| {
+            let s = Stroke::new(1.5_f32, TEXT);
+            if max {
+                // два вікна одне за одним
+                p.rect_stroke(Rect::from_center_size(c + vec2(-1.5, 1.5), vec2(9.0, 9.0)), 1.0, s, StrokeKind::Middle);
+                p.line_segment([c + vec2(-3.0, -4.5), c + vec2(4.5, -4.5)], s);
+                p.line_segment([c + vec2(4.5, -4.5), c + vec2(4.5, 3.0)], s);
+            } else {
+                p.rect_stroke(Rect::from_center_size(c, vec2(11.0, 11.0)), 1.0, s, StrokeKind::Middle);
+            }
+        }) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+        }
+        if window_button(ui, "Згорнути", |p, c| {
+            p.hline(c.x - 6.0..=c.x + 6.0, c.y, Stroke::new(2.0_f32, TEXT));
+        }) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
     }
 
     /// Вікно без системної рамки: його краї тягнуть, щоб змінити розмір (коли воно не розгорнуте).
@@ -301,7 +319,8 @@ impl App {
             ("sun", "Спалах".to_string(), "Повний білий, поки кнопку тримають")
         };
         let kind = if self.v.flashing { Kind::Toggled } else { Kind::Normal };
-        let r = if self.v.prefs.short_buttons.iter().any(|b| b == "flash") {
+        let key = key.filter(|_| !self.top_compact);
+        let r = if self.top_compact || self.v.prefs.short_buttons.iter().any(|b| b == "flash") {
             icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
         } else {
             btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
@@ -379,7 +398,7 @@ impl App {
     }
 
     /// Вихід DMX біля назви програми: інтерфейс, а назва пристрою — якщо так задано в налаштуваннях.
-    fn output_pill(&mut self, ui: &mut Ui, room: f32) {
+    fn output_pill(&mut self, ui: &mut Ui, room: f32) -> f32 {
         let o = &self.v.output;
         let names = |k: &str| match k {
             "udmx" => "uDMX",
@@ -440,6 +459,7 @@ impl App {
         if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !self.v.operator {
             self.open_settings(Some(crate::dialogs::Tab::Output));
         }
+        w
     }
 
     fn update_button(&mut self, ui: &mut Ui) {
@@ -461,7 +481,9 @@ impl App {
         } else {
             format!("Встановлена версія {}, доступна {}", u.current, u.latest)
         };
-        if btn(text).icon(icon).kind(kind).enabled(!busy).tip(tip).show(ui).clicked() {
+        let b = if self.top_compact { icon_btn(icon) } else { btn(text.clone()).icon(icon) };
+        let tip = if self.top_compact { format!("{text}\n{tip}") } else { tip };
+        if b.kind(kind).enabled(!busy).tip(tip).show(ui).clicked() {
             self.open_update_dialog();
         }
     }
@@ -470,7 +492,11 @@ impl App {
     pub fn main_layout(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG)).show(ctx, |ui| {
             let full = ui.max_rect();
-            let mon_h = if self.monitor_open { (full.height() * 0.28).clamp(120.0, 360.0) + 52.0 } else { 46.0 };
+            let mon_h = match (self.v.prefs.hide_monitor, self.monitor_open) {
+                (true, _) => 0.0,
+                (false, true) => (full.height() * 0.28).clamp(120.0, 360.0) + 52.0,
+                (false, false) => 46.0,
+            };
             let top = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - mon_h));
             let order = col_order(&self.v.prefs.columns);
             let wide = full.width() >= COLS.iter().map(|c| c.2).sum::<f32>();
@@ -521,7 +547,9 @@ impl App {
                     p.hline(r.x_range(), r.top(), Stroke::new(1.0_f32, LINE));
                 }
             }
-            p.hline(full.x_range(), top.bottom(), Stroke::new(1.0_f32, LINE));
+            if !self.v.prefs.hide_monitor {
+                p.hline(full.x_range(), top.bottom(), Stroke::new(1.0_f32, LINE));
+            }
 
             // фон панелей приймає правий клік (меню панелі) — вміст поверх нього має пріоритет
             let zone = |ui: &mut Ui, r: Rect, name: &str| ui.interact(r, Id::new(("zone", name)), Sense::click());
@@ -537,8 +565,10 @@ impl App {
                 self.layout_overlay(ui, &order, &rects, &widths, wide);
             }
             self.band_select(ui, &z1, c1);
-            let mon = Rect::from_min_max(pos2(full.left(), top.bottom() + 1.0), full.max);
-            self.monitor_panel(ui, mon);
+            if !self.v.prefs.hide_monitor {
+                let mon = Rect::from_min_max(pos2(full.left(), top.bottom() + 1.0), full.max);
+                self.monitor_panel(ui, mon);
+            }
 
             if z1.clicked() && !ui.input(|i| i.modifiers.shift) {
                 self.sel.clear();
@@ -1842,7 +1872,18 @@ impl App {
                 bold(FS_MD),
                 TEXT,
             );
-            let tw = 16.0 + widgets::text_width(ui, "DMX-монітор", bold(FS_MD));
+            let mut tw = 16.0 + widgets::text_width(ui, "DMX-монітор", bold(FS_MD));
+            if widgets::help_shown() {
+                let at = Rect::from_min_size(pos2(r.left() + tw + S2, r.center().y - 9.0), vec2(18.0, 18.0));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(at), |ui| {
+                    widgets::help(
+                        ui,
+                        "Показує, що програма зараз надсилає на кожен із 512 каналів DMX: чим вища смужка, тим більше значення (0–255). \
+                         Зручно перевірити, чи доходить команда до потрібної адреси. Сховати монітор можна в «Налаштування → Загальні».",
+                    )
+                });
+                tw += 18.0 + S1;
+            }
             ui.painter().text(
                 pos2(r.left() + tw + S2, r.center().y),
                 Align2::LEFT_CENTER,

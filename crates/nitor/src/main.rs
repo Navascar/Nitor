@@ -240,6 +240,12 @@ impl eframe::App for App {
         if !self.main_window_ready(ctx) {
             return;
         }
+        // масштаб із «Доступності»; Ctrl+«+»/«−» egui вимкнено, щоб масштаб був лише один
+        let zoom = if self.v.prefs.zoom == 0.0 { 1.0 } else { self.v.prefs.zoom };
+        if (ctx.zoom_factor() - zoom).abs() > 1e-3 {
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+            ctx.set_zoom_factor(zoom);
+        }
 
         // закриття вікна (хрестик, Alt+F4) — лише після підтвердження
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
@@ -250,7 +256,6 @@ impl eframe::App for App {
         self.text_ops(ctx);
         self.window_edges(ctx);
         self.title_bar(ctx);
-        self.topbar(ctx);
         if self.v.operator {
             self.operator_layout(ctx);
         } else {
@@ -364,6 +369,8 @@ impl App {
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "about" => self.open_settings(Some(dialogs::Tab::About)),
                         "edit" => self.layout_edit = true,
+                        "output" => self.open_settings(Some(dialogs::Tab::Output)),
+                        "access" => self.open_settings(Some(dialogs::Tab::Access)),
                         "add" => self.open_add(),
                         "library" => {
                             self.open_add();

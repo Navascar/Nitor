@@ -16,6 +16,7 @@ use nitor_ui::widgets::{self, Kind, Shown, btn, icon_btn};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tab {
     General,
+    Access,
     Output,
     Patch,
     Library,
@@ -106,12 +107,18 @@ fn tab_matches(tab: Tab, q: &str) -> bool {
 const SIDE_W: f32 = 200.0;
 
 /// Вкладки налаштувань: назва, пояснення для новачка (знак питання біля назви) і слова для пошуку.
-const TABS: [(Tab, &str, &str, &str); 10] = [
+const TABS: [(Tab, &str, &str, &str); 11] = [
     (
         Tab::General,
         "Загальні",
-        "Як виглядає й запускається сама програма: чи показувати на кнопках їхні клавіші, чи показувати ці пояснення і чи вмикати Nitor разом із комп'ютером.",
-        "підказки клавіші кнопки пояснення автозапуск windows запуск",
+        "Як виглядає й запускається сама програма: чи показувати на кнопках їхні клавіші, чи показувати ці пояснення й DMX-монітор унизу і чи вмикати Nitor разом із комп'ютером.",
+        "підказки клавіші кнопки пояснення автозапуск windows запуск dmx-монітор монітор",
+    ),
+    (
+        Tab::Access,
+        "Доступність",
+        "Розмір усього інтерфейсу: тексту, кнопок і повзунків. «Як у Windows» бере масштаб із налаштувань дисплея Windows; більший відсоток — усе крупніше, менший — дрібніше й більше вміщається.",
+        "масштаб розмір шрифт крупніше дрібніше збільшити зменшити екран дисплей зір",
     ),
     (
         Tab::Output,
@@ -523,72 +530,76 @@ impl App {
             // ліворуч на темній підкладці — назва вікна й вкладки; праворуч на всю висоту — картка налаштувань
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                ui.vertical(|ui| {
-                    ui.set_width(SIDE_W);
-                    ui.add_space(S5);
-                    ui.horizontal(|ui| {
-                        ui.add_space(S2 + S3); // на одній лінії з назвами вкладок
-                        ui.label(RichText::new("Налаштування").font(bold(FS_LG)));
-                    });
-                    ui.add_space(S3);
-                    let mut go = None;
-                    ui.horizontal(|ui| {
-                        ui.add_space(S2);
-                        let r = widgets::input(ui, &mut st.q, "Пошук налаштувань", SIDE_W - 2.0 * S2);
-                        // Enter — перейти до першої знайденої вкладки
-                        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            go = TABS.iter().map(|t| t.0).find(|t| tab_matches(*t, &st.q));
-                        }
-                    });
-                    ui.add_space(S3);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    let mut found = false;
-                    for (tab, label, _, _) in TABS {
-                        if !tab_matches(tab, &st.q) {
-                            continue;
-                        }
-                        found = true;
-                        let on = st.tab == tab;
-                        let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
-                        let r = r.shrink2(vec2(S2, 0.0));
-                        resp.widget_info(|| {
-                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
-                        });
-                        if on {
-                            ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
-                        } else if resp.hovered() {
-                            ui.painter().rect_filled(r, radius(R_MD), RAISED);
-                        }
-                        // VirtualDJ — підрозділ MIDI: з відступом
-                        let indent = if tab == Tab::Os2l { S4 } else { 0.0 };
-                        ui.painter().text(
-                            pos2(r.left() + S3 + indent, r.center().y),
-                            Align2::LEFT_CENTER,
-                            label,
-                            font(FS_MD),
-                            if on { ACCENT } else { MUTED },
-                        );
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            go = Some(tab);
-                        }
-                    }
-                    if !found {
+                let side_h = ui
+                    .vertical(|ui| {
+                        ui.set_width(SIDE_W);
+                        ui.add_space(S5);
                         ui.horizontal(|ui| {
-                            ui.add_space(S2 + S3);
-                            ui.label(widgets::muted("Нічого не знайдено"));
+                            ui.add_space(S2 + S3); // на одній лінії з назвами вкладок
+                            ui.label(RichText::new("Налаштування").font(bold(FS_LG)));
                         });
-                    }
-                    if let Some(tab) = go.filter(|t| *t != st.tab) {
-                        if page(tab) == page(st.tab) {
-                            st.jump = Some(tab); // той самий екран — лише прокрутка
-                        } else {
-                            st.jump = (tab == Tab::Os2l).then_some(tab);
-                            st.tab_t = now;
+                        ui.add_space(S3);
+                        let mut go = None;
+                        ui.horizontal(|ui| {
+                            ui.add_space(S2);
+                            let r = widgets::input(ui, &mut st.q, "Пошук налаштувань", SIDE_W - 2.0 * S2);
+                            // Enter — перейти до першої знайденої вкладки
+                            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                go = TABS.iter().map(|t| t.0).find(|t| tab_matches(*t, &st.q));
+                            }
+                        });
+                        ui.add_space(S3);
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        let mut found = false;
+                        for (tab, label, _, _) in TABS {
+                            if !tab_matches(tab, &st.q) {
+                                continue;
+                            }
+                            found = true;
+                            let on = st.tab == tab;
+                            let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
+                            let r = r.shrink2(vec2(S2, 0.0));
+                            resp.widget_info(|| {
+                                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+                            });
+                            if on {
+                                ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(r, radius(R_MD), RAISED);
+                            }
+                            // VirtualDJ — підрозділ MIDI: з відступом
+                            let indent = if tab == Tab::Os2l { S4 } else { 0.0 };
+                            ui.painter().text(
+                                pos2(r.left() + S3 + indent, r.center().y),
+                                Align2::LEFT_CENTER,
+                                label,
+                                font(FS_MD),
+                                if on { ACCENT } else { MUTED },
+                            );
+                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                go = Some(tab);
+                            }
                         }
-                        st.tab = tab;
-                        st.capturing = None;
-                    }
-                });
+                        if !found {
+                            ui.horizontal(|ui| {
+                                ui.add_space(S2 + S3);
+                                ui.label(widgets::muted("Нічого не знайдено"));
+                            });
+                        }
+                        if let Some(tab) = go.filter(|t| *t != st.tab) {
+                            if page(tab) == page(st.tab) {
+                                st.jump = Some(tab); // той самий екран — лише прокрутка
+                            } else {
+                                st.jump = (tab == Tab::Os2l).then_some(tab);
+                                st.tab_t = now;
+                            }
+                            st.tab = tab;
+                            st.capturing = None;
+                        }
+                    })
+                    .response
+                    .rect
+                    .height();
                 egui::Frame::new()
                     .fill(SURFACE)
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
@@ -599,6 +610,8 @@ impl App {
                         // нульовий відступ потрібен лише між бічною панеллю й карткою
                         ui.spacing_mut().item_spacing.x = ui.ctx().style().spacing.item_spacing.x;
                         ui.set_min_width(ui.available_width());
+                        // картка не нижча за список вкладок (великий масштаб, низький екран)
+                        ui.set_min_height(side_h - 2.0 * S5);
                         ui.vertical(|ui| {
                             let ctx = ui.ctx().clone();
                             // назва вкладки й підказка про розділ
@@ -658,6 +671,7 @@ impl App {
                                         }
                                         Tab::Schedule => self.tab_schedule(ui),
                                         Tab::General => self.tab_general(ui),
+                                        Tab::Access => self.tab_access(ui),
                                         Tab::About => self.tab_about(ui),
                                     }
                                 });
@@ -702,6 +716,12 @@ impl App {
         }
         ui.label(widgets::muted("Наведіть мишу на знак питання — з'явиться коротке пояснення, що робить розділ."));
         ui.add_space(S3);
+        let mut mon = !self.v.prefs.hide_monitor;
+        if widgets::check(ui, &mut mon, "Показувати DMX-монітор унизу вікна").changed() {
+            self.set_prefs(|p| p.hide_monitor = !mon);
+        }
+        ui.label(widgets::muted("Монітор лише показує, що йде на прожектори; без нього світло працює так само."));
+        ui.add_space(S3);
         let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
         if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
             match crate::winshell::set_autostart(auto) {
@@ -709,6 +729,29 @@ impl App {
                 Err(e) => self.toast(&format!("Не вдалося змінити автозапуск: {e}"), false),
             }
         }
+    }
+
+    fn tab_access(&mut self, ui: &mut Ui) {
+        widgets::field_label(ui, "Масштаб інтерфейсу");
+        let win = (ui.ctx().native_pixels_per_point().unwrap_or(1.0) * 100.0).round();
+        let zoom = self.v.prefs.zoom;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(S1, S1);
+            let opts = [0.0, 0.75, 0.9, 1.1, 1.25, 1.5, 1.75, 2.0];
+            for z in opts {
+                let label =
+                    if z == 0.0 { format!("Як у Windows ({win:.0} %)") } else { format!("{:.0} %", z * 100.0) };
+                let on = (zoom - z).abs() < 0.001 || (z == 0.0 && zoom == 1.0);
+                if btn(label).small().kind(if on { Kind::Toggled } else { Kind::Normal }).show(ui).clicked() {
+                    self.set_prefs(|p| p.zoom = z);
+                }
+            }
+        });
+        ui.add_space(S2);
+        ui.label(widgets::muted(
+            "Відсоток — від масштабу Windows: 125 % робить усе на чверть більшим, ніж в інших програмах. \
+             Масштаб самої Windows змінюють у «Параметри → Система → Дисплей».",
+        ));
     }
 
     fn tab_output(&mut self, ui: &mut Ui, st: &mut SettingsState) {
@@ -797,6 +840,7 @@ impl App {
         }
         ui.add_space(S3);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S3;
             let flash = self.flashing("outApply");
             let b = if flash {
                 btn("Застосовано").icon("check").kind(Kind::Done)
@@ -1275,7 +1319,7 @@ impl App {
         let custom = self.v.hotkeys.clone();
         // пошук за назвою дії; якщо шукали саму вкладку («клавіші») — показуємо все
         let q = st.q.trim().to_lowercase();
-        let (_, title, help, words) = TABS[5];
+        let (_, title, help, words) = TABS.iter().find(|t| t.0 == Tab::Keys).copied().unwrap_or(TABS[0]);
         let all = q.is_empty() || [title, help, words].iter().any(|t| t.to_lowercase().contains(&q));
         let mut groups: Vec<(&str, Vec<Entry>)> = vec![];
         for e in hotkeys::table() {
@@ -1419,6 +1463,7 @@ impl App {
         ui.add_space(S4);
         let busy = matches!(u.status, crate::update::Status::Installing | crate::update::Status::Restarting);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S3;
             let label = if u.available {
                 format!("Оновити до {}", u.latest)
             } else {
