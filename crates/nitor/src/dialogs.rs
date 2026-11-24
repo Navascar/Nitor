@@ -47,6 +47,8 @@ pub struct SettingsState {
     pub lib: LibState,
     /// поля патчу, що редагуються: id → (назва, адреса)
     pub patch_names: std::collections::HashMap<String, String>,
+    /// пошук налаштувань (фільтрує вкладки й гарячі клавіші)
+    pub q: String,
 }
 
 pub struct AddState {
@@ -82,66 +84,89 @@ fn page(t: Tab) -> Tab {
 
 /// Назва розділу з «?», що підказує про розділ.
 fn title_help(ui: &mut Ui, tab: Tab) {
-    let (_, title, help) = TABS.iter().find(|t| t.0 == tab).copied().unwrap_or(TABS[0]);
+    let (_, title, help, _) = TABS.iter().find(|t| t.0 == tab).copied().unwrap_or(TABS[0]);
     ui.spacing_mut().item_spacing.x = S2;
     ui.label(RichText::new(title).font(bold(FS_LG)));
-    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
-    let c = if resp.hovered() { TEXT } else { MUTED };
-    nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
-    resp.on_hover_ui(|ui| {
-        ui.set_max_width(360.0);
-        ui.label(help);
-    });
+    widgets::help(ui, help);
+}
+
+/// Чи підходить вкладка під пошук: назва, пояснення, ключові слова (для клавіш — ще й назви дій).
+fn tab_matches(tab: Tab, q: &str) -> bool {
+    let q = q.trim().to_lowercase();
+    let Some((_, title, help, words)) = TABS.iter().find(|t| t.0 == tab) else { return false };
+    q.is_empty()
+        || [*title, *help, *words].iter().any(|t| t.to_lowercase().contains(&q))
+        || tab == Tab::Keys
+            && hotkeys::table()
+                .iter()
+                .any(|e| matches!(e, Entry::Action { label, .. } if label.to_lowercase().contains(&q)))
 }
 
 /// Ширина списку вкладок налаштувань.
 const SIDE_W: f32 = 200.0;
 
-/// Вкладки налаштувань: назва й підказка про розділ (знак питання біля назви).
-const TABS: [(Tab, &str, &str); 10] = [
-    (Tab::General, "Загальні", "Налаштування самої програми: підказки клавіш на кнопках і запуск разом із Windows."),
+/// Вкладки налаштувань: назва, пояснення для новачка (знак питання біля назви) і слова для пошуку.
+const TABS: [(Tab, &str, &str, &str); 10] = [
+    (
+        Tab::General,
+        "Загальні",
+        "Як виглядає й запускається сама програма: чи показувати на кнопках їхні клавіші, чи показувати ці пояснення і чи вмикати Nitor разом із комп'ютером.",
+        "підказки клавіші кнопки пояснення автозапуск windows запуск",
+    ),
     (
         Tab::Output,
         "DMX-вихід",
-        "Куди Nitor надсилає світло: USB-адаптер (uDMX, Enttec, Open DMX), мережа (Art-Net, sACN) або симулятор без обладнання.",
+        "Через що комп'ютер передає команди прожекторам. Найчастіше це USB-адаптер (uDMX, Enttec, Open DMX) — виберіть його і натисніть «Застосувати». Art-Net і sACN — для пультів і вузлів у мережі. «Симулятор» працює без обладнання: зручно спробувати програму.",
+        "інтерфейс пристрій usb udmx enttec open dmx порт com art-net sacn ip адреса всесвіт симулятор",
     ),
     (
         Tab::Patch,
         "Патч приладів",
-        "Усі прилади з адресами DMX і профілями. Тут видно, чи не перетинаються адреси, і можна змінити порядок приладів.",
+        "Список усіх ваших прожекторів. У кожного є адреса DMX — номер першого каналу, такий самий, як виставлено на самому прожекторі. Якщо в двох приладів адреси перетинаються, рядок підсвічується: вони керуватимуть один одним.",
+        "прилади адреса канали перетин порядок назва профіль",
     ),
     (
         Tab::Library,
         "Бібліотека приладів",
-        "Готові моделі приладів з Open Fixture Library і QLC+. Виберіть модель і режим DMX — відкриється вікно нового приладу з уже заповненим профілем.",
+        "Тисячі готових моделей прожекторів. Знайдіть свою модель за назвою, виберіть режим DMX (кількість каналів, як у меню прожектора) — і прилад додасться вже налаштованим.",
+        "моделі виробник режим каналів ofl qlc пошук",
     ),
     (
         Tab::Profiles,
         "Профілі",
-        "Профіль — це перелік каналів приладу по порядку. Власний профіль потрібен приладу, якого немає в бібліотеці.",
+        "Профіль каже програмі, що означає кожен канал прожектора: де червоний, де зелений, де яскравість. Створюйте власний, лише якщо вашої моделі немає в бібліотеці — канали зазвичай описані в інструкції до прожектора.",
+        "канали власний профіль red green blue dimmer",
     ),
     (
         Tab::Keys,
         "Гарячі клавіші",
-        "Клавіші для швидких дій: Blackout, «Спалах», тап, кольори палітри. Будь-яку клавішу можна змінити або прибрати.",
+        "Клавіші клавіатури для швидких дій: вимкнути все світло, спалах, кольори. Натисніть «Змінити», а потім клавішу, яку хочете використовувати.",
+        "клавіатура поєднання ctrl shift alt blackout спалах тап",
     ),
     (
         Tab::Midi,
         "MIDI",
-        "Керування з MIDI-контролера: кнопки й повзунки виконують дії Nitor. Контролер підключається, лише коли є хоч одна прив'язка.",
+        "Керування з MIDI-контролера (пульта з кнопками й повзунками, що під'єднується до USB). Натисніть «Навчити» біля дії, а потім кнопку на контролері — і вона виконуватиме цю дію.",
+        "контролер пульт кнопки повзунки навчити прив'язка",
     ),
     (
         Tab::Os2l,
         "VirtualDJ",
-        "Зв'язок з VirtualDJ через OS2L: удари задають темп «у такт музиці», а кнопки VirtualDJ з назвою сцени викликають цю сцену. VirtualDJ знаходить Nitor у мережі сам.",
+        "Світло в такт музиці з VirtualDJ. Позначте «Приймати з VirtualDJ» — Nitor сам знайде VirtualDJ у мережі й отримуватиме удари й темп пісні. Кнопка VirtualDJ з назвою сцени вмикає цю сцену.",
+        "os2l dj музика такт темп bpm",
     ),
     (
         Tab::Schedule,
         "Розклад",
-        "Сцена, «Очистити» чи Blackout у потрібний час або на сході чи заході сонця. Розклад працює, поки Nitor відкритий.",
+        "Автоматичні дії за часом: увімкнути сцену, очистити кольори чи вимкнути світло в певну годину або на сході чи заході сонця. Працює, лише поки Nitor відкритий.",
+        "час таймер схід захід сонця автоматично",
     ),
-    (Tab::About, "Про програму", "Версія Nitor, перевірка оновлень і журнал роботи."),
+    (
+        Tab::About,
+        "Про програму",
+        "Яка версія Nitor встановлена, перевірка оновлень і журнал роботи — його можна надіслати, якщо щось працює не так.",
+        "версія оновлення журнал",
+    ),
 ];
 
 pub enum ModesFor {
@@ -284,6 +309,7 @@ impl App {
             jump: tab.filter(|t| *t == Tab::Os2l),
             lib: LibState::new(false),
             patch_names: Default::default(),
+            q: String::new(),
         });
         if o.kind() == "udmx" {
             self.find_udmx(false);
@@ -504,9 +530,24 @@ impl App {
                         ui.add_space(S2 + S3); // на одній лінії з назвами вкладок
                         ui.label(RichText::new("Налаштування").font(bold(FS_LG)));
                     });
-                    ui.add_space(S5);
+                    ui.add_space(S3);
+                    let mut go = None;
+                    ui.horizontal(|ui| {
+                        ui.add_space(S2);
+                        let r = widgets::input(ui, &mut st.q, "Пошук налаштувань", SIDE_W - 2.0 * S2);
+                        // Enter — перейти до першої знайденої вкладки
+                        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            go = TABS.iter().map(|t| t.0).find(|t| tab_matches(*t, &st.q));
+                        }
+                    });
+                    ui.add_space(S3);
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    for (tab, label, _) in TABS {
+                    let mut found = false;
+                    for (tab, label, _, _) in TABS {
+                        if !tab_matches(tab, &st.q) {
+                            continue;
+                        }
+                        found = true;
                         let on = st.tab == tab;
                         let (r, resp) = ui.allocate_exact_size(vec2(SIDE_W, CONTROL_H), Sense::click());
                         let r = r.shrink2(vec2(S2, 0.0));
@@ -527,16 +568,25 @@ impl App {
                             font(FS_MD),
                             if on { ACCENT } else { MUTED },
                         );
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                            if page(tab) == page(st.tab) {
-                                st.jump = Some(tab); // той самий екран — лише прокрутка
-                            } else {
-                                st.jump = (tab == Tab::Os2l).then_some(tab);
-                                st.tab_t = now;
-                            }
-                            st.tab = tab;
-                            st.capturing = None;
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            go = Some(tab);
                         }
+                    }
+                    if !found {
+                        ui.horizontal(|ui| {
+                            ui.add_space(S2 + S3);
+                            ui.label(widgets::muted("Нічого не знайдено"));
+                        });
+                    }
+                    if let Some(tab) = go.filter(|t| *t != st.tab) {
+                        if page(tab) == page(st.tab) {
+                            st.jump = Some(tab); // той самий екран — лише прокрутка
+                        } else {
+                            st.jump = (tab == Tab::Os2l).then_some(tab);
+                            st.tab_t = now;
+                        }
+                        st.tab = tab;
+                        st.capturing = None;
                     }
                 });
                 egui::Frame::new()
@@ -546,6 +596,8 @@ impl App {
                     .inner_margin(egui::Margin::same(S5 as i8))
                     .shadow(egui::Shadow { offset: [-6, 6], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.5) })
                     .show(ui, |ui| {
+                        // нульовий відступ потрібен лише між бічною панеллю й карткою
+                        ui.spacing_mut().item_spacing.x = ui.ctx().style().spacing.item_spacing.x;
                         ui.set_min_width(ui.available_width());
                         ui.vertical(|ui| {
                             let ctx = ui.ctx().clone();
@@ -639,6 +691,16 @@ impl App {
         {
             self.set_prefs(|p| p.hide_keys = !keys);
         }
+        ui.label(widgets::muted(
+            "Біля назви кнопки видно клавішу, якою її можна натиснути, наприклад «B» для Blackout.",
+        ));
+        ui.add_space(S3);
+        let mut help = !self.v.prefs.hide_help;
+        if widgets::check(ui, &mut help, "Показувати пояснення «?» біля розділів").changed()
+        {
+            self.set_prefs(|p| p.hide_help = !help);
+        }
+        ui.label(widgets::muted("Наведіть мишу на знак питання — з'явиться коротке пояснення, що робить розділ."));
         ui.add_space(S3);
         let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
         if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
@@ -1211,85 +1273,41 @@ impl App {
             }
         }
         let custom = self.v.hotkeys.clone();
+        // пошук за назвою дії; якщо шукали саму вкладку («клавіші») — показуємо все
+        let q = st.q.trim().to_lowercase();
+        let (_, title, help, words) = TABS[5];
+        let all = q.is_empty() || [title, help, words].iter().any(|t| t.to_lowercase().contains(&q));
+        let mut groups: Vec<(&str, Vec<Entry>)> = vec![];
         for e in hotkeys::table() {
             match e {
-                Entry::Group(g) => {
-                    ui.add_space(S2);
-                    ui.label(widgets::muted(g));
-                }
-                Entry::Action { id, label, keys: def } => {
-                    let keys = hotkeys::keys_for(&custom, &id);
-                    let changed = custom.contains_key(&id);
-                    // підсвітка рядка малюється під вмістом: місце для неї резервуємо заздалегідь
-                    let row_bg = ui.painter().add(egui::Shape::Noop);
-                    let row = ui.horizontal(|ui| {
-                        ui.set_min_height(CONTROL_H_SM + S1);
-                        ui.add_space(S2);
-                        let mut name = RichText::new(&label).size(FS_MD);
-                        if changed {
-                            name = RichText::new(label.to_string()).size(FS_MD);
+                Entry::Group(g) => groups.push((g, vec![])),
+                Entry::Action { ref label, .. } => {
+                    if all || label.to_lowercase().contains(&q) {
+                        if let Some(g) = groups.last_mut() {
+                            g.1.push(e);
                         }
-                        ui.label(name);
-                        if changed {
-                            ui.label(widgets::muted("· змінено"));
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = S1;
-                            // стовпці однакові: «Стандартна» · «Змінити» · «Прибрати»
-                            if !keys.is_empty() {
-                                if btn("Прибрати")
-                                    .small()
-                                    .kind(Kind::Ghost)
-                                    .min_width(84.0)
-                                    .tip("Залишити дію без клавіші")
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    self.assign_keys(&id, vec![], false);
-                                }
-                            } else {
-                                ui.allocate_exact_size(vec2(84.0, CONTROL_H_SM), Sense::hover());
-                            }
-                            let capturing = st.capturing.as_deref() == Some(id.as_str());
-                            if btn(if capturing { "Скасувати" } else { "Змінити" })
-                                .small()
-                                .min_width(84.0)
-                                .show(ui)
-                                .clicked()
-                            {
-                                st.capturing = if capturing { None } else { Some(id.clone()) };
-                            }
-                            if changed {
-                                if btn("Стандартна")
-                                    .small()
-                                    .kind(Kind::Ghost)
-                                    .min_width(96.0)
-                                    .tip("Повернути стандартну клавішу")
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    self.assign_keys(&id, def.clone(), true);
-                                }
-                            } else {
-                                ui.allocate_exact_size(vec2(96.0, CONTROL_H_SM), Sense::hover());
-                            }
-                            ui.add_space(S2);
-                            if capturing {
-                                ui.label(RichText::new("Натисніть клавішу…").size(FS_SM).color(ACCENT));
-                            } else if keys.is_empty() {
-                                ui.label(widgets::muted("Не призначено"));
-                            } else {
-                                for k in keys.iter().rev() {
-                                    kbd(ui, &hotkeys::key_label(k));
-                                }
-                            }
-                        });
-                    });
-                    if row.response.contains_pointer() {
-                        ui.painter().set(row_bg, egui::Shape::rect_filled(row.response.rect, radius(R_MD), RAISED));
                     }
                 }
             }
+        }
+        for (g, rows) in groups.iter().filter(|g| !g.1.is_empty()) {
+            ui.add_space(S2);
+            ui.label(widgets::muted(*g));
+            ui.add_space(S1);
+            // група — на окремій плашці
+            egui::Frame::new()
+                .fill(BG)
+                .stroke(Stroke::new(1.0_f32, LINE))
+                .corner_radius(radius(R_MD))
+                .inner_margin(egui::Margin::same(S1 as i8))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for e in rows {
+                        if let Entry::Action { id, label, keys } = e {
+                            self.key_row(ui, st, &custom, id, label, keys);
+                        }
+                    }
+                });
         }
         ui.add_space(S3);
         if btn("Відновити стандартні").icon("reset").show(ui).clicked() && !self.v.hotkeys.is_empty()
@@ -1301,6 +1319,80 @@ impl App {
                 false,
                 Act::ResetKeys,
             ));
+        }
+    }
+
+    /// Рядок дії: назва · клавіші · «Змінити» · «Прибрати» · повернути стандартну.
+    fn key_row(
+        &mut self,
+        ui: &mut Ui,
+        st: &mut SettingsState,
+        custom: &indexmap::IndexMap<String, Vec<String>>,
+        id: &str,
+        label: &str,
+        def: &[String],
+    ) {
+        let keys = hotkeys::keys_for(custom, id);
+        let changed = custom.contains_key(id);
+        // підсвітка рядка малюється під вмістом: місце для неї резервуємо заздалегідь
+        let row_bg = ui.painter().add(egui::Shape::Noop);
+        let row = ui.horizontal(|ui| {
+            ui.set_min_height(CONTROL_H_SM + S1);
+            ui.add_space(S2);
+            ui.label(RichText::new(label).size(FS_MD));
+            if changed {
+                ui.label(widgets::muted("· змінено"));
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = S1;
+                ui.add_space(S1);
+                // стовпці однакові: повернути стандартну · «Прибрати» · «Змінити» — і клавіші поруч
+                if changed {
+                    if icon_btn("reset")
+                        .small()
+                        .kind(Kind::Ghost)
+                        .tip("Повернути стандартну клавішу")
+                        .show(ui)
+                        .clicked()
+                    {
+                        self.assign_keys(id, def.to_vec(), true);
+                    }
+                } else {
+                    ui.allocate_exact_size(vec2(CONTROL_H_SM, CONTROL_H_SM), Sense::hover());
+                }
+                if !keys.is_empty() {
+                    if btn("Прибрати")
+                        .small()
+                        .kind(Kind::Ghost)
+                        .min_width(84.0)
+                        .tip("Залишити дію без клавіші")
+                        .show(ui)
+                        .clicked()
+                    {
+                        self.assign_keys(id, vec![], false);
+                    }
+                } else {
+                    ui.allocate_exact_size(vec2(84.0, CONTROL_H_SM), Sense::hover());
+                }
+                let capturing = st.capturing.as_deref() == Some(id);
+                if btn(if capturing { "Скасувати" } else { "Змінити" }).small().min_width(84.0).show(ui).clicked()
+                {
+                    st.capturing = if capturing { None } else { Some(id.to_string()) };
+                }
+                ui.add_space(S2);
+                if capturing {
+                    ui.label(RichText::new("Натисніть клавішу…").size(FS_SM).color(ACCENT));
+                } else if keys.is_empty() {
+                    ui.label(widgets::muted("Не призначено"));
+                } else {
+                    for k in keys.iter().rev() {
+                        kbd(ui, &hotkeys::key_label(k));
+                    }
+                }
+            });
+        });
+        if row.response.contains_pointer() {
+            ui.painter().set(row_bg, egui::Shape::rect_filled(row.response.rect, radius(R_SM), RAISED));
         }
     }
 
@@ -2154,4 +2246,19 @@ fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
         MUTED,
     );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_search() {
+        assert!(tab_matches(Tab::Output, ""));
+        assert!(tab_matches(Tab::Output, " ART-NET "));
+        assert!(!tab_matches(Tab::Output, "автозапуск"));
+        assert!(tab_matches(Tab::General, "автозапуск"));
+        // назви дій гарячих клавіш ведуть на вкладку клавіш
+        assert!(tab_matches(Tab::Keys, "інвертувати"));
+    }
 }

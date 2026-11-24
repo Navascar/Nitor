@@ -362,6 +362,7 @@ impl App {
                         "vdj" => self.open_settings(Some(dialogs::Tab::Os2l)),
                         "libtab" => self.open_settings(Some(dialogs::Tab::Library)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
+                        "about" => self.open_settings(Some(dialogs::Tab::About)),
                         "add" => self.open_add(),
                         "library" => {
                             self.open_add();

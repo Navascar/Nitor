@@ -53,6 +53,28 @@ pub fn set_show_keys(on: bool) {
     SHOW_KEYS.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+static SHOW_HELP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Показувати знаки «?» з поясненнями (загальне налаштування програми).
+pub fn set_show_help(on: bool) {
+    SHOW_HELP.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Знак «?», що пояснює розділ при наведенні. Нічого не малює, якщо пояснення вимкнено.
+pub fn help(ui: &mut Ui, text: &str) {
+    if !SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
+    let c = if resp.hovered() { TEXT } else { MUTED };
+    icons::image("help", 16.0, c).paint_at(ui, r);
+    resp.on_hover_ui(|ui| {
+        ui.set_max_width(360.0);
+        ui.label(text);
+    });
+}
+
 pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
     Btn {
         text: Some(text.into()),

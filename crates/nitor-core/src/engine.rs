@@ -205,6 +205,9 @@ pub struct Prefs {
     /// Не показувати підказки клавіш на кнопках.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_keys: bool,
+    /// Не показувати знаки «?» з поясненнями.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_help: bool,
 }
 
 impl Prefs {
