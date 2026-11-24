@@ -461,15 +461,17 @@ impl App {
         // без внутрішніх полів: підкладка вкладок і картка налаштувань доходять до країв вікна
         let frame = dialog_frame(1080.0).fill(BG).inner_margin(0);
         let esc_close = modal_with(ctx, "settings", 1080.0, frame, |ui| {
-            egui::Frame::new()
-                .inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S4 as i8, bottom: 0 })
-                .show(ui, |ui| close |= dialog_head(ui, "Налаштування"));
-            // вкладки — на темній підкладці вікна; поле налаштувань — картка поверх неї
+            // ліворуч на темній підкладці — назва вікна й вкладки; праворуч на всю висоту — картка налаштувань
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.vertical(|ui| {
                     ui.set_width(SIDE_W);
-                    ui.add_space(S3);
+                    ui.add_space(S5);
+                    ui.horizontal(|ui| {
+                        ui.add_space(S2 + S3); // на одній лінії з назвами вкладок
+                        ui.label(RichText::new("Налаштування").font(bold(FS_LG)));
+                    });
+                    ui.add_space(S5);
                     ui.spacing_mut().item_spacing.y = 2.0;
                     for (tab, label, _) in TABS {
                         let on = st.tab == tab;
@@ -500,7 +502,7 @@ impl App {
                 egui::Frame::new()
                     .fill(SURFACE)
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
-                    .corner_radius(egui::CornerRadius { nw: R_LG, ne: 0, sw: 0, se: R_LG })
+                    .corner_radius(egui::CornerRadius { nw: 0, ne: R_LG, sw: 0, se: R_LG })
                     .inner_margin(egui::Margin::same(S5 as i8))
                     .shadow(egui::Shadow { offset: [-6, 6], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.5) })
                     .show(ui, |ui| {
@@ -519,6 +521,9 @@ impl App {
                                 resp.on_hover_ui(|ui| {
                                     ui.set_max_width(360.0);
                                     ui.label(help);
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    close |= icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked();
                                 });
                             });
                             ui.add_space(S3);
