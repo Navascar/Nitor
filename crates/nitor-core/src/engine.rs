@@ -223,11 +223,20 @@ pub struct Prefs {
     /// Масштаб інтерфейсу відносно масштабу Windows: 0 — як у Windows.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub zoom: f32,
+    /// Плавність «Очистити», секунди: 0 — одразу.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub clear_fade: f64,
+    /// Плавність Blackout (згасання й повернення світла), секунди: 0 — одразу.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub blackout_fade: f64,
 }
 
-fn is_zero(v: &f32) -> bool {
-    *v == 0.0
+fn is_zero<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
+
+/// Найдовша плавність «Очистити» й Blackout, секунди.
+pub const FADE_MAX: f64 = 10.0;
 
 /// Масштаб інтерфейсу: від 50 % до 300 % від масштабу Windows.
 pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=3.0;
@@ -242,7 +251,9 @@ impl Prefs {
         } else {
             0.0
         };
-        Prefs { flash_rate: rate, col_width, zoom, ..self }
+        let fade = |v: f64| if v.is_finite() { v.clamp(0.0, FADE_MAX) } else { 0.0 };
+        let (clear_fade, blackout_fade) = (fade(self.clear_fade), fade(self.blackout_fade));
+        Prefs { flash_rate: rate, col_width, zoom, clear_fade, blackout_fade, ..self }
     }
 }
 
@@ -609,6 +620,8 @@ pub struct Engine {
     pub flash: IndexMap<String, Fixture>,
     /// Коли натиснули «Спалах» (відлік мерехтіння).
     flash_t0: f64,
+    /// Плавний Blackout: (початок, рівень світла на початку: 1 — світло, 0 — темно).
+    blackout_ramp: Option<(f64, f64)>,
     /// Початок ефекту: від нього відлічується фаза, щоб ефект починався з одного кольору.
     eff_t0: f64,
     /// Темп для ефектів «у такт музиці». Не зберігається.
@@ -690,6 +703,7 @@ impl Engine {
             prefs: Prefs::default(),
             flash: IndexMap::new(),
             flash_t0: 0.0,
+            blackout_ramp: None,
             eff_t0: 0.0,
             tempo: Tempo::default(),
             audio: AudioSource::default(),
@@ -899,6 +913,7 @@ impl Engine {
     fn restore(&mut self, snap: Show) {
         self.show = snap;
         self.fade = None;
+        self.blackout_ramp = None;
         self.undo_key = None;
     }
 
@@ -918,7 +933,7 @@ impl Engine {
             }
             Command::SetColor { ids, values } => self.set_color(&ids, &values),
             Command::Preset { ids, n, speed } => self.preset(&ids, n, speed)?,
-            Command::Clear { ids } => self.clear(&ids),
+            Command::Clear { ids } => self.clear_faded(&ids, now),
             Command::StaticColor { ids, source } => self.static_color(&ids, source)?,
             Command::AddStaticColor { name, hex, w } => {
                 if self.show.static_colors.len() >= STATIC_COLORS_MAX {
@@ -941,7 +956,11 @@ impl Engine {
             }
             Command::SetMaster(v) => self.show.master = v,
             Command::SetHotkeys(h) => self.hotkeys = check_hotkeys(h)?,
-            Command::Blackout(on) => self.show.blackout = on.unwrap_or(!self.show.blackout),
+            Command::Blackout(on) => {
+                let level = self.light_level(now);
+                self.show.blackout = on.unwrap_or(!self.show.blackout);
+                self.blackout_ramp = Some((now, level));
+            }
             Command::AddFixture { spec, name, address, count } => self.add_fixture(spec, &name, address, count)?,
             Command::UpdateFixture { id, name, address, profile } => {
                 self.update_fixture(&id, name, address, profile)?
@@ -1202,6 +1221,36 @@ impl Engine {
             self.drop_from_effect(&fids);
         }
         Ok(())
+    }
+
+    /// «Очистити» з плавністю з налаштувань: кольори згасають через той самий кросфейд, що й сцени.
+    fn clear_faded(&mut self, ids: &[String], now: f64) {
+        let before: Vec<SceneState> = self.show.fixtures.iter().map(SceneState::of).collect();
+        self.clear(ids);
+        let dur = self.prefs.clear_fade;
+        if dur <= 0.0 {
+            return;
+        }
+        let targets: Vec<_> = self
+            .show
+            .fixtures
+            .iter()
+            .zip(before)
+            .map(|(f, start)| (f.id.clone(), start, SceneState::of(f)))
+            .filter(|(_, a, b)| a != b)
+            .collect();
+        self.apply_fade(&targets, 0.0);
+        self.fade = Some(Fade { start: now, dur, targets });
+    }
+
+    /// Рівень світла з урахуванням плавного Blackout: 1 — світло, 0 — темно.
+    fn light_level(&self, now: f64) -> f64 {
+        let target = if self.show.blackout { 0.0 } else { 1.0 };
+        let dur = self.prefs.blackout_fade;
+        match self.blackout_ramp {
+            Some((t0, from)) if dur > 0.0 => from + (target - from) * ((now - t0) / dur).clamp(0.0, 1.0),
+            _ => target,
+        }
     }
 
     fn clear(&mut self, ids: &[String]) {
@@ -1506,7 +1555,8 @@ impl Engine {
             }
             count = pixel.values().collect::<BTreeSet<_>>().len();
         }
-        let master = if self.show.blackout { 0.0 } else { self.show.master as f64 / 255.0 };
+        let level = self.light_level(now);
+        let master = level * self.show.master as f64 / 255.0;
         let programs = programs();
         for fx in &self.show.fixtures {
             let Some(channels) = self.show.profiles.get(&fx.profile) else { continue };
@@ -1517,8 +1567,8 @@ impl Engine {
             let flash_on =
                 self.prefs.flash_rate <= 0.0 || ((now - self.flash_t0) * self.prefs.flash_rate).fract() < 0.5;
             let master = match over {
-                Some(_) if self.show.blackout || !flash_on => 0.0,
-                Some(_) => 1.0,
+                Some(_) if !flash_on => 0.0,
+                Some(_) => level,
                 None => master,
             };
             if channels.is_empty() {

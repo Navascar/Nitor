@@ -263,6 +263,11 @@ impl eframe::App for App {
         }
         self.dialogs(ctx);
         self.hotkeys(ctx);
+        // права кнопка на знаку «?» — його меню, а не меню розділу під ним
+        if ctx.data_mut(|d| d.remove_temp::<bool>(nitor_ui::widgets::help_menu_id())).is_some() {
+            self.pending_menu = None;
+            self.want_menu(menus::help_menu());
+        }
         if let Some(items) = self.pending_menu.take() {
             if !items.is_empty() {
                 let pos = ctx.input(|i| i.pointer.interact_pos()).unwrap_or_default();
@@ -387,6 +392,10 @@ impl App {
                             let w = ctx.screen_rect().width();
                             self.flash_cfg =
                                 Some(egui::Rect::from_min_size(egui::pos2(w * 0.55, 8.0), egui::vec2(34.0, 34.0)));
+                        }
+                        "flashmenu" => {
+                            let items = self.light_button_menu("flash", "Спалах", egui::Rect::NOTHING);
+                            self.menu = Some(menus::MenuState { pos: egui::pos2(500.0, 60.0), items, opened: 0.0 });
                         }
                         "monitor" => self.monitor_open = true,
                         "menu" => {

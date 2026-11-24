@@ -168,6 +168,12 @@ pub enum Act {
     SwapSide,
     /// Показати чи сховати назву кнопки верхньої панелі (`clear`, `flash`, `blackout`).
     ToggleShortButton(&'static str),
+    /// Плавність «Очистити» (`clear`) чи Blackout (`blackout`), секунди, або частота «Спалаху» (`flash`), Гц.
+    LightPref(&'static str, f64),
+    /// Вікно точної частоти «Спалаху» під кнопкою.
+    FlashConfig(egui::Rect),
+    /// Сховати знаки «?» з поясненнями.
+    HideHelp,
     CheckUpdate,
     OpenUpdate,
     OpenSettings(Option<crate::dialogs::Tab>),
@@ -235,6 +241,10 @@ pub struct App {
     pub col_rects: Vec<(&'static str, egui::Rect)>,
     /// у заголовку тісно: кнопки лише зі значками
     pub top_compact: bool,
+    /// вільне місце в заголовку (без розгорнутих при наведенні назв): чи вміститься назва кнопки
+    pub title_slack: f32,
+    /// цього кадру в заголовку розгорнута назва кнопки під мишею
+    pub title_open: bool,
     pub toast: Option<Toast>,
     pub flash: HashMap<&'static str, Instant>,
     pub color_clipboard: Option<(Rgb, u8)>,
@@ -315,6 +325,8 @@ impl App {
             side_anim: None,
             col_rects: vec![],
             top_compact: false,
+            title_slack: 0.0,
+            title_open: false,
             toast: None,
             flash: HashMap::new(),
             color_clipboard: None,
@@ -954,6 +966,16 @@ impl App {
                     p.short_buttons.push(id.into());
                 }
             }),
+            Act::LightPref(id, v) => self.set_prefs(|p| match id {
+                "flash" => p.flash_rate = v,
+                "clear" => p.clear_fade = v,
+                _ => p.blackout_fade = v,
+            }),
+            Act::FlashConfig(r) => self.flash_cfg = Some(r),
+            Act::HideHelp => {
+                self.set_prefs(|p| p.hide_help = true);
+                self.toast("Пояснення сховано. Повернути їх можна в Налаштуваннях, на вкладці «Загальні»", true);
+            }
             Act::CheckUpdate => self.updater.check(),
             Act::OpenUpdate => self.open_update_dialog(),
             Act::OpenSettings(tab) => self.open_settings(tab),

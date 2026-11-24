@@ -23,6 +23,10 @@ pub enum Kind {
     Ghost,
     /// «Очистити»: помітна, але не основна
     Warn,
+    /// «Спалах»: світла рамка, як у «Очистити» й Blackout
+    Outline,
+    /// «Закрити» вікно: без рамки, при наведенні — червона
+    Close,
     /// «Оновити до …»
     Update,
     /// перемикач увімкнено (строб)
@@ -44,6 +48,8 @@ pub struct Btn<'a> {
     left_align: bool,
     /// гаряча клавіша дії — показується праворуч у кнопці
     kbd: Option<String>,
+    /// підказка лише для екранного диктора, без спливаючого вікна
+    quiet: bool,
 }
 
 static SHOW_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -65,19 +71,38 @@ pub fn help_shown() -> bool {
     SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Знак «?», що пояснює розділ при наведенні. Нічого не малює, якщо пояснення вимкнено.
+/// Позначка в пам'яті egui: на знаку «?» клацнули правою кнопкою — програма показує меню «Сховати пояснення».
+pub fn help_menu_id() -> Id {
+    Id::new("help-menu")
+}
+
+/// Знак «?», що пояснює розділ при наведенні або кліку (пояснення лишається відкритим).
+/// Нічого не малює, якщо пояснення вимкнено.
 pub fn help(ui: &mut Ui, text: &str) {
     if !SHOW_HELP.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
-    let c = if resp.hovered() { TEXT } else { MUTED };
+    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, text));
+    if resp.secondary_clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(help_menu_id(), true));
+    }
+    let open = egui::Popup::from_toggle_button_response(&resp)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.set_max_width(360.0);
+            ui.label(text);
+        })
+        .is_some();
+    let c = if resp.hovered() || open { TEXT } else { MUTED };
     icons::image("help", 16.0, c).paint_at(ui, r);
-    resp.on_hover_ui(|ui| {
-        ui.set_max_width(360.0);
-        ui.label(text);
-    });
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    if !open {
+        resp.on_hover_ui(|ui| {
+            ui.set_max_width(360.0);
+            ui.label(text);
+        });
+    }
 }
 
 pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
@@ -93,6 +118,7 @@ pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
         bold: false,
         left_align: false,
         kbd: None,
+        quiet: false,
     }
 }
 
@@ -125,6 +151,11 @@ impl<'a> Btn<'a> {
         self.tooltip = Some(t.into());
         self
     }
+    /// Підказка не спливає (назва кнопки показується інакше), але лишається для екранного диктора.
+    pub fn quiet_tip(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
+    }
     pub fn min_width(mut self, w: f32) -> Self {
         self.min_width = w;
         self
@@ -151,7 +182,7 @@ impl<'a> Btn<'a> {
         let h = if self.small { CONTROL_H_SM } else { CONTROL_H };
         let pad = if self.small {
             S2
-        } else if self.kind == Kind::Warn {
+        } else if matches!(self.kind, Kind::Warn | Kind::Outline) {
             S4
         } else {
             S3
@@ -159,7 +190,11 @@ impl<'a> Btn<'a> {
         let isz = if self.small { 16.0 } else { 18.0 };
         let gap = if self.small { S1 } else { S2 };
         let fs = if self.small { FS_SM } else { FS_MD };
-        let font = if self.bold || matches!(self.kind, Kind::Warn | Kind::Update) { bold(fs) } else { font(fs) };
+        let font = if self.bold || matches!(self.kind, Kind::Warn | Kind::Update | Kind::Outline) {
+            bold(fs)
+        } else {
+            font(fs)
+        };
         let galley = self
             .text
             .as_ref()
@@ -254,7 +289,7 @@ impl<'a> Btn<'a> {
         }
         let resp = if self.enabled { resp.on_hover_cursor(CursorIcon::PointingHand) } else { resp };
         match self.tooltip {
-            Some(t) if !t.is_empty() => resp.on_hover_text(t),
+            Some(t) if !t.is_empty() && !self.quiet => resp.on_hover_text(t),
             _ => resp,
         }
     }
@@ -267,10 +302,13 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
             let f = if hovered { ACCENT_HOVER } else { ACCENT_STRONG };
             (f, ACCENT_STRONG, WHITE)
         }
-        Kind::Danger => (if hovered { alpha(DANGER, 0.12) } else { Color32::TRANSPARENT }, DANGER, DANGER),
+        Kind::Danger => (if hovered { RAISED.lerp_to_gamma(DANGER, 0.12) } else { RAISED }, DANGER, DANGER),
         Kind::DangerOn => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Ghost => (if hovered { RAISED } else { Color32::TRANSPARENT }, Color32::TRANSPARENT, TEXT),
-        Kind::Warn => (if hovered { alpha(WARN, 0.12) } else { Color32::TRANSPARENT }, WARN, WARN),
+        Kind::Warn => (if hovered { RAISED.lerp_to_gamma(WARN, 0.12) } else { RAISED }, WARN, WARN),
+        Kind::Outline => (if hovered { RAISED.lerp_to_gamma(TEXT, 0.08) } else { RAISED }, TEXT, TEXT),
+        Kind::Close if hovered => (DANGER_STRONG, DANGER_STRONG, WHITE),
+        Kind::Close => (Color32::TRANSPARENT, Color32::TRANSPARENT, TEXT),
         Kind::Update => (ACCENT_SOFT, ACCENT, ACCENT),
         Kind::Toggled => (ACCENT_SOFT, ACCENT, TEXT),
         Kind::Done => (Color32::TRANSPARENT, OK, OK),

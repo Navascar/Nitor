@@ -51,32 +51,78 @@ impl App {
         key: Option<String>,
         tip: &str,
     ) -> bool {
-        let short = self.top_compact || self.v.prefs.short_buttons.iter().any(|b| b == id);
-        let key = key.filter(|_| !self.top_compact);
-        let r = if short {
-            icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
-        } else {
-            btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
-        };
-        self.short_button_menu(&r, id, label);
+        let r = self.light_button(ui, id, icon, label, kind, key, tip);
         r.clicked()
     }
 
-    /// Меню правої кнопки миші на кнопці верхньої панелі: сховати чи показати назву.
-    fn short_button_menu(&mut self, r: &egui::Response, id: &'static str, label: &str) {
+    /// «Очистити», «Спалах» чи Blackout: з назвою або лише значок; права кнопка миші — меню
+    /// з плавністю (частотою) і показом назви.
+    #[allow(clippy::too_many_arguments)]
+    fn light_button(
+        &mut self,
+        ui: &mut Ui,
+        id: &'static str,
+        icon: &'static str,
+        label: &str,
+        kind: Kind,
+        key: Option<String>,
+        tip: &str,
+    ) -> egui::Response {
+        let short = self.top_compact || self.v.prefs.short_buttons.iter().any(|b| b == id);
+        let key = key.filter(|_| !self.top_compact);
+        let r = if short {
+            self.title_icon(ui, id, icon, label, kind, key, &format!("{label} — {tip}"))
+        } else {
+            btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
+        };
         if r.secondary_clicked() {
-            let short = self.v.prefs.short_buttons.iter().any(|b| b == id);
-            let text =
-                if short { "Показувати назву" } else { "Лише значок, без назви" };
-            self.want_menu(crate::menus::toggle_menu(label, text, Act::ToggleShortButton(id)));
+            let items = self.light_button_menu(id, label, r.rect);
+            self.want_menu(items);
         }
+        r
+    }
+
+    /// Кнопка заголовка без назви. Через секунду наведення назва розгортається, якщо в заголовку
+    /// для неї є місце; якщо немає — спливає підказка, як раніше.
+    #[allow(clippy::too_many_arguments)]
+    fn title_icon(
+        &mut self,
+        ui: &mut Ui,
+        id: &str,
+        icon: &'static str,
+        label: &str,
+        kind: Kind,
+        key: Option<String>,
+        tip: &str,
+    ) -> egui::Response {
+        let hid = Id::new(("title-hover", id));
+        let now = ui.input(|i| i.time);
+        let since: Option<f64> = ui.data(|d| d.get_temp(hid));
+        let text_w = ui.fonts(|f| f.layout_no_wrap(label.to_string(), bold(FS_MD), TEXT).size().x);
+        // shortcut: ширина розгорнутої кнопки — оцінка з запасом на значок і відступи; рахувати точно, якщо кнопки стрибатимуть
+        let fits = self.title_slack >= text_w + 3.0 * S4 + 18.0;
+        let open = fits && since.is_some_and(|t| now - t >= 1.0);
+        let b = if open { btn(label).icon(icon) } else { icon_btn(icon) };
+        let r = b.kind(kind).key(key).tip(tip).quiet_tip(fits).show(ui);
+        if r.hovered() {
+            if since.is_none() {
+                ui.data_mut(|d| d.insert_temp(hid, now));
+            }
+            if fits && !open {
+                ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+            }
+        } else if since.is_some() {
+            ui.data_mut(|d| d.remove::<f64>(hid));
+        }
+        self.title_open |= open;
+        r
     }
 
     /// Олівець: увімкнути редагування вигляду; під час редагування — «Готово» і «Скинути вигляд».
     fn layout_buttons(&mut self, ui: &mut Ui) {
         if !self.layout_edit {
-            if icon_btn("edit").kind(Kind::Ghost).tip("Змінити вигляд головного екрана").show(ui).clicked()
-            {
+            let tip = "Змінити вигляд головного екрана";
+            if self.title_icon(ui, "edit", "edit", "Змінити вигляд", Kind::Ghost, None, tip).clicked() {
                 self.layout_edit = true;
             }
             return;
@@ -112,6 +158,7 @@ impl App {
                 bottom: 0,
             }))
             .show(ctx, |ui| {
+                self.title_open = false;
                 let drag = ui.interact(ui.max_rect(), Id::new("title-drag"), Sense::click_and_drag());
                 if drag.double_clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
@@ -156,6 +203,10 @@ impl App {
                     ui.data_mut(|d| d.insert_temp(need_id, need));
                 }
                 let need: f32 = ui.data(|d| d.get_temp(need_id)).unwrap_or(0.0);
+                // вільне місце міряємо без розгорнутих при наведенні назв, інакше вони б самі себе згортали
+                if !self.title_open {
+                    self.title_slack = row.width() - need;
+                }
                 let compact = need > row.width();
                 if compact != self.top_compact {
                     self.top_compact = compact;
@@ -167,13 +218,22 @@ impl App {
     /// Ліва частина заголовка: логотип, назва, вихід DMX, майстер, «Очистити», «Спалах», Blackout.
     fn title_left(&mut self, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.x = S3;
-        ui.add(egui::Image::new(egui::include_image!("../../../assets/icon.svg")).fit_to_exact_size(vec2(32.0, 32.0)));
+        let logo = ui.add(
+            egui::Image::new(egui::include_image!("../../../assets/icon.svg")).fit_to_exact_size(vec2(32.0, 32.0)),
+        );
         // назва й версія — однією лінією по низу літер
         ui.spacing_mut().item_spacing.x = S2;
+        let mut brand = logo.rect;
         // у тісноті лишається лише логотип
         if !self.top_compact {
-            ui.label(RichText::new("Nitor").font(bold(22.0)));
-            ui.label(RichText::new(format!("v{}", nitor_core::VERSION)).size(FS_SM).color(MUTED));
+            brand |= ui.label(RichText::new("Nitor").font(bold(22.0))).rect;
+            brand |= ui.label(RichText::new(format!("v{}", nitor_core::VERSION)).size(FS_SM).color(MUTED)).rect;
+        }
+        // логотип, назва й версія — до «Про програму»
+        let about = ui.interact(brand, Id::new("title-about"), Sense::click());
+        about.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Про програму"));
+        if about.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !self.v.operator {
+            self.open_settings(Some(crate::dialogs::Tab::About));
         }
         ui.add_space(S2);
         ui.spacing_mut().item_spacing.x = S3;
@@ -224,10 +284,12 @@ impl App {
             return;
         }
         let key = short_key(&self.v.hotkeys, "settings");
-        if icon_btn("settings").kind(Kind::Ghost).key(key).tip("Налаштування").show(ui).clicked() {
+        let s = "Налаштування";
+        if self.title_icon(ui, "settings", "settings", s, Kind::Ghost, key, s).clicked() {
             self.open_settings(None);
         }
-        if icon_btn("lock").kind(Kind::Ghost).tip("Режим оператора").show(ui).clicked() {
+        let s = "Режим оператора";
+        if self.title_icon(ui, "lock", "lock", s, Kind::Ghost, None, s).clicked() {
             self.act(ui.ctx(), Act::AskOperator);
         }
         self.layout_buttons(ui);
@@ -238,7 +300,7 @@ impl App {
     fn window_controls(&mut self, ui: &mut Ui, max: bool) {
         let ctx = ui.ctx().clone();
         ui.spacing_mut().item_spacing.x = S1;
-        if icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked() {
+        if icon_btn("x").kind(Kind::Close).tip("Закрити").show(ui).clicked() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         let tip = if max { "Відновити" } else { "Розгорнути" };
@@ -298,42 +360,23 @@ impl App {
         }
     }
 
-    /// «Спалах»: тримати — повне світло; стрілка поруч — постійне світло чи мерехтіння з частотою.
+    /// «Спалах»: тримати — повне світло; права кнопка миші — постійне світло чи мерехтіння з частотою.
     fn flash_button(&mut self, ui: &mut Ui, key: Option<String>) {
         let rate = self.v.prefs.flash_rate;
-        ui.spacing_mut().item_spacing.x = 2.0;
-        let open = self.flash_cfg.is_some();
-        // оператор налаштувань не змінює
-        if !self.v.operator {
-            let c = icon_btn("chevronDown")
-                .kind(if open { Kind::Toggled } else { Kind::Normal })
-                .tip("Налаштувати спалах: постійне світло чи строб")
-                .show(ui);
-            if c.clicked() {
-                self.flash_cfg = if open { None } else { Some(c.rect) };
-            }
-        }
         let (icon, label, tip) = if rate > 0.0 {
             ("bolt", format!("Спалах · {} Гц", rate.round()), "Строб, поки кнопку тримають")
         } else {
             ("sun", "Спалах".to_string(), "Повний білий, поки кнопку тримають")
         };
-        let kind = if self.v.flashing { Kind::Toggled } else { Kind::Normal };
-        let key = key.filter(|_| !self.top_compact);
-        let r = if self.top_compact || self.v.prefs.short_buttons.iter().any(|b| b == "flash") {
-            icon_btn(icon).kind(kind).key(key).tip(format!("{label} — {tip}")).show(ui)
-        } else {
-            btn(label).icon(icon).kind(kind).key(key).tip(tip).show(ui)
-        };
-        self.short_button_menu(&r, "flash", "Спалах");
+        let kind = if self.v.flashing { Kind::Toggled } else { Kind::Outline };
+        let r = self.light_button(ui, "flash", icon, &label, kind, key, tip);
         // права кнопка відкриває меню, а не спалах
         if r.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
             self.flash_color(FLASH_WHITE, FlashHold::Pointer);
         }
-        ui.spacing_mut().item_spacing.x = S3;
     }
 
-    /// Вікно налаштування «Спалаху» під кнопкою зі стрілкою.
+    /// Вікно точної частоти «Спалаху» під кнопкою (з її контекстного меню).
     pub fn flash_popup(&mut self, ctx: &egui::Context) {
         let Some(anchor) = self.flash_cfg else { return };
         let mut rate = self.v.prefs.flash_rate as f32;

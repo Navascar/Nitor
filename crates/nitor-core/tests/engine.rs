@@ -878,3 +878,26 @@ fn scheduled_actions() {
     assert_eq!(e.render(12.0)[3], 255, "за 2 с перехід завершено");
     assert!(e.scheduled("scene:Немає", 0.0).is_err());
 }
+
+#[test]
+fn smooth_clear_and_blackout() {
+    let mut e = Engine::new();
+    let fx = add(&mut e, WASH24, 1);
+    ok(&mut e, hex(&[&fx], "#c80000"));
+    ok(&mut e, Command::SetPrefs(Prefs { clear_fade: 2.0, blackout_fade: 1.0, ..Default::default() }));
+    e.handle(Command::Clear { ids: vec![] }, 10.0).unwrap();
+    assert_eq!(e.render(10.0)[0], 200, "плавне очищення починається з поточного кольору");
+    assert_eq!(e.render(11.0)[0], 100);
+    assert_eq!(e.render(12.0)[0], 0);
+    assert_eq!(e.fixture(&fx).unwrap().r, 0);
+
+    ok(&mut e, hex(&[&fx], "#c80000"));
+    e.handle(Command::Blackout(None), 20.0).unwrap();
+    assert_eq!(e.render(20.5)[0], 100, "Blackout згасає поступово");
+    e.handle(Command::Blackout(None), 20.5).unwrap();
+    assert_eq!(e.render(20.75)[0], 125, "повернення світла — з того ж рівня");
+    assert_eq!(e.render(21.5)[0], 200);
+
+    ok(&mut e, Command::SetPrefs(Prefs { clear_fade: f64::NAN, blackout_fade: 99.0, ..Default::default() }));
+    assert_eq!((e.prefs.clear_fade, e.prefs.blackout_fade), (0.0, nitor_core::engine::FADE_MAX));
+}

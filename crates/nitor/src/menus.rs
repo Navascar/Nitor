@@ -27,9 +27,14 @@ pub enum Item {
     },
 }
 
-/// Меню з назвою й одним пунктом.
-pub fn toggle_menu(title: &str, label: &str, act: Act) -> Vec<Item> {
-    vec![Item::Title(title.into()), item("edit", label, act)]
+/// Пункт вибору: позначений галочкою, якщо вибраний.
+fn pick(on: bool, label: impl Into<String>, act: Act) -> Item {
+    Item::Entry { icon: on.then_some("check"), label: label.into(), key: None, danger: false, disabled: false, act }
+}
+
+/// Меню знака «?»: сховати пояснення.
+pub fn help_menu() -> Vec<Item> {
+    vec![Item::Title("Пояснення «?»".into()), item("help", "Сховати пояснення", Act::HideHelp)]
 }
 
 fn item(icon: &'static str, label: impl Into<String>, act: Act) -> Item {
@@ -76,6 +81,36 @@ impl App {
         if self.pending_menu.is_none() && !self.v.operator {
             self.pending_menu = Some(items);
         }
+    }
+
+    /// Меню «Очистити», «Спалаху» чи Blackout: плавність (частота) і показ назви.
+    pub fn light_button_menu(&self, id: &'static str, label: &str, rect: Rect) -> Vec<Item> {
+        let p = &self.v.prefs;
+        let mut m = vec![];
+        if id == "flash" {
+            m.push(Item::Title("Спалах".into()));
+            let presets = [(0.0, "Постійне світло"), (5.0, "Строб 5 Гц"), (10.0, "Строб 10 Гц"), (15.0, "Строб 15 Гц")];
+            for (v, l) in presets {
+                m.push(pick((p.flash_rate - v).abs() < 0.5, l, Act::LightPref(id, v)));
+            }
+            let other = presets.iter().all(|(v, _)| (p.flash_rate - v).abs() >= 0.5);
+            let l = if other {
+                format!("Інша частота: {} Гц…", fmt_num(p.flash_rate.round()))
+            } else {
+                "Інша частота…".into()
+            };
+            m.push(pick(other, l, Act::FlashConfig(rect)));
+        } else {
+            m.push(Item::Title(format!("{label}: плавність")));
+            let cur = if id == "clear" { p.clear_fade } else { p.blackout_fade };
+            for (v, l) in [(0.0, "Одразу"), (0.5, "0,5 с"), (1.0, "1 с"), (2.0, "2 с"), (5.0, "5 с")] {
+                m.push(pick((cur - v).abs() < 0.01, l, Act::LightPref(id, v)));
+            }
+        }
+        m.push(Item::Sep);
+        let short = p.short_buttons.iter().any(|b| b == id);
+        m.push(item("edit", if short { "Показувати назву" } else { "Згорнути назву" }, Act::ToggleShortButton(id)));
+        m
     }
 
     fn label_sel(&self) -> String {
