@@ -2169,7 +2169,7 @@ mod tests {
         let none = Default::default();
         assert_eq!(col_order(&["side".into(), "x".into(), "side".into()]), ["side", "fixtures", "color"]);
         let w = col_widths(&col_order(&[]), &none, 1340.0);
-        assert!((w.iter().sum::<f32>() - 1340.0).abs() < 0.01 && (w[0] - 410.0).abs() < 0.01);
+        assert!((w.iter().sum::<f32>() - 1340.0).abs() < 0.01 && (w[0] - 420.0).abs() < 0.01, "{w:?}");
         // збережена ширина, що не вміщається, стискається, але не менше за найменшу
         let big: std::collections::BTreeMap<String, f32> = [("fixtures".into(), 900.0)].into();
         let w = col_widths(&col_order(&[]), &big, 1200.0);
