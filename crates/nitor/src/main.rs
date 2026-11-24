@@ -360,6 +360,7 @@ impl App {
                         "keys" => self.open_settings(Some(dialogs::Tab::Keys)),
                         "midi" => self.open_settings(Some(dialogs::Tab::Midi)),
                         "vdj" => self.open_settings(Some(dialogs::Tab::Os2l)),
+                        "libtab" => self.open_settings(Some(dialogs::Tab::Library)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "add" => self.open_add(),
                         "library" => {

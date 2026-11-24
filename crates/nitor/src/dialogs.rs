@@ -18,6 +18,7 @@ pub enum Tab {
     General,
     Output,
     Patch,
+    Library,
     Profiles,
     Keys,
     Midi,
@@ -42,6 +43,8 @@ pub struct SettingsState {
     pub tab_t: f64,
     /// прокрутити до розділу (MIDI і VirtualDJ — одне поле, два розділи)
     pub jump: Option<Tab>,
+    /// вкладка «Бібліотека приладів»: розділ і пошук
+    pub lib: LibState,
     /// поля патчу, що редагуються: id → (назва, адреса)
     pub patch_names: std::collections::HashMap<String, String>,
 }
@@ -96,7 +99,7 @@ fn title_help(ui: &mut Ui, tab: Tab) {
 const SIDE_W: f32 = 200.0;
 
 /// Вкладки налаштувань: назва й підказка про розділ (знак питання біля назви).
-const TABS: [(Tab, &str, &str); 9] = [
+const TABS: [(Tab, &str, &str); 10] = [
     (Tab::General, "Загальні", "Налаштування самої програми: підказки клавіш на кнопках і запуск разом із Windows."),
     (
         Tab::Output,
@@ -107,6 +110,11 @@ const TABS: [(Tab, &str, &str); 9] = [
         Tab::Patch,
         "Патч приладів",
         "Усі прилади з адресами DMX і профілями. Тут видно, чи не перетинаються адреси, і можна змінити порядок приладів.",
+    ),
+    (
+        Tab::Library,
+        "Бібліотека приладів",
+        "Готові моделі приладів з Open Fixture Library і QLC+. Виберіть модель і режим DMX — відкриється вікно нового приладу з уже заповненим профілем.",
     ),
     (
         Tab::Profiles,
@@ -274,6 +282,7 @@ impl App {
             capturing: None,
             tab_t: f64::NEG_INFINITY,
             jump: tab.filter(|t| *t == Tab::Os2l),
+            lib: LibState::new(false),
             patch_names: Default::default(),
         });
         if o.kind() == "udmx" {
@@ -483,6 +492,7 @@ impl App {
         let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
         // без внутрішніх полів: підкладка вкладок і картка налаштувань доходять до країв вікна
         let frame = dialog_frame(1080.0).fill(BG).inner_margin(0);
+        let mut lib_pick = None;
         let esc_close = modal_with(ctx, "settings", 1080.0, frame, |ui| {
             // ліворуч на темній підкладці — назва вікна й вкладки; праворуч на всю висоту — картка налаштувань
             ui.horizontal_top(|ui| {
@@ -554,55 +564,70 @@ impl App {
                             if t < 1.0 {
                                 ctx.request_repaint();
                             }
-                            let mut area = egui::ScrollArea::vertical()
-                                .id_salt(("settings-scroll", pg as u8))
-                                .auto_shrink([false, false])
-                                .max_height(body_h);
-                            let jumped = st.jump.take();
-                            if jumped == Some(Tab::Midi) {
-                                area = area.vertical_scroll_offset(0.0);
-                            }
-                            let mut vdj_top = None;
-                            let out = area.show(ui, |ui| {
-                                ui.multiply_opacity(ease);
-                                ui.add_space((1.0 - ease) * S2);
-                                match st.tab {
-                                    Tab::Output => self.tab_output(ui, &mut st),
-                                    Tab::Patch => self.tab_patch(ui, &mut st),
-                                    Tab::Profiles => self.tab_profiles(ui, &mut st),
-                                    Tab::Keys => self.tab_keys(ui, &mut st),
-                                    Tab::Midi | Tab::Os2l => {
-                                        self.tab_midi(ui);
-                                        ui.add_space(S5);
-                                        let h = ui.horizontal(|ui| title_help(ui, Tab::Os2l)).response;
-                                        if jumped == Some(Tab::Os2l) {
-                                            h.scroll_to_me_animation(
-                                                Some(Align::TOP),
-                                                egui::style::ScrollAnimation::none(),
-                                            );
-                                        }
-                                        vdj_top = Some(h.rect.top());
-                                        ui.add_space(S3);
-                                        self.os2l_block(ui);
-                                    }
-                                    Tab::Schedule => self.tab_schedule(ui),
-                                    Tab::General => self.tab_general(ui),
-                                    Tab::About => self.tab_about(ui),
+                            if pg == Tab::Library {
+                                // у бібліотеки своя прокрутка карток — без зовнішньої
+                                let w = ui.available_width();
+                                ui.allocate_ui(vec2(w, body_h), |ui| {
+                                    ui.set_height(body_h);
+                                    lib_pick = self.library_body(ui, &mut st.lib, 260.0);
+                                });
+                            } else {
+                                let mut area = egui::ScrollArea::vertical()
+                                    .id_salt(("settings-scroll", pg as u8))
+                                    .auto_shrink([false, false])
+                                    .max_height(body_h);
+                                let jumped = st.jump.take();
+                                if jumped == Some(Tab::Midi) {
+                                    area = area.vertical_scroll_offset(0.0);
                                 }
-                            });
-                            // прокрутка сама перемикає MIDI ↔ VirtualDJ у списку вкладок
-                            if let (Some(top), None) = (vdj_top, jumped) {
-                                let vp = out.inner_rect;
-                                let bottom = out.state.offset.y + vp.height() >= out.content_size.y - 2.0;
-                                let vdj = top <= vp.top() + vp.height() * 0.35 || bottom;
-                                st.tab = if vdj { Tab::Os2l } else { Tab::Midi };
+                                let mut vdj_top = None;
+                                let out = area.show(ui, |ui| {
+                                    ui.multiply_opacity(ease);
+                                    ui.add_space((1.0 - ease) * S2);
+                                    match st.tab {
+                                        Tab::Output => self.tab_output(ui, &mut st),
+                                        Tab::Patch => self.tab_patch(ui, &mut st),
+                                        Tab::Library => {}
+                                        Tab::Profiles => self.tab_profiles(ui, &mut st),
+                                        Tab::Keys => self.tab_keys(ui, &mut st),
+                                        Tab::Midi | Tab::Os2l => {
+                                            self.tab_midi(ui);
+                                            ui.add_space(S5);
+                                            let h = ui.horizontal(|ui| title_help(ui, Tab::Os2l)).response;
+                                            if jumped == Some(Tab::Os2l) {
+                                                h.scroll_to_me_animation(
+                                                    Some(Align::TOP),
+                                                    egui::style::ScrollAnimation::none(),
+                                                );
+                                            }
+                                            vdj_top = Some(h.rect.top());
+                                            ui.add_space(S3);
+                                            self.os2l_block(ui);
+                                        }
+                                        Tab::Schedule => self.tab_schedule(ui),
+                                        Tab::General => self.tab_general(ui),
+                                        Tab::About => self.tab_about(ui),
+                                    }
+                                });
+                                // прокрутка сама перемикає MIDI ↔ VirtualDJ у списку вкладок
+                                if let (Some(top), None) = (vdj_top, jumped) {
+                                    let vp = out.inner_rect;
+                                    let bottom = out.state.offset.y + vp.height() >= out.content_size.y - 2.0;
+                                    let vdj = top <= vp.top() + vp.height() * 0.35 || bottom;
+                                    st.tab = if vdj { Tab::Os2l } else { Tab::Midi };
+                                }
                             }
                         });
                     });
             });
         });
+        // модель з бібліотеки — нове вікно приладу поверх налаштувань і вибір режиму DMX
+        if let Some(fx) = lib_pick {
+            self.open_add();
+            self.modes = Some(ModesState { fx, current: None, target: ModesFor::Add });
+        }
         // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
-        let esc_close = esc_close && !capturing && self.ui_dlg.is_none();
+        let esc_close = esc_close && !capturing && self.ui_dlg.is_none() && self.add.is_none();
         if !(close || esc_close) && self.settings.is_none() {
             self.settings = Some(st);
         }
@@ -1475,6 +1500,117 @@ impl App {
         }
     }
 
+    /// Розділи, пошук і картки моделей бібліотеки; `Some` — модель вибрано.
+    fn library_body(&mut self, ui: &mut Ui, st: &mut LibState, side: f32) -> Option<LibModel> {
+        let mut pick = None;
+        let counts = library::counts(&st.q, &self.v.recent);
+        let all: usize = counts.iter().filter(|(k, _)| *k != "recent").map(|x| x.1).sum();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = S5;
+            // розділи з кількістю моделей для поточного пошуку
+            ui.vertical(|ui| {
+                ui.set_width(side);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                for (key, label) in library::SECTIONS {
+                    let n =
+                        if key.is_empty() { all } else { counts.iter().find(|(k, _)| *k == key).map_or(0, |x| x.1) };
+                    let on = st.kind == key;
+                    let enabled = n > 0 || on;
+                    let (r, resp) = ui.allocate_exact_size(
+                        vec2(side, CONTROL_H),
+                        if enabled { Sense::click() } else { Sense::hover() },
+                    );
+                    let a = if enabled { 1.0 } else { 0.45 };
+                    if on {
+                        ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                    } else if resp.hovered() && enabled {
+                        ui.painter().rect_filled(r, radius(R_MD), RAISED);
+                    }
+                    let fg = if on { ACCENT } else { TEXT }.gamma_multiply(a);
+                    ui.painter().text(pos2(r.left() + S3, r.center().y), Align2::LEFT_CENTER, label, font(FS_MD), fg);
+                    ui.painter().text(
+                        pos2(r.right() - S3, r.center().y),
+                        Align2::RIGHT_CENTER,
+                        n.to_string(),
+                        font(FS_SM),
+                        if on { ACCENT } else { MUTED }.gamma_multiply(a),
+                    );
+                    if resp.clicked() && enabled {
+                        st.kind = key.into();
+                        st.shown = 60;
+                    }
+                    if key == "recent" {
+                        ui.add_space(S3);
+                    }
+                }
+            });
+            ui.vertical(|ui| {
+                let mw = ui.available_width();
+                let r = widgets::input(ui, &mut st.q, "Пошук за виробником або моделлю", mw);
+                if r.changed() {
+                    st.shown = 60;
+                }
+                if !r.has_focus() && ui.memory(|m| m.focused().is_none()) {
+                    r.request_focus();
+                }
+                ui.add_space(S3 - S2);
+                let found = library::search(&st.q, st.shown + 1, &st.kind, 0, &self.v.recent);
+                let more = found.len() > st.shown;
+                egui::ScrollArea::vertical().id_salt(("lib-grid", &st.kind, &st.q)).auto_shrink([false, false]).show(
+                    ui,
+                    |ui| {
+                        let gw = ui.available_width();
+                        let gap = S3;
+                        let cols = (((gw + gap) / (230.0 + gap)).floor() as usize).max(1);
+                        let cw = (gw - gap * (cols as f32 - 1.0)) / cols as f32;
+                        let ch = 96.0 + 2.0 * S3 + 4.0 * S2 + 18.0 + 40.0 + 20.0 + 18.0;
+                        let list: Vec<&LibModel> = found.iter().take(st.shown).copied().collect();
+                        if list.is_empty() {
+                            ui.add_space(S5);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new(if st.kind == "recent" && st.q.is_empty() {
+                                        "Тут з'являться прилади, які ви додавали з бібліотеки."
+                                    } else {
+                                        "Нічого не знайдено"
+                                    })
+                                    .color(MUTED),
+                                );
+                            });
+                        }
+                        let rows = list.len().div_ceil(cols);
+                        let (area, _) =
+                            ui.allocate_exact_size(vec2(gw, (rows as f32 * (ch + gap) - gap).max(0.0)), Sense::hover());
+                        for (i, fx) in list.iter().enumerate() {
+                            let r = Rect::from_min_size(
+                                pos2(
+                                    area.left() + (i % cols) as f32 * (cw + gap),
+                                    area.top() + (i / cols) as f32 * (ch + gap),
+                                ),
+                                vec2(cw, ch),
+                            );
+                            if !ui.clip_rect().intersects(r) {
+                                continue;
+                            }
+                            if lib_card(ui, r, fx).clicked() {
+                                pick = Some((*fx).clone());
+                            }
+                        }
+                        if more {
+                            ui.add_space(S3);
+                            ui.vertical_centered(|ui| {
+                                if btn("Показати ще").show(ui).clicked() {
+                                    st.shown += 60;
+                                }
+                            });
+                        }
+                    },
+                );
+            });
+        });
+        pick
+    }
+
     // ----------------------------------------------------------- бібліотека --
     fn library_dialog(&mut self, ctx: &egui::Context) {
         let mut st = self.lib.take().unwrap();
@@ -1490,122 +1626,7 @@ impl App {
                 ui.set_width(w - 2.0 * S5);
                 ui.set_height(h - 2.0 * S5);
                 close |= dialog_head(ui, "Бібліотека приладів");
-                let counts = library::counts(&st.q, &self.v.recent);
-                let all: usize = counts.iter().filter(|(k, _)| *k != "recent").map(|x| x.1).sum();
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = S5;
-                    // розділи з кількістю моделей для поточного пошуку
-                    ui.vertical(|ui| {
-                        ui.set_width(260.0);
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        for (key, label) in library::SECTIONS {
-                            let n = if key.is_empty() {
-                                all
-                            } else {
-                                counts.iter().find(|(k, _)| *k == key).map_or(0, |x| x.1)
-                            };
-                            let on = st.kind == key;
-                            let enabled = n > 0 || on;
-                            let (r, resp) = ui.allocate_exact_size(
-                                vec2(260.0, CONTROL_H),
-                                if enabled { Sense::click() } else { Sense::hover() },
-                            );
-                            let a = if enabled { 1.0 } else { 0.45 };
-                            if on {
-                                ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
-                            } else if resp.hovered() && enabled {
-                                ui.painter().rect_filled(r, radius(R_MD), RAISED);
-                            }
-                            let fg = if on { ACCENT } else { TEXT }.gamma_multiply(a);
-                            ui.painter().text(
-                                pos2(r.left() + S3, r.center().y),
-                                Align2::LEFT_CENTER,
-                                label,
-                                font(FS_MD),
-                                fg,
-                            );
-                            ui.painter().text(
-                                pos2(r.right() - S3, r.center().y),
-                                Align2::RIGHT_CENTER,
-                                n.to_string(),
-                                font(FS_SM),
-                                if on { ACCENT } else { MUTED }.gamma_multiply(a),
-                            );
-                            if resp.clicked() && enabled {
-                                st.kind = key.into();
-                                st.shown = 60;
-                            }
-                            if key == "recent" {
-                                ui.add_space(S3);
-                            }
-                        }
-                    });
-                    ui.vertical(|ui| {
-                        let mw = ui.available_width();
-                        let r = widgets::input(ui, &mut st.q, "Пошук за виробником або моделлю", mw);
-                        if r.changed() {
-                            st.shown = 60;
-                        }
-                        if !r.has_focus() && ui.memory(|m| m.focused().is_none()) {
-                            r.request_focus();
-                        }
-                        ui.add_space(S3 - S2);
-                        let found = library::search(&st.q, st.shown + 1, &st.kind, 0, &self.v.recent);
-                        let more = found.len() > st.shown;
-                        egui::ScrollArea::vertical()
-                            .id_salt(("lib-grid", &st.kind, &st.q))
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                let gw = ui.available_width();
-                                let gap = S3;
-                                let cols = (((gw + gap) / (230.0 + gap)).floor() as usize).max(1);
-                                let cw = (gw - gap * (cols as f32 - 1.0)) / cols as f32;
-                                let ch = 96.0 + 2.0 * S3 + 4.0 * S2 + 18.0 + 40.0 + 20.0 + 18.0;
-                                let list: Vec<&LibModel> = found.iter().take(st.shown).copied().collect();
-                                if list.is_empty() {
-                                    ui.add_space(S5);
-                                    ui.vertical_centered(|ui| {
-                                        ui.label(
-                                            RichText::new(if st.kind == "recent" && st.q.is_empty() {
-                                                "Тут з'являться прилади, які ви додавали з бібліотеки."
-                                            } else {
-                                                "Нічого не знайдено"
-                                            })
-                                            .color(MUTED),
-                                        );
-                                    });
-                                }
-                                let rows = list.len().div_ceil(cols);
-                                let (area, _) = ui.allocate_exact_size(
-                                    vec2(gw, (rows as f32 * (ch + gap) - gap).max(0.0)),
-                                    Sense::hover(),
-                                );
-                                for (i, fx) in list.iter().enumerate() {
-                                    let r = Rect::from_min_size(
-                                        pos2(
-                                            area.left() + (i % cols) as f32 * (cw + gap),
-                                            area.top() + (i / cols) as f32 * (ch + gap),
-                                        ),
-                                        vec2(cw, ch),
-                                    );
-                                    if !ui.clip_rect().intersects(r) {
-                                        continue;
-                                    }
-                                    if lib_card(ui, r, fx).clicked() {
-                                        pick = Some((*fx).clone());
-                                    }
-                                }
-                                if more {
-                                    ui.add_space(S3);
-                                    ui.vertical_centered(|ui| {
-                                        if btn("Показати ще").show(ui).clicked() {
-                                            st.shown += 60;
-                                        }
-                                    });
-                                }
-                            });
-                    });
-                });
+                pick = self.library_body(ui, &mut st, 260.0);
             })
             .should_close();
         if let Some(fx) = pick {
