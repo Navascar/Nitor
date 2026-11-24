@@ -40,6 +40,8 @@ pub struct SettingsState {
     pub capturing: Option<String>,
     /// коли перемкнули вкладку (час egui) — для плавної появи
     pub tab_t: f64,
+    /// прокрутити до розділу (MIDI і VirtualDJ — одне поле, два розділи)
+    pub jump: Option<Tab>,
     /// поля патчу, що редагуються: id → (назва, адреса)
     pub patch_names: std::collections::HashMap<String, String>,
 }
@@ -70,6 +72,26 @@ impl LibState {
 
 /// Висота вмісту вкладок налаштувань: однакова для всіх, щоб вікно не стрибало (довгі — прокручуються).
 const SETTINGS_BODY_H: f32 = 520.0;
+/// Екран вкладки: VirtualDJ показується разом з MIDI, нижче.
+fn page(t: Tab) -> Tab {
+    if t == Tab::Os2l { Tab::Midi } else { t }
+}
+
+/// Назва розділу з «?», що підказує про розділ.
+fn title_help(ui: &mut Ui, tab: Tab) {
+    let (_, title, help) = TABS.iter().find(|t| t.0 == tab).copied().unwrap_or(TABS[0]);
+    ui.spacing_mut().item_spacing.x = S2;
+    ui.label(RichText::new(title).font(bold(FS_LG)));
+    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
+    let c = if resp.hovered() { TEXT } else { MUTED };
+    nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
+    resp.on_hover_ui(|ui| {
+        ui.set_max_width(360.0);
+        ui.label(help);
+    });
+}
+
 /// Ширина списку вкладок налаштувань.
 const SIDE_W: f32 = 200.0;
 
@@ -251,6 +273,7 @@ impl App {
             prof_channels: String::new(),
             capturing: None,
             tab_t: f64::NEG_INFINITY,
+            jump: tab.filter(|t| *t == Tab::Os2l),
             patch_names: Default::default(),
         });
         if o.kind() == "udmx" {
@@ -485,17 +508,24 @@ impl App {
                         } else if resp.hovered() {
                             ui.painter().rect_filled(r, radius(R_MD), RAISED);
                         }
+                        // VirtualDJ — підрозділ MIDI: з відступом
+                        let indent = if tab == Tab::Os2l { S4 } else { 0.0 };
                         ui.painter().text(
-                            pos2(r.left() + S3, r.center().y),
+                            pos2(r.left() + S3 + indent, r.center().y),
                             Align2::LEFT_CENTER,
                             label,
                             font(FS_MD),
                             if on { ACCENT } else { MUTED },
                         );
                         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                            if page(tab) == page(st.tab) {
+                                st.jump = Some(tab); // той самий екран — лише прокрутка
+                            } else {
+                                st.jump = (tab == Tab::Os2l).then_some(tab);
+                                st.tab_t = now;
+                            }
                             st.tab = tab;
                             st.capturing = None;
-                            st.tab_t = now;
                         }
                     }
                 });
@@ -510,18 +540,9 @@ impl App {
                         ui.vertical(|ui| {
                             let ctx = ui.ctx().clone();
                             // назва вкладки й підказка про розділ
-                            let (_, title, help) = TABS.iter().find(|t| t.0 == st.tab).copied().unwrap_or(TABS[0]);
+                            let pg = page(st.tab);
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = S2;
-                                ui.label(RichText::new(title).font(bold(FS_LG)));
-                                let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, help));
-                                let c = if resp.hovered() { TEXT } else { MUTED };
-                                nitor_ui::icons::image("help", 16.0, c).paint_at(ui, r);
-                                resp.on_hover_ui(|ui| {
-                                    ui.set_max_width(360.0);
-                                    ui.label(help);
-                                });
+                                title_help(ui, pg);
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     close |= icon_btn("x").kind(Kind::Ghost).tip("Закрити").show(ui).clicked();
                                 });
@@ -533,25 +554,49 @@ impl App {
                             if t < 1.0 {
                                 ctx.request_repaint();
                             }
-                            egui::ScrollArea::vertical()
-                                .id_salt(("settings-scroll", st.tab as u8))
+                            let mut area = egui::ScrollArea::vertical()
+                                .id_salt(("settings-scroll", pg as u8))
                                 .auto_shrink([false, false])
-                                .max_height(body_h)
-                                .show(ui, |ui| {
-                                    ui.multiply_opacity(ease);
-                                    ui.add_space((1.0 - ease) * S2);
-                                    match st.tab {
-                                        Tab::Output => self.tab_output(ui, &mut st),
-                                        Tab::Patch => self.tab_patch(ui, &mut st),
-                                        Tab::Profiles => self.tab_profiles(ui, &mut st),
-                                        Tab::Keys => self.tab_keys(ui, &mut st),
-                                        Tab::Midi => self.tab_midi(ui),
-                                        Tab::Os2l => self.os2l_block(ui),
-                                        Tab::Schedule => self.tab_schedule(ui),
-                                        Tab::General => self.tab_general(ui),
-                                        Tab::About => self.tab_about(ui),
+                                .max_height(body_h);
+                            let jumped = st.jump.take();
+                            if jumped == Some(Tab::Midi) {
+                                area = area.vertical_scroll_offset(0.0);
+                            }
+                            let mut vdj_top = None;
+                            let out = area.show(ui, |ui| {
+                                ui.multiply_opacity(ease);
+                                ui.add_space((1.0 - ease) * S2);
+                                match st.tab {
+                                    Tab::Output => self.tab_output(ui, &mut st),
+                                    Tab::Patch => self.tab_patch(ui, &mut st),
+                                    Tab::Profiles => self.tab_profiles(ui, &mut st),
+                                    Tab::Keys => self.tab_keys(ui, &mut st),
+                                    Tab::Midi | Tab::Os2l => {
+                                        self.tab_midi(ui);
+                                        ui.add_space(S5);
+                                        let h = ui.horizontal(|ui| title_help(ui, Tab::Os2l)).response;
+                                        if jumped == Some(Tab::Os2l) {
+                                            h.scroll_to_me_animation(
+                                                Some(Align::TOP),
+                                                egui::style::ScrollAnimation::none(),
+                                            );
+                                        }
+                                        vdj_top = Some(h.rect.top());
+                                        ui.add_space(S3);
+                                        self.os2l_block(ui);
                                     }
-                                });
+                                    Tab::Schedule => self.tab_schedule(ui),
+                                    Tab::General => self.tab_general(ui),
+                                    Tab::About => self.tab_about(ui),
+                                }
+                            });
+                            // прокрутка сама перемикає MIDI ↔ VirtualDJ у списку вкладок
+                            if let (Some(top), None) = (vdj_top, jumped) {
+                                let vp = out.inner_rect;
+                                let bottom = out.state.offset.y + vp.height() >= out.content_size.y - 2.0;
+                                let vdj = top <= vp.top() + vp.height() * 0.35 || bottom;
+                                st.tab = if vdj { Tab::Os2l } else { Tab::Midi };
+                            }
                         });
                     });
             });
