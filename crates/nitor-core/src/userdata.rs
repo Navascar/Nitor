@@ -67,7 +67,9 @@ pub fn strip(cfg: &Map<String, Value>, parts: &BTreeSet<Part>) -> Map<String, Va
         cfg.remove("static_colors");
     }
     if parts.contains(&Part::Settings) {
-        for k in ["output", "master", "hotkeys", "prefs", "audio", "midi", "operator", "pin"] {
+        for k in
+            ["output", "master", "hotkeys", "prefs", "audio", "midi", "schedule", "place", "os2l", "operator", "pin"]
+        {
             cfg.remove(k);
         }
     }

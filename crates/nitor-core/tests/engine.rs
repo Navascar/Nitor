@@ -862,3 +862,19 @@ fn effect_follows_beat() {
     assert!(e.render(11.55)[1] < 255, "пульсація приглушує після удару");
     assert!(e.render(11.501)[1] >= 250, "на самому ударі — повна яскравість");
 }
+
+#[test]
+fn scheduled_actions() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "Dim+RGB (4 кан.)", 1);
+    ok(&mut e, hex(&[&a], "#0000ff"));
+    ok(&mut e, Command::SaveScene { name: "Вечір".into(), with_effect: false });
+    e.scheduled("blackout", 0.0).unwrap();
+    assert!(e.show.blackout);
+    e.scheduled("clear", 0.0).unwrap();
+    assert_eq!(e.show.fixtures[0].b, 0);
+    e.scheduled("scene:Вечір", 10.0).unwrap();
+    assert!(!e.show.blackout, "сцена знімає Blackout");
+    assert_eq!(e.render(12.0)[3], 255, "за 2 с перехід завершено");
+    assert!(e.scheduled("scene:Немає", 0.0).is_err());
+}

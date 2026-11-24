@@ -20,6 +20,7 @@ pub enum Tab {
     Profiles,
     Keys,
     Midi,
+    Schedule,
     About,
 }
 
@@ -418,7 +419,8 @@ impl App {
                     (Tab::Patch, "Патч приладів"),
                     (Tab::Profiles, "Профілі"),
                     (Tab::Keys, "Гарячі клавіші"),
-                    (Tab::Midi, "MIDI"),
+                    (Tab::Midi, "MIDI і VirtualDJ"),
+                    (Tab::Schedule, "Розклад"),
                     (Tab::About, "Про програму"),
                 ] {
                     let on = st.tab == tab;
@@ -466,6 +468,7 @@ impl App {
                         Tab::Profiles => self.tab_profiles(ui, &mut st),
                         Tab::Keys => self.tab_keys(ui, &mut st),
                         Tab::Midi => self.tab_midi(ui),
+                        Tab::Schedule => self.tab_schedule(ui),
                         Tab::About => self.tab_about(ui),
                     }
                 });
@@ -761,7 +764,172 @@ impl App {
         }
     }
 
+    fn tab_schedule(&mut self, ui: &mut Ui) {
+        use nitor_core::schedule::{At, CITIES, Event, Place, all_days, minute_of};
+        ui.label(widgets::muted(
+            "Сцена, «Очистити» чи Blackout у потрібний час або на сході чи заході сонця. \
+             Поки є увімкнені події, хрестик ховає Nitor у трей, і розклад працює далі.",
+        ));
+        ui.add_space(S3);
+        // місце для сходу й заходу сонця
+        widgets::field_label(ui, "Місто для сходу й заходу сонця");
+        let custom = "Свої координати".to_string();
+        let mut opts: Vec<(String, String)> = vec![(String::new(), "Не вибрано".into())];
+        opts.extend(CITIES.iter().map(|c| (c.0.to_string(), c.0.to_string())));
+        opts.push((custom.clone(), custom.clone()));
+        let cur = self.v.place.clone();
+        let mut name = cur.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+        if widgets::select(ui, "place", &mut name, &opts, 320.0) {
+            let p = CITIES.iter().find(|c| c.0 == name).map(|c| Place { name: c.0.into(), lat: c.1, lon: c.2 });
+            let p = if name == custom { Some(Place { name: custom.clone(), lat: 50.45, lon: 30.52 }) } else { p };
+            self.send(Command::SetPlace(p));
+        }
+        if let Some(mut p) = cur.clone().filter(|p| p.name == custom) {
+            ui.horizontal(|ui| {
+                ui.label(widgets::muted("Широта"));
+                let a = widgets::number_f(ui, &mut p.lat, -90.0, 90.0, 0.01, 110.0).changed();
+                ui.label(widgets::muted("Довгота"));
+                let b = widgets::number_f(ui, &mut p.lon, -180.0, 180.0, 0.01, 110.0).changed();
+                if a || b {
+                    self.send(Command::SetPlace(Some(p)));
+                }
+            });
+        }
+        let off = crate::winshell::local_offset_min();
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64 / 60);
+        let today = (now + off as i64).div_euclid(1440);
+        let hm = |m: i64| format!("{:02}:{:02}", m / 60, m % 60);
+        if let Some(p) = &cur {
+            let at = |at| {
+                minute_of(
+                    &Event { on: true, at, minutes: 0, days: all_days(), action: String::new() },
+                    Some(p),
+                    today,
+                    off,
+                )
+            };
+            if let (Some(r), Some(s)) = (at(At::Sunrise), at(At::Sunset)) {
+                ui.label(widgets::muted(format!("Сьогодні схід о {}, захід о {}", hm(r), hm(s))));
+            }
+        }
+        ui.add_space(S4);
+        // події
+        let mut ev = self.v.schedule.clone();
+        let mut changed = false;
+        let mut remove = None;
+        let mut actions: Vec<(String, String)> =
+            vec![("blackout".into(), "Blackout".into()), ("clear".into(), "Очистити".into())];
+        actions.extend(self.v.show.scenes.keys().map(|n| (format!("scene:{n}"), format!("Сцена «{n}»"))));
+        for (i, e) in ev.iter_mut().enumerate() {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = S2;
+                changed |= widgets::check(ui, &mut e.on, "").on_hover_text("Подія увімкнена").changed();
+                let whens = [
+                    (At::Time, "О часі".to_string()),
+                    (At::Sunrise, "На сході сонця".to_string()),
+                    (At::Sunset, "На заході сонця".to_string()),
+                ];
+                let was = e.at;
+                if widgets::select(ui, ("at", i), &mut e.at, &whens, 160.0) {
+                    e.minutes = if e.at == At::Time { 19 * 60 } else { 0 };
+                    changed |= e.at != was;
+                }
+                if e.at == At::Time {
+                    let (mut h, mut m) = ((e.minutes / 60) as i64, (e.minutes % 60) as i64);
+                    let a = widgets::number(ui, &mut h, 0, 23, 48.0).changed();
+                    ui.label(":");
+                    let b = widgets::number(ui, &mut m, 0, 59, 48.0).changed();
+                    if a || b {
+                        e.minutes = (h * 60 + m) as i32;
+                        changed = true;
+                    }
+                } else {
+                    let mut m = e.minutes as i64;
+                    if widgets::number(ui, &mut m, -720, 720, 64.0)
+                        .on_hover_text("Зсув у хвилинах: мінус — раніше")
+                        .changed()
+                    {
+                        e.minutes = m as i32;
+                        changed = true;
+                    }
+                    ui.label(widgets::muted("хв"));
+                }
+                for (d, label) in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].iter().enumerate() {
+                    let on = e.days & (1 << d) != 0;
+                    if btn(*label).small().kind(if on { Kind::Toggled } else { Kind::Ghost }).show(ui).clicked() {
+                        e.days ^= 1 << d;
+                        changed = true;
+                    }
+                }
+                let mut a = e.action.clone();
+                if !actions.iter().any(|o| o.0 == a) {
+                    actions.push((a.clone(), format!("Сцени «{}» вже немає", a.trim_start_matches("scene:"))));
+                }
+                if widgets::select(ui, ("act", i), &mut a, &actions, 170.0) {
+                    e.action = a;
+                    changed = true;
+                }
+                if icon_btn("trash").small().tip("Видалити подію").show(ui).clicked() {
+                    remove = Some(i);
+                }
+            });
+            ui.add_space(S1);
+        }
+        if let Some(i) = remove {
+            ev.remove(i);
+            changed = true;
+        }
+        if btn("Додати подію").small().icon("plus").show(ui).clicked() {
+            let action = self.v.show.scenes.keys().next().map_or("blackout".into(), |n| format!("scene:{n}"));
+            ev.push(Event { on: true, at: At::Time, minutes: 19 * 60, days: all_days(), action });
+            changed = true;
+        }
+        if changed {
+            self.send(Command::SetSchedule(ev));
+        }
+        ui.add_space(S4);
+        let mut auto = *self.autostart.get_or_insert_with(crate::winshell::autostart);
+        if widgets::check(ui, &mut auto, "Запускати Nitor разом із Windows").changed() {
+            match crate::winshell::set_autostart(auto) {
+                Ok(()) => self.autostart = Some(auto),
+                Err(e) => self.toast(&format!("Не вдалося змінити автозапуск: {e}"), false),
+            }
+        }
+    }
+
+    /// VirtualDJ (OS2L): удари й кнопки сцен.
+    fn os2l_block(&mut self, ui: &mut Ui) {
+        ui.label(RichText::new("VirtualDJ (OS2L)").font(bold(FS_LG)));
+        ui.add_space(S2);
+        ui.label(widgets::muted(
+            "Удари з VirtualDJ задають темп «у такт музиці», а кнопки VirtualDJ з назвою сцени викликають цю сцену. \
+             VirtualDJ знаходить Nitor у мережі сам.",
+        ));
+        ui.add_space(S2);
+        let mut on = self.v.os2l.is_some();
+        let mut port = self.v.os2l.unwrap_or(nitor_core::os2l::PORT) as i64;
+        ui.horizontal(|ui| {
+            let a = widgets::check(ui, &mut on, "Приймати з VirtualDJ").changed();
+            ui.add_space(S3);
+            ui.label(widgets::muted("Порт"));
+            let b = widgets::number(ui, &mut port, 1024, 65535, 80.0).changed();
+            if a || (b && on) {
+                self.send(Command::SetOs2l(on.then_some(port as u16)));
+            }
+        });
+        if let Some((p, e)) = &self.os2l_error {
+            ui.label(widgets::muted(format!("Порт {p}: {e}")));
+        } else if self.os2l.is_some() {
+            ui.label(widgets::muted("Чекаю на VirtualDJ"));
+        }
+        ui.add_space(S5);
+        ui.label(RichText::new("MIDI-контролер").font(bold(FS_LG)));
+        ui.add_space(S2);
+    }
+
     fn tab_midi(&mut self, ui: &mut Ui) {
+        self.os2l_block(ui);
         ui.label(widgets::muted(
             "Натисніть «Навчити» біля дії, а потім кнопку чи повзунок на контролері. \
              Контролер підключається, лише коли є хоч одна прив'язка.",

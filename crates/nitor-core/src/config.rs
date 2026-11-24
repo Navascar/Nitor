@@ -51,6 +51,12 @@ pub struct ConfigFile {
     pub audio: crate::tempo::AudioSource,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub midi: Vec<crate::midi::MidiBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schedule: Vec<crate::schedule::Event>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<crate::schedule::Place>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os2l: Option<u16>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub operator: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,6 +169,9 @@ impl Engine {
         self.operator = cfg.operator;
         self.audio = cfg.audio;
         self.midi = crate::midi::check(cfg.midi).unwrap_or_default();
+        self.schedule = crate::schedule::check(cfg.schedule).unwrap_or_default();
+        self.place = crate::schedule::check_place(cfg.place).unwrap_or_default();
+        self.os2l = cfg.os2l;
         self.pin = cfg.pin.filter(|p| p.contains(':'));
     }
 
@@ -193,6 +202,9 @@ impl Engine {
             operator: self.operator,
             audio: self.audio,
             midi: self.midi.clone(),
+            schedule: self.schedule.clone(),
+            place: self.place.clone(),
+            os2l: self.os2l,
             pin: self.pin.clone(),
         }
     }

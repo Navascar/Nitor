@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use nitor_core::engine::FPS;
 use nitor_core::outputs::{self, Output};
@@ -58,6 +58,7 @@ impl Core {
 
     fn run(&self) {
         let period = Duration::from_secs_f64(1.0 / FPS);
+        let mut minute = None;
         while !self.stop.load(std::sync::atomic::Ordering::Relaxed) {
             let started = Instant::now();
             let now = self.now();
@@ -67,6 +68,21 @@ impl Core {
                     s.engine.output_changed = false;
                     s.output.stop();
                     s.output = outputs::start(&s.engine.output_cfg);
+                }
+                // розклад — раз на хвилину; хвилину запуску пропускаємо
+                let utc = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64 / 60);
+                if minute != Some(utc) {
+                    if minute.is_some() && !s.engine.schedule.is_empty() {
+                        let off = crate::winshell::local_offset_min();
+                        let e = &s.engine;
+                        for a in nitor_core::schedule::due(&e.schedule, e.place.as_ref(), utc + off as i64, off) {
+                            log::info!("Розклад: {a}");
+                            if let Err(err) = s.engine.scheduled(&a, now) {
+                                log::warn!("Розклад: {a} не виконано: {err}");
+                            }
+                        }
+                    }
+                    minute = Some(utc);
                 }
                 let frame = s.engine.render(now);
                 s.output.set_frame(&frame);

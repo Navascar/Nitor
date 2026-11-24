@@ -38,6 +38,9 @@ pub struct View {
     pub audio: AudioSource,
     pub bpm: Option<f64>,
     pub midi: Vec<MidiBinding>,
+    pub schedule: Vec<nitor_core::schedule::Event>,
+    pub place: Option<nitor_core::schedule::Place>,
+    pub os2l: Option<u16>,
 }
 
 impl View {
@@ -256,6 +259,15 @@ pub struct App {
     pub midi_error: String,
     /// Дія, якій чекаємо повідомлення MIDI (режим «Навчити»).
     pub midi_learn: Option<String>,
+    /// Значок у треї (з'являється, коли вікно вперше сховали).
+    pub tray: Option<crate::winshell::Tray>,
+    /// «Закрити Nitor» у меню трею: показати вікно й спитати.
+    pub ask_quit: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub os2l: Option<crate::os2l::Server>,
+    /// Помилка сервера OS2L для порту, який не вдалося відкрити.
+    pub os2l_error: Option<(u16, String)>,
+    /// Автозапуск з Windows (читається з реєстру, коли відкрили вкладку).
+    pub autostart: Option<bool>,
     /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
     pub exit_hold: Option<Instant>,
 }
@@ -317,6 +329,11 @@ impl App {
             midi: None,
             midi_error: String::new(),
             midi_learn: None,
+            tray: None,
+            ask_quit: Default::default(),
+            os2l: None,
+            os2l_error: None,
+            autostart: None,
             exit_hold: None,
         };
         app.sync_effect_draft();
@@ -565,6 +582,32 @@ impl App {
     }
 
     /// Звук для ударів потрібен, лише поки працює ефект «у такт музиці».
+    /// Сервер OS2L працює, поки його ввімкнено; порт, що не відкрився, не пробуємо щокадру.
+    pub fn os2l_tick(&mut self) {
+        let want = self.v.os2l;
+        if self.os2l.as_ref().map(|s| s.port) == want
+            || (want.is_some() && self.os2l_error.as_ref().map(|e| e.0) == want)
+        {
+            return;
+        }
+        self.os2l = None;
+        self.os2l_error = None;
+        if let Some(port) = want {
+            match crate::os2l::Server::start(self.core.clone(), port) {
+                Ok(s) => self.os2l = Some(s),
+                Err(e) => {
+                    log::warn!("OS2L: {e}");
+                    self.os2l_error = Some((port, e));
+                }
+            }
+        }
+    }
+
+    /// Розклад має хоч одну увімкнену подію — тоді хрестик ховає програму в трей.
+    pub fn schedule_active(&self) -> bool {
+        self.v.schedule.iter().any(|e| e.on)
+    }
+
     pub fn audio_tick(&mut self) {
         let e = &self.v.show.effect;
         let want = (e.kind != EffectKind::None && e.beat && self.v.audio != AudioSource::Off).then_some(self.v.audio);
@@ -1074,9 +1117,23 @@ impl App {
     }
 
     /// Закриття вікна (хрестик, Alt+F4) — лише після підтвердження.
-    pub fn request_close(&mut self) {
+    pub fn request_close(&mut self, ctx: &Context) {
         if self.ui_dlg.as_ref().is_some_and(|d| matches!(d.on_ok, Act::Quit)) {
             return;
+        }
+        // з увімкненим розкладом програма лишається в треї, щоб розклад працював
+        if self.schedule_active() {
+            if self.tray.is_none() {
+                match crate::winshell::tray(self.ask_quit.clone(), ctx.clone()) {
+                    Ok(t) => self.tray = Some(t),
+                    Err(e) => log::warn!("Трей недоступний: {e}"),
+                }
+            }
+            if self.tray.is_some() {
+                self.menu = None;
+                crate::winshell::hide_window();
+                return;
+            }
         }
         self.menu = None;
         self.ui_dlg = Some(UiDlg::confirm("Закрити Nitor?", "Прожектори згаснуть.", "Закрити", true, Act::Quit));
@@ -1111,6 +1168,9 @@ pub fn snapshot(core: &Core) -> View {
         audio: e.audio,
         bpm: e.tempo.bpm,
         midi: e.midi.clone(),
+        schedule: e.schedule.clone(),
+        place: e.place.clone(),
+        os2l: e.os2l,
     }
 }
 

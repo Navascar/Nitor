@@ -11,9 +11,11 @@ pub mod error;
 pub mod fixtures;
 pub mod library;
 pub mod midi;
+pub mod os2l;
 pub mod outputs;
 pub mod rng;
 pub mod scene_file;
+pub mod schedule;
 pub mod tempo;
 pub mod userdata;
 

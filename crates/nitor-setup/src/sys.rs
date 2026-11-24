@@ -101,7 +101,14 @@ mod imp {
     pub fn unregister() {
         use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
-        let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(UNINST_KEY);
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let _ = hkcu.delete_subkey_all(UNINST_KEY);
+        // автозапуск, увімкнений у програмі («Налаштування → Розклад»)
+        if let Ok(run) =
+            hkcu.open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", winreg::enums::KEY_SET_VALUE)
+        {
+            let _ = run.delete_value("Nitor");
+        }
     }
 
     fn wide(s: &str) -> HSTRING {

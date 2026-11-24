@@ -405,6 +405,10 @@ pub enum Command {
     Beat(f64),
     SetAudio(AudioSource),
     SetMidi(Vec<crate::midi::MidiBinding>),
+    SetSchedule(Vec<crate::schedule::Event>),
+    SetPlace(Option<crate::schedule::Place>),
+    /// Сервер OS2L для VirtualDJ: порт або `None` — вимкнено.
+    SetOs2l(Option<u16>),
     /// `Some` — «Спалах» натиснули, `None` — відпустили.
     Flash(Option<FlashSource>),
     SetGroups(IndexMap<String, Vec<String>>),
@@ -450,6 +454,9 @@ impl Command {
             Command::Beat(_) => "beat",
             Command::SetAudio(_) => "set_audio",
             Command::SetMidi(_) => "set_midi",
+            Command::SetSchedule(_) => "set_schedule",
+            Command::SetPlace(_) => "set_place",
+            Command::SetOs2l(_) => "set_os2l",
             Command::SetGroups(_) => "set_groups",
             Command::Operator { .. } => "operator",
             Command::SetPin(_) => "set_pin",
@@ -472,6 +479,9 @@ impl Command {
                 | Command::Beat(_)
                 | Command::SetAudio(_)
                 | Command::SetMidi(_)
+                | Command::SetSchedule(_)
+                | Command::SetPlace(_)
+                | Command::SetOs2l(_)
                 | Command::Operator { .. }
                 | Command::SetPin(_)
         )
@@ -572,6 +582,11 @@ pub struct Engine {
     pub audio: AudioSource,
     /// Прив'язки MIDI-контролера. Зберігаються.
     pub midi: Vec<crate::midi::MidiBinding>,
+    /// Розклад і місце для сходу/заходу сонця. Зберігаються.
+    pub schedule: Vec<crate::schedule::Event>,
+    pub place: Option<crate::schedule::Place>,
+    /// Порт сервера OS2L (VirtualDJ); `None` — вимкнено. Зберігається.
+    pub os2l: Option<u16>,
     /// Режим оператора: лише сцени, кольори, групи й майстер. Зберігається.
     pub operator: bool,
     /// PIN виходу з режиму оператора: `сіль:sha256`; `None` — без PIN.
@@ -644,6 +659,9 @@ impl Engine {
             tempo: Tempo::default(),
             audio: AudioSource::default(),
             midi: vec![],
+            schedule: vec![],
+            place: None,
+            os2l: None,
             operator: false,
             pin: None,
             hotkeys: IndexMap::new(),
@@ -977,6 +995,9 @@ impl Engine {
             Command::Beat(at) => self.tempo.beat(at),
             Command::SetAudio(a) => self.audio = a,
             Command::SetMidi(m) => self.midi = crate::midi::check(m)?,
+            Command::SetSchedule(s) => self.schedule = crate::schedule::check(s)?,
+            Command::SetPlace(p) => self.place = crate::schedule::check_place(p)?,
+            Command::SetOs2l(p) => self.os2l = p,
             Command::SetGroups(groups) => self.show.groups = self.check_groups(groups)?,
             Command::Operator { on, pin } => {
                 if !on && !self.pin_ok(&pin) {
@@ -999,6 +1020,19 @@ impl Engine {
             Command::SetPrefs(p) => self.prefs = p.clamped(),
         }
         Ok(())
+    }
+
+    /// Дія розкладу: сцена (з плавним переходом; Blackout знімається), «Очистити» чи Blackout.
+    pub fn scheduled(&mut self, action: &str, now: f64) -> Result<()> {
+        match action {
+            "clear" => self.handle(Command::Clear { ids: vec![] }, now),
+            "blackout" => self.handle(Command::Blackout(Some(true)), now),
+            a => {
+                let name = a.strip_prefix("scene:").unwrap_or(a).to_string();
+                self.handle(Command::Blackout(Some(false)), now)?;
+                self.handle(Command::RecallScene { name, fade: 2.0 }, now)
+            }
+        }
     }
 
     /// PIN правильний (або його не задано).
