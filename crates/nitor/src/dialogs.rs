@@ -622,6 +622,7 @@ impl App {
                             resp.widget_info(|| {
                                 egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
                             });
+                            widgets::focus_ring(ui, &resp, r, R_MD);
                             if on {
                                 let r = nitor_ui::anim::glide_rect(ui.ctx(), pill_id, r, 0.2);
                                 ui.painter().set(pill, egui::Shape::rect_filled(r, radius(R_MD), ACCENT_SOFT));
@@ -830,7 +831,7 @@ impl App {
                 }
             });
             let shown = if ui.data(|d| d.get_temp::<f32>(drag_id)).is_some() { to_zoom(pos) } else { zoom };
-            ui.label(RichText::new(format!("{:.0} %", shown * 100.0)).size(FS_MD));
+            ui.label(RichText::new(format!("{:.0}\u{a0}%", shown * 100.0)).size(FS_MD));
             let std = (zoom - 1.0).abs() < 0.001;
             if btn("Скинути").small().icon("refresh").enabled(!std).tip("Стандартний масштаб 100 %").show(ui).clicked()
             {
@@ -1013,7 +1014,7 @@ impl App {
             ui.add_space(S1);
             ui.horizontal(|ui| {
                 let name = st.patch_names.entry(f.id.clone()).or_insert_with(|| f.name.clone());
-                let r = widgets::input(ui, name, "", cols[0]);
+                let r = widgets::input(ui, name, "Назва приладу", cols[0]);
                 if r.lost_focus() && *name != f.name {
                     acts.push(Command::UpdateFixture {
                         id: f.id.clone(),
@@ -1770,6 +1771,15 @@ impl App {
                         if enabled { Sense::click() } else { Sense::hover() },
                     );
                     let a = if enabled { 1.0 } else { 0.45 };
+                    resp.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::SelectableLabel,
+                            enabled,
+                            on,
+                            format!("{label}, {n}"),
+                        )
+                    });
+                    widgets::focus_ring(ui, &resp, r, R_MD);
                     if on {
                         ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
                     } else if resp.hovered() && enabled {
@@ -1918,6 +1928,10 @@ impl App {
                         let galley = ui.fonts(|f| f.layout(chs.clone(), font(FS_XS), MUTED, w - 2.0 * S3));
                         let h = S3 * 2.0 + 20.0 + galley.size().y + 2.0;
                         let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, picked, mode.name())
+                        });
+                        widgets::focus_ring(ui, &resp, r, R_MD);
                         let stroke = if picked {
                             ACCENT
                         } else if resp.hovered() {
@@ -2186,6 +2200,16 @@ impl App {
             widgets::hline(ui);
             ui.add_space(S3 - S2);
             let (r, resp) = ui.allocate_exact_size(vec2(w, 22.0), Sense::click());
+            let open = p.test_open;
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::CollapsingHeader,
+                    true,
+                    open,
+                    "Тест каналів і власний профіль",
+                )
+            });
+            widgets::focus_ring(ui, &resp, r, R_SM);
             nitor_ui::icons::image("wrench", 18.0, MUTED)
                 .paint_at(ui, Rect::from_min_size(pos2(r.left(), r.center().y - 9.0), vec2(18.0, 18.0)));
             ui.painter().text(
@@ -2369,6 +2393,8 @@ fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
     // картка з дією піднімається на 2 px, рамка темнішає на крок
     let (h, _) = nitor_ui::anim::hover_press(ui.ctx(), resp.id, resp.hovered(), false);
     let r = nitor_ui::anim::lift_rect(r, h, 0.0, 2.0);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, library::title(&fx.m, &fx.n)));
+    widgets::focus_ring(ui, &resp, r, R_LG);
     ui.painter().rect(
         r,
         radius(R_LG),

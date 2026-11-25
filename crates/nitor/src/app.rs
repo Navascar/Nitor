@@ -986,7 +986,7 @@ impl App {
                 if !std::path::Path::new(&file).exists() {
                     self.toast("Файлу сцени вже немає на цьому місці", false);
                 } else if let Err(e) = crate::winshell::reveal(&file) {
-                    self.toast(&format!("Не вдалося відкрити папку: {e}"), false);
+                    self.toast(&format!("Не вдалося відкрити папку: {e}. Файл сцени: {file}"), false);
                 }
             }
             Act::AskDeleteScene(name) => {
@@ -1114,7 +1114,7 @@ impl App {
             scene_file::export(&s.engine, name)
         };
         let Ok(data) = data else {
-            self.toast("Не вдалося підготувати файл сцени", false);
+            self.toast("Не вдалося підготувати файл сцени: її немає. Збережіть сцену ще раз", false);
             return;
         };
         let Some(path) = rfd::FileDialog::new()
@@ -1131,7 +1131,9 @@ impl App {
                 self.send(Command::SetSceneFile { name: name.into(), file: path.display().to_string() });
                 self.toast(&format!("Файл збережено: {}", path.display()), true)
             }
-            Err(e) => self.toast(&format!("Не вдалося зберегти файл: {e}"), false),
+            Err(e) => {
+                self.toast(&format!("Не вдалося зберегти файл: {e}. Виберіть іншу теку, наприклад «Документи»"), false)
+            }
         }
     }
 

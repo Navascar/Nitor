@@ -105,8 +105,9 @@ pub fn help(ui: &mut Ui, text: &str) {
         crate::anim::pop_in(ui.ctx(), p.response.layer_id, r.center(), 0.96);
     }
     let open = popup.is_some();
-    let c = if resp.hovered() || open { TEXT } else { MUTED };
+    let c = if resp.hovered() || open || resp.has_focus() { TEXT } else { MUTED };
     icons::image("help", 16.0, c).paint_at(ui, r);
+    focus_ring(ui, &resp, r, 9);
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     if !open {
         resp.on_hover_ui(|ui| {
@@ -561,6 +562,7 @@ fn slider_impl(
     }
     let v = *value as f64;
     resp.widget_info(|| WidgetInfo::slider(true, v, name));
+    link_label(ui, &resp);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -720,14 +722,16 @@ pub fn input(ui: &mut Ui, text: &mut String, hint: &str, width: f32) -> Response
 
 /// Поле вводу; `secret` — ховає символи (PIN).
 pub fn input_secret(ui: &mut Ui, text: &mut String, hint: &str, width: f32, secret: bool) -> Response {
-    ui.add_sized(
+    let r = ui.add_sized(
         vec2(width, CONTROL_H),
         TextEdit::singleline(text)
             .password(secret)
             .hint_text(RichText::new(hint).color(MUTED))
             .margin(vec2(S2, 8.0))
             .vertical_align(egui::Align::Center),
-    )
+    );
+    link_label(ui, &r);
+    r
 }
 
 /// Ціле число в полі вводу (як `<input type=number>`), з кнопками «−» і «+», якщо поле не вузьке.
@@ -743,9 +747,33 @@ pub fn number_f(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, dec
     stepper(ui, value, min, max, step, decimals, width)
 }
 
-/// Підпис поля (дрібний, приглушений).
+/// Підпис поля (дрібний, приглушений). Поле одразу під ним отримує цей підпис як назву для диктора.
 pub fn field_label(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(FS_SM).color(MUTED));
+    let r = ui.label(RichText::new(text).size(FS_SM).color(MUTED));
+    ui.data_mut(|d| d.insert_temp(Id::new("field-label"), (r.id, r.rect)));
+}
+
+/// Зв'язує поле з підписом `field_label`, якщо підпис стоїть просто над полем (інакше підпис чужий).
+fn link_label(ui: &Ui, resp: &Response) {
+    let key = Id::new("field-label");
+    let Some((id, r)) = ui.data(|d| d.get_temp::<(Id, Rect)>(key)) else { return };
+    ui.data_mut(|d| d.remove::<(Id, Rect)>(key));
+    let gap = resp.rect.top() - r.bottom();
+    if (-2.0..=24.0).contains(&gap) && r.left() <= resp.rect.right() && resp.rect.left() <= r.right() {
+        resp.clone().labelled_by(id);
+    }
+}
+
+/// Рамка фокусу з клавіатури для власних клікабельних елементів (як у кнопок).
+pub fn focus_ring(ui: &Ui, resp: &Response, rect: Rect, r: u8) {
+    if resp.has_focus() {
+        ui.painter().rect_stroke(
+            rect.expand(2.0),
+            CornerRadius::same(r.saturating_add(2)),
+            Stroke::new(2.0_f32, ACCENT),
+            StrokeKind::Outside,
+        );
+    }
 }
 
 /// Підпис поля зі знаком «?» поруч.
@@ -842,7 +870,7 @@ pub fn select<T: PartialEq + Clone>(
     // ComboBox обрізає текст за доступною шириною, тож обмежуємо її: довгі назви не розширюють вікно
     ui.allocate_ui(vec2(width, CONTROL_H), |ui| {
         ui.set_max_width(width);
-        egui::ComboBox::from_id_salt(id)
+        let c = egui::ComboBox::from_id_salt(id)
             .selected_text(RichText::new(current).size(FS_MD))
             .width(width)
             .truncate()
@@ -856,6 +884,7 @@ pub fn select<T: PartialEq + Clone>(
                     }
                 }
             });
+        link_label(ui, &c.response);
     });
     changed
 }
@@ -946,7 +975,9 @@ fn stepper(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals
         egui::DragValue::new(v).range(min..=max).speed(step).max_decimals(decimals).min_decimals(decimals)
     }
     if width < 96.0 {
-        return ui.add_sized(vec2(width, CONTROL_H), drag(value, min, max, step, decimals));
+        let r = ui.add_sized(vec2(width, CONTROL_H), drag(value, min, max, step, decimals));
+        link_label(ui, &r);
+        return r;
     }
     let (rect, _) = ui.allocate_exact_size(vec2(width, CONTROL_H), Sense::hover());
     let b = CONTROL_H - 6.0;
@@ -980,6 +1011,7 @@ fn stepper(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals
         if resp.hovered() && can {
             ui.painter().rect_filled(br, radius(R_SM), LINE);
         }
+        focus_ring(ui, &resp, br, R_SM);
         let a = if can { 1.0 } else { 0.35 };
         icons::image(icon, 16.0, TEXT.gamma_multiply(a))
             .paint_at(ui, Rect::from_center_size(br.center(), vec2(16.0, 16.0)));
@@ -991,6 +1023,7 @@ fn stepper(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals
             r.mark_changed();
         }
     }
+    link_label(ui, &r);
     r
 }
 
@@ -1034,6 +1067,7 @@ pub fn segmented<T: PartialEq + Clone>(
                     let w = nw + extra;
                     let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
                     resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, on, *label));
+                    focus_ring(ui, &resp, r, R_MD);
                     if on {
                         let r = crate::anim::glide_rect(ui.ctx(), id.with("pill"), r, 0.2);
                         ui.painter().set(slot, egui::Shape::rect_filled(r, radius(R_SM), ACCENT_STRONG));

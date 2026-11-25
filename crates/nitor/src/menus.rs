@@ -462,7 +462,11 @@ impl App {
                                         let resp = ui
                                             .interact(cr, Id::new(("menu-chip", i)), Sense::click())
                                             .on_hover_text(&c.name);
+                                        resp.widget_info(|| {
+                                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &c.name)
+                                        });
                                         paint_static_chip(ui, cr, c.hex, c.w.is_some_and(|w| w > 0), R_SM);
+                                        nitor_ui::widgets::focus_ring(ui, &resp, cr, R_SM);
                                         ui.painter().rect_stroke(
                                             cr,
                                             radius(R_SM),
@@ -485,7 +489,11 @@ impl App {
                                 Item::Entry { icon, label, key, danger, disabled, act } => {
                                     let sense = if *disabled { Sense::hover() } else { Sense::click() };
                                     let (r, resp) = ui.allocate_exact_size(vec2(w, CONTROL_H_SM), sense);
-                                    let hot = resp.hovered() && !*disabled;
+                                    resp.widget_info(|| {
+                                        egui::WidgetInfo::labeled(egui::WidgetType::Button, !*disabled, label)
+                                    });
+                                    // з клавіатури (Tab) пункт підсвічується так само, як під мишею
+                                    let hot = (resp.hovered() || resp.has_focus()) && !*disabled;
                                     let a = if *disabled { 0.45 } else { 1.0 };
                                     if hot {
                                         ui.painter().rect_filled(

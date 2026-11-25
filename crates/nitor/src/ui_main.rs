@@ -1000,7 +1000,13 @@ impl App {
                 let cresp =
                     ui.interact(cr, Id::new(("seg", &sid)), Sense::click()).on_hover_text(format!("Сегмент {}", k + 1));
                 p.rect_filled(cr, egui::CornerRadius::same(3), paint(live.get(k)));
-                if self.sel.contains(&sid) {
+                let seg_sel = self.sel.contains(&sid);
+                let seg_name = format!("{}, сегмент {}", f.name, k + 1);
+                cresp.widget_info(|| {
+                    egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, seg_sel, &seg_name)
+                });
+                widgets::focus_ring(ui, &cresp, cr, 3);
+                if seg_sel {
                     p.rect_stroke(
                         cr.expand(1.0),
                         egui::CornerRadius::same(3),
@@ -1286,6 +1292,8 @@ impl App {
                 } else {
                     (RAISED, if resp.hovered() { LINE_STRONG } else { LINE }, TEXT)
                 };
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, c > 0, &p.name));
+                widgets::focus_ring(ui, &resp, r, R_MD);
                 let painter = ui.painter();
                 painter.rect(r, radius(R_MD), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
                 let label = match group {
@@ -1441,6 +1449,7 @@ impl App {
                 } else {
                     (RAISED, LINE)
                 };
+                widgets::focus_ring(ui, &resp, r, R_MD);
                 let p = ui.painter();
                 p.rect(r, radius(R_MD), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
                 let g = Rect::from_min_size(r.min + vec2(S3, S2), vec2(r.width() - 2.0 * S3, 26.0));
@@ -2079,7 +2088,12 @@ impl App {
                     Stroke::new(1.0_f32, rgba(0, 0, 0, 0.4)),
                     StrokeKind::Inside,
                 );
-                if resp.hovered() {
+                // прибирання у два кліки: перший позначає колір хрестиком, другий прибирає
+                let armed_id = Id::new("palette-armed");
+                let armed = ui.data(|d| d.get_temp::<usize>(armed_id)) == Some(i);
+                let name = format!("Колір палітри {}", i + 1);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                if resp.hovered() || armed {
                     ui.painter().rect_stroke(
                         r.expand(1.0),
                         radius(R_SM),
@@ -2087,8 +2101,22 @@ impl App {
                         StrokeKind::Outside,
                     );
                 }
-                if resp.on_hover_text("Прибрати").clicked() {
-                    remove = Some(i);
+                if armed {
+                    ui.painter().rect_filled(r, radius(R_SM), alpha(INK, 0.6));
+                    nitor_ui::icons::image("x", 14.0, WHITE).paint_at(ui, Rect::from_center_size(r.center(), vec2(14.0, 14.0)));
+                }
+                widgets::focus_ring(ui, &resp, r, R_SM);
+                let focused = resp.has_focus();
+                let tip = if armed { "Клацніть ще раз, щоб прибрати" } else { "Прибрати з палітри" };
+                if resp.on_hover_text(tip).clicked() {
+                    if armed {
+                        remove = Some(i);
+                        ui.data_mut(|d| d.remove::<usize>(armed_id));
+                    } else {
+                        ui.data_mut(|d| d.insert_temp(armed_id, i));
+                    }
+                } else if armed && !focused && !ui.rect_contains_pointer(r.expand(6.0)) {
+                    ui.data_mut(|d| d.remove::<usize>(armed_id));
                 }
             }
             if let Some(i) = remove {
@@ -2209,6 +2237,9 @@ impl App {
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner).id_salt("monitor"), |ui| {
             let frames = self.v.output.frames;
             let (r, resp) = ui.allocate_exact_size(vec2(inner.width(), 22.0), Sense::click());
+            let open = self.monitor_open;
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, "DMX-монітор"));
+            widgets::focus_ring(ui, &resp, r, R_SM);
             // трикутник розкриття малюємо самі: у шрифтах Windows може не бути гліфа «▸»
             let c = pos2(r.left() + 5.0, r.center().y);
             let tri = if self.monitor_open {
@@ -2330,7 +2361,9 @@ impl App {
                         .inner_margin(egui::Margin::symmetric(S4 as i8, S2 as i8))
                         .show(ui, |ui| {
                             ui.set_max_width(screen.width() * 0.9);
-                            ui.label(RichText::new(&t.text).size(FS_MD));
+                            let l = ui.label(RichText::new(&t.text).size(FS_MD));
+                            // диктор зачитує повідомлення, щойно воно з'явилось
+                            ui.ctx().accesskit_node_builder(l.id, |n| n.set_live(egui::accesskit::Live::Polite));
                         });
                 })
                 .response
