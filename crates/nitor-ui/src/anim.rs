@@ -24,7 +24,7 @@ pub fn anim_bool(ctx: &Context, id: Id, on: bool, time: f32) -> f32 {
     ctx.animate_bool_with_time(id, on, time)
 }
 
-/// Наведення й натискання (за tasteskill): наведення проявляється за 150 мс і згасає за 120 мс,
+/// Наведення й натискання: наведення проявляється за 150 мс і згасає за 120 мс,
 /// натискання — 90 мс. Повертає (наведення 0..1, натискання 0..1).
 pub fn hover_press(ctx: &Context, id: Id, hovered: bool, pressed: bool) -> (f32, f32) {
     let h = anim_bool(ctx, id.with("hover"), hovered, if hovered { 0.15 } else { 0.12 });
