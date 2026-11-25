@@ -855,12 +855,26 @@ pub fn check(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
     let on = *value;
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
     let b = Rect::from_min_size(pos2(rect.left(), rect.center().y - 8.0), Vec2::splat(16.0));
+    // заливка проявляється, а галочка малюється лінією від кута до кінця (зі «Зменшити рух» — одразу)
+    let t = crate::anim::anim_bool(ui.ctx(), resp.id.with("check"), on, 0.15);
     let p = ui.painter();
-    if *value {
-        p.rect_filled(b, CornerRadius::same(4), ACCENT_STRONG);
-        icons::image("check", 14.0, WHITE).paint_at(ui, b.shrink(1.0));
-    } else {
-        p.rect(b, CornerRadius::same(4), RAISED, Stroke::new(1.0_f32, LINE_FIELD), StrokeKind::Inside);
+    let border = if resp.hovered() { MUTED } else { LINE_FIELD };
+    p.rect(
+        b,
+        CornerRadius::same(4),
+        RAISED.lerp_to_gamma(ACCENT_STRONG, t),
+        Stroke::new(1.0_f32, border.lerp_to_gamma(ACCENT_STRONG, t)),
+        StrokeKind::Inside,
+    );
+    if t > 0.0 {
+        let pts = [pos2(4.0, 8.5), pos2(7.0, 11.5), pos2(12.5, 5.0)].map(|q| b.min + q.to_vec2());
+        let (l1, l2) = (pts[0].distance(pts[1]), pts[1].distance(pts[2]));
+        let d = crate::anim::ease_out(t) * (l1 + l2);
+        let mut line = vec![pts[0], pts[0] + (pts[1] - pts[0]) * (d / l1).min(1.0)];
+        if d > l1 {
+            line.push(pts[1] + (pts[2] - pts[1]) * ((d - l1) / l2));
+        }
+        p.add(egui::Shape::line(line, Stroke::new(2.0_f32, WHITE)));
     }
     if resp.has_focus() {
         p.rect_stroke(b.expand(2.0), CornerRadius::same(6), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
