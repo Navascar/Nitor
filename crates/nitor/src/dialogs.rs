@@ -128,7 +128,7 @@ const TABS: [(Tab, &str, &str, &str); 11] = [
     (
         Tab::General,
         "Загальні",
-        "Як виглядає й запускається програма: чи показувати на кнопках їхні гарячі клавіші, ці пояснення «?» і DMX-монітор унизу вікна, а також чи запускати Nitor разом із Windows. Сховані пояснення повертаються тут.",
+        "Як виглядає й запускається програма: чи показувати на кнопках їхні гарячі клавіші, підказки «?» і DMX-монітор унизу вікна, а також чи запускати Nitor разом із Windows. Сховані підказки повертаються тут.",
         "підказки клавіші кнопки пояснення автозапуск windows запуск dmx-монітор монітор",
     ),
     (
@@ -318,8 +318,14 @@ fn focus_on_open(ui: &Ui, r: &egui::Response, key: &str, len: usize) {
     }
 }
 
+/// «Режим: …» без повтору кількості каналів, якщо вона вже є в назві режиму.
+fn mode_text(mode: &str, n: usize) -> String {
+    if mode.contains("кан.") { format!("Режим: {mode}") } else { format!("Режим: {mode} · {n} кан.") }
+}
+
 pub fn model_label(m: &Model) -> String {
-    if m.mode.is_empty() { format!("{} {}", m.m, m.n) } else { format!("{} {} · {}", m.m, m.n, m.mode) }
+    let t = library::title(&m.m, &m.n);
+    if m.mode.is_empty() { t } else { format!("{t} · {}", m.mode) }
 }
 
 impl App {
@@ -776,11 +782,10 @@ impl App {
         ));
         ui.add_space(S3);
         let mut help = !self.v.prefs.hide_help;
-        if widgets::switch(ui, &mut help, "Показувати пояснення «?» біля розділів").changed()
-        {
+        if widgets::switch(ui, &mut help, "Показувати підказки").changed() {
             self.set_prefs(|p| p.hide_help = !help);
         }
-        ui.label(widgets::muted("Якщо навести мишу на знак питання, з'явиться коротке пояснення до розділу."));
+        ui.label(widgets::muted("Якщо навести мишу на знак питання, з'явиться коротке пояснення."));
         ui.add_space(S3);
         let mut mon = !self.v.prefs.hide_monitor;
         if widgets::switch(ui, &mut mon, "Показувати DMX-монітор унизу вікна").changed() {
@@ -799,20 +804,46 @@ impl App {
 
     fn tab_access(&mut self, ui: &mut Ui) {
         widgets::field_label(ui, "Масштаб інтерфейсу");
-        let zoom = self.v.prefs.zoom;
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(S1, S1);
-            let opts = [0.0, 0.75, 0.9, 1.1, 1.25, 1.5, 1.75, 2.0];
-            for z in opts {
-                let label = if z == 0.0 { "Стандартний".to_string() } else { format!("{:.0} %", z * 100.0) };
-                let on = (zoom - z).abs() < 0.001 || (z == 0.0 && zoom == 1.0);
-                if btn(label).small().kind(if on { Kind::Toggled } else { Kind::Normal }).show(ui).clicked() {
-                    self.set_prefs(|p| p.zoom = z);
+        // повзунок 0–100: посередині 100 %, ліворуч до 50 %, праворуч до 200 %
+        let to_pos = |z: f32| if z < 1.0 { (z - 0.5) * 100.0 } else { 50.0 + (z - 1.0) * 50.0 };
+        let to_zoom = |p: f32| {
+            let z = if p < 50.0 { 0.5 + p / 100.0 } else { 1.0 + (p - 50.0) / 50.0 };
+            (z * 20.0).round() / 20.0
+        };
+        let zoom = if self.v.prefs.zoom == 0.0 { 1.0 } else { self.v.prefs.zoom };
+        // під час перетягування масштаб не змінюється, інакше повзунок тікав би з-під миші
+        let drag_id = Id::new("zoom-drag");
+        let mut pos = ui.data(|d| d.get_temp::<f32>(drag_id)).unwrap_or_else(|| to_pos(zoom).clamp(0.0, 100.0));
+        let w = 320.0;
+        let mut apply = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S2;
+            ui.allocate_ui_with_layout(vec2(w, CONTROL_H), Layout::left_to_right(Align::Center), |ui| {
+                let r = widgets::slider_ticked(ui, "Масштаб інтерфейсу", &mut pos, 0.0, 100.0, ACCENT, w);
+                if r.dragged() {
+                    ui.data_mut(|d| d.insert_temp(drag_id, pos));
+                } else {
+                    ui.data_mut(|d| d.remove::<f32>(drag_id));
+                    if r.changed() || r.drag_stopped() {
+                        apply = Some(to_zoom(pos));
+                    }
                 }
+            });
+            let shown = if ui.data(|d| d.get_temp::<f32>(drag_id)).is_some() { to_zoom(pos) } else { zoom };
+            ui.label(RichText::new(format!("{:.0} %", shown * 100.0)).size(FS_MD));
+            let std = (zoom - 1.0).abs() < 0.001;
+            if btn("Скинути").small().icon("refresh").enabled(!std).tip("Стандартний масштаб 100 %").show(ui).clicked()
+            {
+                apply = Some(0.0);
             }
         });
+        if let Some(z) = apply {
+            self.set_prefs(|p| p.zoom = if (z - 1.0).abs() < 0.001 { 0.0 } else { z });
+        }
         ui.add_space(S2);
-        ui.label(widgets::muted("125 % робить усе на чверть більшим, 75 % — на чверть меншим. Зміна діє одразу."));
+        ui.label(widgets::muted(
+            "Посередині — стандартний масштаб 100 %. Праворуч усе більше, ліворуч — менше. Зміна діє, щойно відпустите повзунок.",
+        ));
         ui.add_space(S5);
         widgets::field_label(ui, "Рух в інтерфейсі");
         let mut on = self.reduce_motion();
@@ -1069,7 +1100,7 @@ impl App {
             .map(|d| (d.0.clone(), d.2.clone()))
             .or_else(|| (!names.contains(&f.profile)).then(|| (f.profile.clone(), f.model.clone())));
         if let Some((name, model)) = own {
-            let label = model.as_ref().map_or(name.clone(), |m| format!("Модель: {}", model_label(m)));
+            let label = model.as_ref().map_or(name.clone(), model_label);
             opts.insert(0, (name, label));
         }
         widgets::select(ui, id, value, &opts, width)
@@ -1602,12 +1633,8 @@ impl App {
                     Some((fx, mode)) => {
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
-                            ui.label(RichText::new(format!("{} {}", fx.m, fx.n)).font(bold(FS_MD)));
-                            ui.label(widgets::muted(format!(
-                                "Режим: {} · {} кан.",
-                                mode.name(),
-                                mode.channels().len()
-                            )));
+                            ui.label(RichText::new(library::title(&fx.m, &fx.n)).font(bold(FS_MD)));
+                            ui.label(widgets::muted(mode_text(mode.name(), mode.channels().len())));
                         });
                     }
                     None => {
@@ -1874,7 +1901,7 @@ impl App {
                 let (r, _) = ui.allocate_exact_size(vec2(200.0, 96.0), Sense::hover());
                 lib_image(ui, r, &st.fx);
                 ui.vertical(|ui| {
-                    ui.label(widgets::muted(&st.fx.m));
+                    ui.label(widgets::muted(library::maker(&st.fx.m)));
                     color_chips(ui, &st.fx);
                 });
             });
@@ -2102,31 +2129,23 @@ impl App {
                 Some((_, ch, Some(m), _)) => Some((m.clone(), ch.len())),
                 _ => None,
             };
-            ui.horizontal(|ui| {
-                ui.set_min_height(CONTROL_H + 8.0);
-                ui.vertical(|ui| {
+            ui.allocate_ui_with_layout(vec2(w, CONTROL_H + 8.0), Layout::right_to_left(Align::Center), |ui| {
+                // кнопки першими, щоб довга назва моделі обрізалась, а не залазила під них
+                let label =
+                    if model.is_some() { "Інша модель" } else { "Вибрати з бібліотеки" };
+                lib_btn = btn(label).icon("grid").show(ui).clicked();
+                if model.is_some() {
+                    mode_btn = btn("Змінити режим").show(ui).clicked();
+                }
+                ui.add_space(S2);
+                ui.with_layout(Layout::top_down(Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    match &model {
-                        Some((m, n)) => {
-                            ui.label(RichText::new(format!("{} {}", m.m, m.n)).font(bold(FS_MD)));
-                            ui.label(widgets::muted(format!("Режим: {} · {n} кан.", m.mode)));
-                        }
-                        None => {
-                            ui.label(RichText::new("Модель не вибрано").font(bold(FS_MD)));
-                            ui.label(widgets::muted("Прилад працює за стандартним профілем"));
-                        }
-                    }
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let label = if model.is_some() {
-                        "Інша модель"
-                    } else {
-                        "Вибрати з бібліотеки"
+                    let (title, sub) = match &model {
+                        Some((m, n)) => (library::title(&m.m, &m.n), mode_text(&m.mode, *n)),
+                        None => ("Модель не вибрано".into(), "Прилад працює за стандартним профілем".into()),
                     };
-                    lib_btn = btn(label).icon("grid").show(ui).clicked();
-                    if model.is_some() {
-                        mode_btn = btn("Змінити режим").show(ui).clicked();
-                    }
+                    ui.add(egui::Label::new(RichText::new(&title).font(bold(FS_MD))).truncate()).on_hover_text(&title);
+                    ui.add(egui::Label::new(widgets::muted(&sub)).truncate());
                 });
             });
             ui.add_space(S3 - S2);
@@ -2346,7 +2365,7 @@ fn color_chips(ui: &mut Ui, fx: &LibModel) {
 fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
     let resp = ui
         .interact(r, Id::new(("lib-card", &fx.m, &fx.n)), Sense::click())
-        .on_hover_text(format!("{} {} — вибрати режим", fx.m, fx.n));
+        .on_hover_text(format!("{} — вибрати режим", library::title(&fx.m, &fx.n)));
     ui.painter().rect(
         r,
         radius(R_LG),
@@ -2359,7 +2378,7 @@ fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
     lib_image(ui, img, fx);
     let mut y = img.bottom() + S2;
     let p = ui.painter();
-    p.text(pos2(inner.left(), y), Align2::LEFT_TOP, &fx.m, font(FS_SM), MUTED);
+    p.text(pos2(inner.left(), y), Align2::LEFT_TOP, library::maker(&fx.m), font(FS_SM), MUTED);
     y += 18.0 + S2;
     let g = ui.fonts(|f| {
         let mut job = egui::text::LayoutJob::simple(fx.n.clone(), bold(FS_MD), TEXT, inner.width());

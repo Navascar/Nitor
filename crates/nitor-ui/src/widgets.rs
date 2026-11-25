@@ -741,6 +741,44 @@ pub fn field_label(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).size(FS_SM).color(MUTED));
 }
 
+/// Підпис поля зі знаком «?» поруч.
+pub fn field_label_help(ui: &mut Ui, text: &str, help_text: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = S1;
+        field_label(ui, text);
+        help(ui, help_text);
+    });
+}
+
+/// Підпис частини панелі, що згортається: клік по стрілці чи підпису. Стан пам'ятається між запусками.
+/// Повертає, чи частина розгорнута.
+pub fn fold(ui: &mut Ui, key: &str, text: &str, help_text: Option<&str>, open_default: bool) -> bool {
+    let id = Id::new(("fold", key));
+    let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, open_default));
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = S1;
+        let tw = text_width(ui, text, font(FS_SM));
+        let (r, resp) = ui.allocate_exact_size(vec2(14.0 + S1 + tw, 18.0), Sense::click());
+        if resp.clicked() {
+            open = !open;
+            ui.data_mut(|d| d.insert_persisted(id, open));
+        }
+        resp.widget_info(|| WidgetInfo::selected(WidgetType::CollapsingHeader, true, open, text));
+        let c = if resp.hovered() || resp.has_focus() { TEXT } else { MUTED };
+        let ic = Rect::from_min_size(pos2(r.left(), r.center().y - 7.0), vec2(14.0, 14.0));
+        let t = crate::anim::anim_bool(ui.ctx(), id.with("t"), open, 0.15);
+        icons::image("chevronDown", 14.0, c)
+            .rotate((t - 1.0) * std::f32::consts::FRAC_PI_2, Vec2::splat(0.5))
+            .paint_at(ui, ic);
+        ui.painter().text(pos2(ic.right() + S1, r.center().y), Align2::LEFT_CENTER, text, font(FS_SM), c);
+        resp.on_hover_cursor(CursorIcon::PointingHand);
+        if let Some(h) = help_text {
+            help(ui, h);
+        }
+    });
+    open
+}
+
 pub fn muted(text: impl Into<String>) -> RichText {
     RichText::new(text.into()).size(FS_SM).color(MUTED)
 }
@@ -794,20 +832,24 @@ pub fn select<T: PartialEq + Clone>(
 ) -> bool {
     let current = options.iter().find(|(v, _)| v == value).map(|(_, l)| l.clone()).unwrap_or_default();
     let mut changed = false;
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(RichText::new(current).size(FS_MD))
-        .width(width)
-        .truncate()
-        .height(360.0)
-        .show_ui(ui, |ui| {
-            ui.set_min_width(width - 8.0);
-            for (v, label) in options {
-                if ui.selectable_label(v == value, label).clicked() && v != value {
-                    *value = v.clone();
-                    changed = true;
+    // ComboBox обрізає текст за доступною шириною, тож обмежуємо її: довгі назви не розширюють вікно
+    ui.allocate_ui(vec2(width, CONTROL_H), |ui| {
+        ui.set_max_width(width);
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(RichText::new(current).size(FS_MD))
+            .width(width)
+            .truncate()
+            .height(360.0)
+            .show_ui(ui, |ui| {
+                ui.set_min_width(width - 8.0);
+                for (v, label) in options {
+                    if ui.selectable_label(v == value, label).clicked() && v != value {
+                        *value = v.clone();
+                        changed = true;
+                    }
                 }
-            }
-        });
+            });
+    });
     changed
 }
 

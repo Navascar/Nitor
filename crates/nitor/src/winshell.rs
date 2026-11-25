@@ -145,6 +145,17 @@ mod imp {
         RegKey::predef(HKEY_CURRENT_USER).open_subkey(RUN_KEY).and_then(|k| k.get_value::<String, _>("Nitor")).is_ok()
     }
 
+    /// Відкриває провідник із виділеним файлом.
+    pub fn reveal(path: &str) -> Result<(), String> {
+        use std::os::windows::process::CommandExt;
+        // explorer не розбирає «/select,» у лапках, тож шлях беремо в лапки окремо
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{path}\""))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     pub fn set_autostart(on: bool) -> Result<(), String> {
         use winreg::{RegKey, enums::HKEY_CURRENT_USER};
         let (k, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY).map_err(|e| e.to_string())?;
@@ -196,6 +207,12 @@ mod imp {
 
     pub fn autostart() -> bool {
         false
+    }
+
+    /// Відкриває теку файлу.
+    pub fn reveal(path: &str) -> Result<(), String> {
+        let dir = std::path::Path::new(path).parent().unwrap_or(std::path::Path::new("."));
+        std::process::Command::new("xdg-open").arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
     }
 
     pub fn set_autostart(_on: bool) -> Result<(), String> {

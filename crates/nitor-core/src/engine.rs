@@ -156,6 +156,9 @@ pub struct Scene {
     pub fixtures: IndexMap<String, SceneState>,
     #[serde(default)]
     pub effect: Option<Effect>,
+    /// Файл `.nitor`, у який сцену збережено чи з якого відкрито (для «Показати файл у папці»).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// Усе, що зберігається в кроці скасування.
@@ -476,6 +479,13 @@ pub enum Command {
     ImportScene {
         data: serde_json::Value,
         name: Option<String>,
+        /// звідки відкрито файл
+        file: Option<String>,
+    },
+    /// Сцену збережено у файл.
+    SetSceneFile {
+        name: String,
+        file: String,
     },
     SetOutput(OutputConfig),
     /// Удар для «у такт музиці»: тап, звук чи OS2L (момент — годинник рушія).
@@ -526,6 +536,7 @@ impl Command {
             Command::RecallScene { .. } => "recall_scene",
             Command::DeleteScene { .. } => "delete_scene",
             Command::ImportScene { .. } => "import_scene",
+            Command::SetSceneFile { .. } => "set_scene_file",
             Command::SetOutput(_) => "set_output",
             Command::Flash(_) => "flash",
             Command::Beat(_) => "beat",
@@ -653,6 +664,8 @@ pub struct Engine {
     pub flash: IndexMap<String, Fixture>,
     /// Коли натиснули «Спалах» (відлік мерехтіння).
     flash_t0: f64,
+    /// Увімкнена сцена: остання викликана, поки світло приладів чи ефект не змінили інакше. Не зберігається.
+    pub active_scene: Option<String>,
     /// Плавний Blackout: (початок, рівень світла на початку: 1 — світло, 0 — темно).
     blackout_ramp: Option<(f64, f64)>,
     /// Початок ефекту: від нього відлічується фаза, щоб ефект починався з одного кольору.
@@ -736,6 +749,7 @@ impl Engine {
             prefs: Prefs::default(),
             flash: IndexMap::new(),
             flash_t0: 0.0,
+            active_scene: None,
             blackout_ramp: None,
             eff_t0: 0.0,
             tempo: Tempo::default(),
@@ -912,6 +926,12 @@ impl Engine {
         let persist =
             !matches!(cmd, Command::Beat(_) | Command::Flash(_) | Command::RawSet { .. } | Command::RawClear(_));
         let prev = self.show.effect.clone();
+        let recalled = match &cmd {
+            Command::RecallScene { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        let cleared = matches!(cmd, Command::Clear { .. });
+        let lights = self.active_scene.is_some().then(|| self.show.fixtures.clone());
         if let Err(e) = self.apply(cmd, now) {
             if pushed {
                 // команда не виконалась — і кроку скасування немає
@@ -925,6 +945,11 @@ impl Engine {
             self.redo.clear();
         }
         self.retime_effect(&prev, now);
+        if recalled.is_some() {
+            self.active_scene = recalled;
+        } else if cleared || lights.is_some_and(|l| l != self.show.fixtures || prev != self.show.effect) {
+            self.active_scene = None;
+        }
         self.dirty |= persist;
         Ok(())
     }
@@ -1060,16 +1085,22 @@ impl Engine {
                 }
                 let fixtures = self.show.fixtures.iter().map(|f| (f.id.clone(), SceneState::of(f))).collect();
                 let effect = with_effect.then(|| self.show.effect.clone());
-                self.show.scenes.insert(name, Scene { fixtures, effect });
+                let file = self.show.scenes.get(&name).and_then(|s| s.file.clone());
+                self.show.scenes.insert(name, Scene { fixtures, effect, file });
             }
             Command::RecallScene { name, fade } => self.recall_scene(&name, fade, now)?,
             Command::DeleteScene { name } => {
                 self.show.scenes.shift_remove(&name);
             }
-            Command::ImportScene { data, name } => {
+            Command::SetSceneFile { name, file } => {
+                if let Some(s) = self.show.scenes.get_mut(&name) {
+                    s.file = Some(file);
+                }
+            }
+            Command::ImportScene { data, name, file } => {
                 // усе або нічого: якщо файл зіпсований посередині, додані прилади й профілі прибираються
                 let snap = self.show.clone();
-                if let Err(e) = crate::scene_file::import(self, &data, name.as_deref()) {
+                if let Err(e) = crate::scene_file::import(self, &data, name.as_deref(), file) {
                     self.restore(snap);
                     return Err(e);
                 }
@@ -1365,7 +1396,7 @@ impl Engine {
         let mut name = spec.profile.trim().to_string();
         if name.is_empty() {
             if let Some(m) = &model {
-                name = format!("{} {} · {} ({} кан.)", m.m, m.n, m.mode, channels.len());
+                name = format!("{} · {} ({} кан.)", crate::library::title(&m.m, &m.n), m.mode, channels.len());
             }
         }
         if name.is_empty() {

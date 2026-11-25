@@ -11,6 +11,7 @@ pub const PATHS: &[(&str, &str)] = &[
     ("plus", "M12 5v14M5 12h14"),
     ("minus", "M5 12h14"),
     ("chevronDown", "M6 9l6 6 6-6"),
+    ("folder", "M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"),
     ("backspace", "M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM18 9l-6 6M12 9l6 6"),
     ("enter", "M9 10l-5 5 5 5M20 4v7a4 4 0 0 1-4 4H4"),
     ("x", "M6 6l12 12M18 6L6 18"),

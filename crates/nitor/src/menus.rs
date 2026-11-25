@@ -34,7 +34,7 @@ fn pick(on: bool, label: impl Into<String>, act: Act) -> Item {
 
 /// Меню знака «?»: сховати пояснення.
 pub fn help_menu() -> Vec<Item> {
-    vec![Item::Title("Пояснення «?»".into()), item("help", "Сховати пояснення", Act::HideHelp)]
+    vec![Item::Title("Підказки «?»".into()), item("help", "Сховати підказки", Act::HideHelp)]
 }
 
 fn item(icon: &'static str, label: impl Into<String>, act: Act) -> Item {
@@ -308,6 +308,8 @@ impl App {
             }
             m.push(item("refresh", "Перезаписати поточним станом", Act::AskOverwriteScene(n.into())));
             m.push(item("download", "Зберегти у файл…", Act::SaveSceneFile(n.into())));
+            let file = self.v.show.scenes.get(n).is_some_and(|s| s.file.is_some());
+            m.push(item("folder", "Показати файл у папці", Act::RevealSceneFile(n.into())).disabled(!file));
             m.push(item("trash", "Видалити сцену", Act::AskDeleteScene(n.into())).danger());
             m.push(Item::Sep);
         }

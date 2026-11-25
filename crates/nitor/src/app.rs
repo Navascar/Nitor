@@ -31,6 +31,8 @@ pub struct View {
     pub menu_profiles: Vec<String>,
     pub preset_fixtures: Vec<String>,
     pub overlaps: Vec<(String, String)>,
+    /// увімкнена сцена
+    pub active_scene: Option<String>,
     pub output: OutputInfo,
     pub flashing: bool,
     pub operator: bool,
@@ -160,6 +162,8 @@ pub enum Act {
     AskOverwriteScene(String),
     SaveScene(String),
     SaveSceneFile(String),
+    /// Показати файл сцени в провіднику.
+    RevealSceneFile(String),
     AskDeleteScene(String),
     AskNewScene,
     OpenSceneFile,
@@ -977,6 +981,14 @@ impl App {
                 }
             }
             Act::SaveSceneFile(name) => self.save_scene_file(&name),
+            Act::RevealSceneFile(name) => {
+                let file = self.v.show.scenes.get(&name).and_then(|s| s.file.clone()).unwrap_or_default();
+                if !std::path::Path::new(&file).exists() {
+                    self.toast("Файлу сцени вже немає на цьому місці", false);
+                } else if let Err(e) = crate::winshell::reveal(&file) {
+                    self.toast(&format!("Не вдалося відкрити папку: {e}"), false);
+                }
+            }
             Act::AskDeleteScene(name) => {
                 let t = format!("Видалити сцену «{name}»?");
                 self.ui_dlg = Some(UiDlg::confirm(&t, "", "Видалити", true, Act::Cmd(Command::DeleteScene { name })));
@@ -1016,7 +1028,7 @@ impl App {
             Act::EndLayoutEdit => self.layout_edit = false,
             Act::HideHelp => {
                 self.set_prefs(|p| p.hide_help = true);
-                self.toast("Пояснення сховано. Повернути їх можна в Налаштуваннях, на вкладці «Загальні»", true);
+                self.toast("Підказки сховано. Повернути їх можна в Налаштуваннях, на вкладці «Загальні»", true);
             }
             Act::CheckUpdate => self.updater.check(),
             Act::OpenUpdate => self.open_update_dialog(),
@@ -1115,7 +1127,10 @@ impl App {
         };
         let text = serde_json::to_string_pretty(&data).unwrap_or_default();
         match std::fs::write(&path, text) {
-            Ok(()) => self.toast(&format!("Файл збережено: {}", path.display()), true),
+            Ok(()) => {
+                self.send(Command::SetSceneFile { name: name.into(), file: path.display().to_string() });
+                self.toast(&format!("Файл збережено: {}", path.display()), true)
+            }
             Err(e) => self.toast(&format!("Не вдалося зберегти файл: {e}"), false),
         }
     }
@@ -1133,7 +1148,7 @@ impl App {
         match data {
             None => self.toast("Це не файл сцени Nitor", false),
             Some(data) => {
-                self.send(Command::ImportScene { data, name: None });
+                self.send(Command::ImportScene { data, name: None, file: Some(path.display().to_string()) });
             }
         }
     }
@@ -1242,6 +1257,7 @@ pub fn snapshot(core: &Core) -> View {
         menu_profiles: e.menu_profiles(),
         preset_fixtures: e.preset_fixtures(),
         overlaps: e.overlaps(),
+        active_scene: e.active_scene.clone(),
         output: s.output.info(),
         flashing: !e.flash.is_empty(),
         operator: e.operator,

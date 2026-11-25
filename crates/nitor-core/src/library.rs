@@ -76,7 +76,7 @@ impl LibModel {
     pub fn profile_name(&self, mode: &Mode) -> String {
         match &mode.2 {
             Some(n) if !n.is_empty() => n.clone(),
-            _ => format!("{} {} · {} ({} кан.)", self.m, self.n, mode.0, mode.1.len()),
+            _ => format!("{} · {} ({} кан.)", title(&self.m, &self.n), mode.0, mode.1.len()),
         }
     }
 
@@ -142,6 +142,19 @@ fn library() -> &'static Library {
     })
 }
 
+/// Виробник безіменних копій: лишається ключем у збережених налаштуваннях, але не показується.
+pub const NO_MAKER: &str = "Китайська копія";
+
+/// Виробник для показу (у безіменних копій — порожньо).
+pub fn maker(m: &str) -> &str {
+    if m == NO_MAKER { "" } else { m }
+}
+
+/// «Виробник модель» для показу.
+pub fn title(m: &str, n: &str) -> String {
+    if maker(m).is_empty() { n.to_string() } else { format!("{m} {n}") }
+}
+
 /// Безіменні китайські копії (продаються під різними назвами, напр. «Power Light 5433»).
 /// Таблиця каналів — як у Betopper LPC007/LPC008 (посібник виробника): меню A001 — 7 кан.
 /// (1 яскравість, 2–4 RGB, 5 строб, 6 вибір режиму: 0–50 — колір з DMX, 7 швидкість), d001 — 3 кан. RGB.
@@ -149,7 +162,7 @@ fn library() -> &'static Library {
 fn clones() -> Vec<LibModel> {
     let r = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let par = |n: &str| LibModel {
-        m: "Китайська копія".into(),
+        m: NO_MAKER.into(),
         n: n.into(),
         t: "par".into(),
         modes: vec![
@@ -229,7 +242,7 @@ pub fn search(query: &str, limit: usize, kind: &str, offset: usize, recent: &[Re
     hits.sort_by_cached_key(|fx| {
         let starts =
             !first.is_empty() && (fx.m.to_lowercase().starts_with(&first) || fx.n.to_lowercase().starts_with(&first));
-        (!fx.builtin, if starts { 0 } else { 1 }, fx.m.to_lowercase(), fx.n.to_lowercase())
+        (if starts { 0 } else { 1 }, maker(&fx.m).to_lowercase(), fx.n.to_lowercase())
     });
     hits.into_iter().skip(offset).take(limit).collect()
 }
@@ -263,9 +276,10 @@ mod tests {
     }
 
     #[test]
-    fn search_puts_builtin_first_and_uses_aliases() {
-        let hits = search("", 5, "bar", 0, &[]);
-        assert!(hits[0].builtin);
+    fn search_sorts_by_maker_and_uses_aliases() {
+        let hits = search("", 500, "bar", 0, &[]);
+        let makers: Vec<String> = hits.iter().map(|f| maker(&f.m).to_lowercase()).collect();
+        assert!(makers.is_sorted(), "за алфавітом виробників");
         let adj = search("adj", 200, "", 0, &[]);
         assert!(adj.iter().any(|m| m.m.eq_ignore_ascii_case("american dj")) || adj.iter().any(|m| m.m == "ADJ"));
         let none = search("щось-якого-немає", 5, "", 0, &[]);
@@ -308,5 +322,6 @@ mod tests {
         assert_eq!(own.modes[0].channels(), lpc.mode("7 Channel").unwrap().channels(), "як у посібнику Betopper");
         assert!(!search("power light", 10, "par", 0, &[]).is_empty());
         assert!(!search("китайська", 10, "", 0, &[]).is_empty());
+        assert_eq!(title(&own.m, &own.n), own.n, "виробник копій не показується");
     }
 }

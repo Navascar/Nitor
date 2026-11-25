@@ -119,7 +119,7 @@ fn id_str(v: &Value) -> String {
 }
 
 /// Відкриває сцену з файлу (`data` — вміст `.nitor`). Повідомлення — у `engine.pop_notice()`.
-pub(crate) fn import(engine: &mut Engine, data: &Value, name: Option<&str>) -> Result<()> {
+pub(crate) fn import(engine: &mut Engine, data: &Value, name: Option<&str>, file: Option<String>) -> Result<()> {
     if data.get("format").and_then(Value::as_str) != Some(SCENE_FORMAT) {
         bail!("це не файл сцени Nitor");
     }
@@ -242,7 +242,7 @@ pub(crate) fn import(engine: &mut Engine, data: &Value, name: Option<&str>) -> R
         scene_name = format!("{base} ({k})");
         k += 1;
     }
-    engine.show.scenes.insert(scene_name.clone(), Scene { fixtures: states, effect });
+    engine.show.scenes.insert(scene_name.clone(), Scene { fixtures: states, effect, file });
     let mut parts = vec![format!("зіставлено приладів: {}", mapping.len() - added)];
     if added > 0 {
         parts.push(format!("додано: {added}"));

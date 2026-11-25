@@ -64,6 +64,12 @@ fn commands_and_scene_fade() {
     assert!((120..=135).contains(&e.show.fixtures[0].g));
     e.render(103.0);
     assert_eq!(e.show.fixtures[0].g, 255);
+    assert_eq!(e.active_scene.as_deref(), Some("green"), "сцену увімкнено");
+    let prefs = e.prefs.clone();
+    ok(&mut e, Command::SetPrefs(prefs));
+    assert_eq!(e.active_scene.as_deref(), Some("green"), "налаштування світла не змінюють");
+    ok(&mut e, hex(&[&all[1]], "#ff0000"));
+    assert_eq!(e.active_scene, None, "інший колір вимикає позначку сцени");
 
     ok(&mut e, Command::Blackout(Some(true)));
     assert!(e.render(10.0).iter().all(|&v| v == 0));
@@ -444,7 +450,9 @@ fn fixture_library_modes_are_valid() {
     assert!(!found.is_empty() && found.iter().all(|f| f.n.contains("Mega")));
     assert_eq!(library::search("", 10, "", 0, &[]).len(), 10);
     assert!(library::search("", 50, "bar", 0, &[]).iter().all(|f| f.t == "bar"));
-    assert_eq!(library::search("", 1, "", 0, &[])[0].n, "WASH 243");
+    let makers: Vec<String> =
+        library::search("", 2000, "", 0, &[]).iter().map(|f| library::maker(&f.m).to_lowercase()).collect();
+    assert!(makers.is_sorted(), "бібліотека — за алфавітом виробників");
 }
 
 fn add_model(e: &mut Engine, fx: &library::LibModel, mode: &library::Mode, address: u16) -> String {
@@ -537,7 +545,7 @@ fn recent_models_order_and_mode_change() {
 }
 
 fn import(e: &mut Engine, data: &serde_json::Value) -> nitor_core::Result<()> {
-    e.handle(Command::ImportScene { data: data.clone(), name: None }, 0.0)
+    e.handle(Command::ImportScene { data: data.clone(), name: None, file: None }, 0.0)
 }
 
 #[test]

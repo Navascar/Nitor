@@ -810,7 +810,7 @@ impl App {
                 "Сцена запам'ятовує кольори всіх приладів, а з галочкою «Зберегти разом з ефектом» ще й ефект. Налаштуйте світло, введіть назву і натисніть «Зберегти». Клік по сцені вмикає її, а «Час переходу» задає, за скільки секунд світло плавно зміниться. Якщо затиснути Alt і тримати сцену, вона світить лише поки кнопку тримають. Сцену можна зберегти у файл через її меню й відкрити на іншому комп'ютері кнопкою «Відкрити з файлу»."
             }
             "Ефекти" => {
-                "Ефект сам змінює світло на вибраних приладах (або на всіх). Виберіть ефект, швидкість і кольори палітри та натисніть «Запустити». «Розкид фази» зсуває прилади один відносно одного: на нулі всі світять однаково, з більшим значенням колір біжить від приладу до приладу. «По сегментах» запускає ефект уздовж LED-бару. «У такт музиці» бере темп зі звуку комп'ютера, мікрофона, VirtualDJ або з тапу (клавіша T). Статичний колір чи «Очистити» зупиняють ефект на своїх приладах."
+                "Ефект сам змінює світло на вибраних приладах (або на всіх). Виберіть ефект, швидкість і кольори палітри та натисніть «Запустити». Статичний колір чи «Очистити» зупиняють ефект на своїх приладах."
             }
             "Кольори" => {
                 "Готові кольори. Клік вмикає колір на вибраних приладах, а якщо нічого не вибрано, то на всіх, і зупиняє на них ефект. Якщо затиснути Alt і тримати колір, він світить лише поки кнопку тримають."
@@ -1090,7 +1090,14 @@ impl App {
     fn color_panel(&mut self, ui: &mut Ui) -> Rect {
         let targets = self.preset_targets();
         // «Пресети» є, щойно в шоу є прилад із вбудованими програмами (а не лише коли його вибрано)
-        let bars = !self.v.preset_fixtures.is_empty();
+        // або коли модель приладу має програми в іншому режимі: тоді «Пресети» підкажуть змінити режим
+        let in_other_mode = || {
+            self.v.show.fixtures.iter().filter_map(|f| f.model.as_ref()).any(|m| {
+                nitor_core::library::find(&m.m, &m.n)
+                    .is_some_and(|lm| lm.modes.iter().any(|md| nitor_core::fixtures::has_presets(md.channels())))
+            })
+        };
+        let bars = !self.v.preset_fixtures.is_empty() || in_other_mode();
         let show_presets = bars && self.pane == Pane::Presets;
         ui.horizontal(|ui| {
             ui.set_min_height(CONTROL_H_SM);
@@ -1108,7 +1115,15 @@ impl App {
             }
         });
         ui.add_space(S3 - S2);
-        if show_presets {
+        if show_presets && self.v.preset_fixtures.is_empty() {
+            ui.add_space(S4);
+            widgets::empty_state(
+                ui,
+                "grid",
+                "Пресети недоступні в цьому режимі",
+                "Вбудовані програми працюють лише в деяких режимах DMX (у WASH 243 — H001 і A001). Двічі клацніть прилад і натисніть «Змінити режим». Режим на самому приладі теж має бути таким самим.",
+            );
+        } else if show_presets {
             self.presets_pane(ui, &targets);
         } else {
             self.color_pane(ui);
@@ -1365,7 +1380,10 @@ impl App {
 
     /// Смужка з 8 умовних приладів: вибраний ефект ще до запуску, з тією ж швидкістю, розкидом і палітрою.
     fn effect_preview(&mut self, ui: &mut Ui, w: f32) {
-        widgets::field_label(ui, "Перегляд");
+        let help = "Так ефект виглядатиме на приладах ще до запуску: з тією ж швидкістю, розкидом фази й палітрою. На прожектори його вмикає «Запустити».";
+        if !widgets::fold(ui, "effPreview", "Перегляд", Some(help), true) {
+            return;
+        }
         let eff = nitor_core::Effect {
             kind: self.eff.kind,
             speed: speed_from_slider(self.eff.speed),
@@ -1377,8 +1395,7 @@ impl App {
         let base = self.first_sel_color().map_or(Rgb(255, 255, 255), |(c, _)| c);
         let base = nitor_core::fixtures::Color::rgb(base.0 as f64, base.1 as f64, base.2 as f64);
         let t = ui.input(|i| i.time);
-        let (r, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-        resp.on_hover_text("Так ефект виглядатиме на приладах; «Запустити» вмикає його на прожекторах");
+        let (r, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
         let p = ui.painter();
         p.rect(r, radius(R_MD), INK, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
         let n = 8;
@@ -1402,7 +1419,9 @@ impl App {
     /// Крива переходу між сценами: три плитки з графіком (налаштування зберігається).
     fn fade_curve_row(&mut self, ui: &mut Ui, w: f32) {
         use nitor_core::engine::FadeCurve;
-        widgets::field_label(ui, "Крива переходу");
+        if !widgets::fold(ui, "fadeCurve", "Крива переходу", None, false) {
+            return;
+        }
         let cur = self.v.prefs.fade_curve;
         let mut pick = None;
         ui.horizontal(|ui| {
@@ -1514,8 +1533,32 @@ impl App {
         for name in names {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = S1;
+                // значок окремо від назви: вмикає й вимикає сцену
+                let on = self.v.active_scene.as_deref() == Some(name.as_str());
+                let (icon, tip, kind) = if on {
+                    ("stop", "Вимкнути сцену", Kind::Toggled)
+                } else {
+                    ("play", "Увімкнути сцену", Kind::Normal)
+                };
+                if icon_btn(icon).kind(kind).tip(tip).show(ui).clicked() {
+                    if on {
+                        let ids: Vec<String> = self
+                            .v
+                            .show
+                            .scenes
+                            .get(&name)
+                            .map(|s| s.fixtures.keys().cloned().collect())
+                            .unwrap_or_default();
+                        if !ids.is_empty() {
+                            self.send(Command::Clear { ids });
+                        }
+                    } else {
+                        let fade = self.scene_fade;
+                        self.send(Command::RecallScene { name: name.clone(), fade });
+                    }
+                }
                 let bw = ui.available_width() - 2.0 * (CONTROL_H_SM + S1);
-                let r = btn(name.clone()).icon("play").min_width(bw).left().tip(scene_tip(&name)).show(ui);
+                let r = btn(name.clone()).min_width(bw).left().tip(scene_tip(&name)).show(ui);
                 self.scene_button(&r, &name);
                 if r.secondary_clicked() {
                     let m = self.scene_menu(Some(&name));
@@ -1996,26 +2039,38 @@ impl App {
         let hz = speed_from_slider(self.eff.speed);
         let mut changed = false;
         // підпис і повзунок — щільно, рядок лише заввишки з повзунок
-        let compact = |ui: &mut Ui, label: &str, id: &str, v: &mut f32, min: f32, tip: Option<String>| -> bool {
-            widgets::field_label(ui, label);
-            ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
-                let r = widgets::slider_ticked(ui, label, v, min, 100.0, ACCENT, w - 52.0 - S2);
-                let r = match tip {
-                    Some(t) => r.on_hover_text(t),
-                    None => r,
-                };
-                r.changed() | widgets::value_box(ui, Id::new(id), v, min, 100.0, Shown::Pct, 52.0)
-            })
-            .inner
-        };
-        changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")));
+        let compact =
+            |ui: &mut Ui, label: &str, id: &str, v: &mut f32, min: f32, tip: Option<String>, help: &str| -> bool {
+                if help.is_empty() {
+                    widgets::field_label(ui, label);
+                } else {
+                    widgets::field_label_help(ui, label, help);
+                }
+                ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
+                    let r = widgets::slider_ticked(ui, label, v, min, 100.0, ACCENT, w - 52.0 - S2);
+                    let r = match tip {
+                        Some(t) => r.on_hover_text(t),
+                        None => r,
+                    };
+                    r.changed() | widgets::value_box(ui, Id::new(id), v, min, 100.0, Shown::Pct, 52.0)
+                })
+                .inner
+            };
+        changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")), "");
         ui.add_space(S2);
-        changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None);
+        let spread = "Зсуває прилади один відносно одного: на нулі всі світять однаково, з більшим значенням колір біжить від приладу до приладу.";
+        changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None, spread);
         ui.add_space(S2);
         self.effect_preview(ui, w);
         ui.add_space(S2);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S1;
             ui.label(widgets::muted("Палітра"));
+            widgets::help(
+                ui,
+                "Кольори, якими грає ефект. Кнопка «+» додає поточний колір, клік по кольору прибирає його. Без палітри ефект бере власний колір кожного приладу.",
+            );
+            ui.add_space(S1);
             let mut remove = None;
             for (i, c) in self.eff.colors.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
@@ -2050,11 +2105,21 @@ impl App {
             });
         });
         ui.add_space(S3 - S2);
-        if widgets::switch(ui, &mut self.eff.by_seg, "По сегментах").changed() {
-            changed = true;
-        }
+        ui.horizontal(|ui| {
+            changed |= widgets::switch(ui, &mut self.eff.by_seg, "По сегментах").changed();
+            widgets::help(
+                ui,
+                "Ефект біжить уздовж сегментів LED-бару (кожен сегмент — як окремий прилад), а не лише від приладу до приладу.",
+            );
+        });
         ui.add_space(S3 - S2);
-        changed |= widgets::switch(ui, &mut self.eff.beat, "У такт музиці").changed();
+        ui.horizontal(|ui| {
+            changed |= widgets::switch(ui, &mut self.eff.beat, "У такт музиці").changed();
+            widgets::help(
+                ui,
+                "Ефект крокує в такт музиці. Темп береться зі звуку комп'ютера, мікрофона, VirtualDJ або з тапу (клавіша T).",
+            );
+        });
         if self.eff.beat {
             ui.add_space(S3 - S2);
             changed |= widgets::switch(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
