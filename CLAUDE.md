@@ -46,6 +46,8 @@ xvfb-run -a ./target/debug/nitor` — програма зберігає знім
 - **Стиль роботи** — навичка `/ponytail` (`.claude/skills/ponytail`, MIT, з github.com/dietrichgebert/ponytail):
   найменша повна зміна, без зайвих абстракцій; обхідні рішення позначаються `// shortcut: <межа>, <коли переробити>`.
   Огляд змін — `/ponytail-review`, борг — `/ponytail-debt`.
+- **Огляд інтерфейсу** — навичка `/web-design-guidelines` (`.claude/skills/web-design-guidelines`, MIT,
+  з github.com/vercel-labs/agent-skills): правила веб-інтерфейсів; для egui беремо ті, що мають сенс у програмі.
 - **Без Windows-специфіки в `nitor-core`**; Windows API — лише в `winshell.rs`, `nitor-setup/src/sys.rs` під `cfg(windows)`
   із заглушками для інших систем (workspace має збиратися й під Linux).
 - **Одна копія програми**: м'ютекс `Local\Nitor.App`. Інсталятор закриває програму подією `Local\Nitor.Quit`.
