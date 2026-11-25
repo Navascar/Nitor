@@ -918,23 +918,12 @@ impl App {
         let gap = S2;
         let cols = (((w + gap) / (100.0 + gap)).floor() as usize).max(1);
         let cw = (w - gap * (cols as f32 - 1.0)) / cols as f32;
-        // бари з багатьма сегментами переносяться на кілька рядів; тоді всі плитки вищі
-        let bar_w = if cols >= 2 { 2.0 * cw + gap } else { cw } - 2.0 * S2;
-        let extra = self
-            .v
-            .show
-            .fixtures
-            .iter()
-            .map(|f| self.v.segs(f))
-            .filter(|&n| n > 1)
-            .map(|n| (seg_rows(n, bar_w) - 1) as f32 * (SEG_H + 3.0))
-            .fold(0.0, f32::max);
-        let th = 122.0 + extra;
+        let th = 122.0;
         let fixtures = self.v.show.fixtures.clone();
         let mut positions = vec![];
         let (mut col, mut row) = (0usize, 0usize);
         for f in &fixtures {
-            let span = if self.v.segs(f) > 1 { 2.min(cols) } else { 1 };
+            let span = seg_span(self.v.segs(f), cw, cols);
             if col + span > cols {
                 col = 0;
                 row += 1;
@@ -1027,10 +1016,11 @@ impl App {
         th: f32,
     ) -> Rect {
         let w = ui.available_width();
+        let cols = (((w + S2) / (tw + S2)).floor() as usize).max(1);
         let sizes: Vec<egui::Vec2> = fixtures
             .iter()
             .map(|f| {
-                let span = if self.v.segs(f) > 1 { 2.0 } else { 1.0 };
+                let span = seg_span(self.v.segs(f), tw, cols) as f32;
                 vec2(tw * span + S2 * (span - 1.0), th)
             })
             .collect();
@@ -1158,20 +1148,14 @@ impl App {
         let mut seg_clicked = false;
         let mut lamp_bottom;
         if n > 1 {
-            let rows = seg_rows(n, inner.width());
-            let per = n.div_ceil(rows);
-            let bar = Rect::from_min_size(
-                pos2(inner.left(), inner.top() + S2),
-                vec2(inner.width(), 3.0 + rows as f32 * (SEG_H + 3.0)),
-            );
+            let bar = Rect::from_min_size(pos2(inner.left(), inner.top() + S2), vec2(inner.width(), 32.0));
             p.rect_filled(bar, radius(R_SM), INK);
             let cells = bar.shrink(3.0);
-            let cw = (cells.width() - 3.0 * (per as f32 - 1.0)) / per as f32;
+            let cw = (cells.width() - 3.0 * (n as f32 - 1.0)) / n as f32;
             for k in 0..n {
-                let (row, col) = (k / per, k % per);
                 let cr = Rect::from_min_size(
-                    pos2(cells.left() + col as f32 * (cw + 3.0), cells.top() + row as f32 * (SEG_H + 3.0)),
-                    vec2(cw, SEG_H),
+                    pos2(cells.left() + k as f32 * (cw + 3.0), cells.top()),
+                    vec2(cw, cells.height()),
                 );
                 let sid = format!("{}#{k}", f.id);
                 let cresp =
@@ -2603,16 +2587,21 @@ enum Swatch {
     Rainbow,
 }
 
-/// Висота клітинки сегмента LED-бару.
-const SEG_H: f32 = 26.0;
 /// Найменша ширина клітинки сегмента: з проміжком 3 px центри стоять за 24 px один від одного,
-/// тож кола 24 px не перетинаються (WCAG 2.5.8, виняток за відстанню).
+/// тож кола 24 px не перетинаються (WCAG 2.5.8, виняток за відстанню). Висота клітинки — 26 px.
 const SEG_MIN_W: f32 = 21.0;
 
-/// На скільки рядів переноситься бар із `n` сегментів у плитці з внутрішньою шириною `w`.
-fn seg_rows(n: usize, w: f32) -> usize {
-    let per = (((w - 6.0 + 3.0) / (SEG_MIN_W + 3.0)).floor() as usize).max(1);
-    n.div_ceil(per)
+/// На скільки стовпців сітки (ширина `cw`, проміжок `S2`) стає плитка приладу з `n` сегментами:
+/// LED-бар — щонайменше на два, а ширше, поки клітинки не стануть `SEG_MIN_W`. Висота плиток однакова.
+/// Не більше `cols`: у вужчому стовпці клітинки тонші.
+fn seg_span(n: usize, cw: f32, cols: usize) -> usize {
+    if n <= 1 {
+        return 1;
+    }
+    // клітинки з проміжками 3 px, рамка бару 3 px з боків, поля плитки S2 з боків
+    let need = n as f32 * (SEG_MIN_W + 3.0) - 3.0 + 6.0 + 2.0 * S2;
+    let span = ((need + S2) / (cw + S2)).ceil() as usize;
+    span.max(2).min(cols)
 }
 
 fn program_swatch(p: &nitor_core::fixtures::Program) -> Option<Swatch> {
@@ -2764,13 +2753,19 @@ mod tests {
 
     #[test]
     fn led_segments_are_wide_enough() {
-        // плитка на два стовпці (~200 px всередині): 8 сегментів в один ряд, 12 і 24 — переносяться
-        for (n, rows) in [(2, 1), (8, 1), (12, 2), (24, 3)] {
-            assert_eq!(seg_rows(n, 200.0), rows, "{n} сегментів");
-            let per = n.div_ceil(rows);
-            let cw = (200.0 - 6.0 - 3.0 * (per as f32 - 1.0)) / per as f32;
-            assert!(cw >= SEG_MIN_W, "{n} сегментів: {cw} px");
+        // стовпець сітки ~108 px: 8 сегментів — на два стовпці, 12 — на три, 24 — на шість
+        let cw = 108.0;
+        for (n, span) in [(1, 1), (2, 2), (8, 2), (12, 3), (24, 6)] {
+            assert_eq!(seg_span(n, cw, 10), span, "{n} сегментів");
+            if n > 1 {
+                let inner = cw * span as f32 + S2 * (span as f32 - 1.0) - 2.0 * S2 - 6.0;
+                let cell = (inner - 3.0 * (n as f32 - 1.0)) / n as f32;
+                assert!(cell >= SEG_MIN_W, "{n} сегментів: {cell} px");
+            }
         }
+        // вузький стовпець: не ширше за сітку
+        assert_eq!(seg_span(24, cw, 4), 4);
+        assert_eq!(seg_span(8, cw, 1), 1);
     }
 
     #[test]
