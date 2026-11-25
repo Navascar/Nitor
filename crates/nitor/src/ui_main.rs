@@ -1563,7 +1563,7 @@ impl App {
                 } else {
                     ("play", "Увімкнути сцену", Kind::Normal)
                 };
-                if icon_btn(icon).kind(kind).tip(tip).show(ui).clicked() {
+                if icon_btn(icon).round().kind(kind).tip(tip).show(ui).clicked() {
                     if on {
                         let ids: Vec<String> = self
                             .v

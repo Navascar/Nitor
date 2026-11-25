@@ -677,7 +677,6 @@ impl App {
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
                     .corner_radius(egui::CornerRadius { nw: 0, ne: R_LG, sw: 0, se: R_LG })
                     .inner_margin(egui::Margin::same(S5 as i8))
-                    .shadow(egui::Shadow { offset: [-6, 6], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.5) })
                     .show(ui, |ui| {
                         // нульовий відступ потрібен лише між бічною панеллю й карткою
                         ui.spacing_mut().item_spacing.x = ui.ctx().style().spacing.item_spacing.x;

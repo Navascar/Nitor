@@ -58,6 +58,8 @@ pub struct Btn<'a> {
     busy: bool,
     /// секунди від удару: кільце навколо кнопки
     ring: Option<f32>,
+    /// кругла (кнопка відтворення: ▶/■)
+    round: bool,
 }
 
 static SHOW_KEYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -135,6 +137,7 @@ pub fn btn<'a>(text: impl Into<WidgetText>) -> Btn<'a> {
         progress: 0.0,
         busy: false,
         ring: None,
+        round: false,
     }
 }
 
@@ -206,6 +209,11 @@ impl<'a> Btn<'a> {
     }
     pub fn left(mut self) -> Self {
         self.left_align = true;
+        self
+    }
+    /// Кругла кнопка-значок: так позначається відтворення (▶/■), щоб не плутати з іншими діями.
+    pub fn round(mut self) -> Self {
+        self.round = true;
         self
     }
     /// Підказка гарячої клавіші в кнопці («F», «Ctrl+A»); не показується, якщо підказки вимкнено.
@@ -295,12 +303,13 @@ impl<'a> Btn<'a> {
             (fill, stroke, fg) = (bf.lerp_to_gamma(df, dt), bs.lerp_to_gamma(ds, dt), bg.lerp_to_gamma(dg, dt));
         }
         let pop = if done && dt < 1.0 { 0.6 + 0.4 * crate::anim::ease_out(dt) } else { 1.0 };
+        let rr = if self.round { 255 } else { R_MD };
         if ui.is_rect_visible(rect) {
             let a = if self.enabled { 1.0 } else { 0.45 };
             let p = ui.painter();
             p.rect(
                 rect,
-                radius(R_MD),
+                radius(rr),
                 fill.gamma_multiply(a),
                 Stroke::new(1.0_f32, stroke.gamma_multiply(a)),
                 StrokeKind::Inside,
@@ -308,13 +317,18 @@ impl<'a> Btn<'a> {
             if self.progress > 0.0 {
                 let clip =
                     Rect::from_min_max(rect.min, pos2(rect.left() + rect.width() * self.progress, rect.bottom()));
-                p.with_clip_rect(clip.intersect(p.clip_rect())).rect_filled(rect, radius(R_MD), alpha(ACCENT, 0.35));
+                p.with_clip_rect(clip.intersect(p.clip_rect())).rect_filled(rect, radius(rr), alpha(ACCENT, 0.35));
             }
             if let Some(age) = self.ring {
-                crate::anim::ring(ui, rect, age, ACCENT, R_MD as f32);
+                crate::anim::ring(ui, rect, age, ACCENT, rr as f32);
             }
             if resp.has_focus() {
-                p.rect_stroke(rect.expand(2.0), radius(R_MD + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
+                p.rect_stroke(
+                    rect.expand(2.0),
+                    radius(rr.saturating_add(2)),
+                    Stroke::new(2.0_f32, ACCENT),
+                    StrokeKind::Outside,
+                );
             }
             let fg = fg.gamma_multiply(a);
             let content_w = match (&galley, self.icon) {
