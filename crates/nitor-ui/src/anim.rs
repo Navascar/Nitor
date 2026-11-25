@@ -24,6 +24,25 @@ pub fn anim_bool(ctx: &Context, id: Id, on: bool, time: f32) -> f32 {
     ctx.animate_bool_with_time(id, on, time)
 }
 
+/// Наведення й натискання (за tasteskill): наведення проявляється за 150 мс і згасає за 120 мс,
+/// натискання — 90 мс. Повертає (наведення 0..1, натискання 0..1).
+pub fn hover_press(ctx: &Context, id: Id, hovered: bool, pressed: bool) -> (f32, f32) {
+    let h = anim_bool(ctx, id.with("hover"), hovered, if hovered { 0.15 } else { 0.12 });
+    let p = anim_bool(ctx, id.with("press"), pressed, 0.09);
+    (h, p)
+}
+
+/// Зсув і масштаб кнопки чи картки: наведення піднімає на `lift` px, натискання опускає на 1 px нижче
+/// спокою й стискає до 0,985. Зі «Зменшити рух» нічого не рухається (колір змінюється й так).
+pub fn lift_rect(rect: Rect, hover: f32, press: f32, lift: f32) -> Rect {
+    if reduced_motion() {
+        return rect;
+    }
+    let dy = -lift * hover * (1.0 - press) + press;
+    let s = 1.0 - 0.015 * press;
+    Rect::from_center_size(rect.center() + egui::vec2(0.0, dy), rect.size() * s)
+}
+
 /// Частка 0..1 анімації, що почалася в `t0` і триває `dur` с; зі «Зменшити рух» — одразу 1.
 pub fn progress(ctx: &Context, t0: f64, dur: f32) -> f32 {
     if reduced_motion() {

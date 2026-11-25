@@ -964,13 +964,11 @@ impl App {
         let resp = ui.interact(rect, id, Sense::click()).on_hover_text(&f.profile);
         let selected = self.sel.contains(&f.id);
         let p = ui.painter().clone();
-        let (fill, stroke) = if selected {
-            (ACCENT_SOFT, ACCENT)
-        } else if resp.hovered() {
-            (RAISED, LINE_STRONG)
-        } else {
-            (RAISED, LINE)
-        };
+        // плитка піднімається на 2 px під мишею, рамка темнішає на крок
+        let (h, _) = nitor_ui::anim::hover_press(ui.ctx(), id, resp.hovered(), false);
+        let rect = nitor_ui::anim::lift_rect(rect, h, 0.0, 2.0);
+        let (fill, stroke) =
+            if selected { (ACCENT_SOFT, ACCENT) } else { (RAISED, LINE.lerp_to_gamma(LINE_STRONG, h)) };
         p.rect(rect, radius(R_LG), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
         if resp.has_focus() {
             p.rect_stroke(rect.expand(2.0), radius(R_LG + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);

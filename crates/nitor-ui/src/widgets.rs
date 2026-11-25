@@ -272,8 +272,15 @@ impl<'a> Btn<'a> {
             }
         });
         let hovered = resp.hovered() && self.enabled;
-        let (mut fill, mut stroke, mut fg) = colors(self.kind, hovered);
-        // «Готово» проявляється плавно з попереднього вигляду кнопки, галочка трохи підстрибує
+        let (h, pr) =
+            crate::anim::hover_press(ui.ctx(), resp.id, hovered, resp.is_pointer_button_down_on() && self.enabled);
+        let lerp3 = |a: (Color32, Color32, Color32), b: (Color32, Color32, Color32), t: f32| {
+            (a.0.lerp_to_gamma(b.0, t), a.1.lerp_to_gamma(b.1, t), a.2.lerp_to_gamma(b.2, t))
+        };
+        let (mut fill, mut stroke, mut fg) = lerp3(colors(self.kind, false), colors(self.kind, true), h);
+        // наведення піднімає кнопку на 1 px, натискання опускає; місце в розкладці не змінюється
+        let rect = crate::anim::lift_rect(rect, h, pr, 1.0);
+        // «Готово» проявляється плавно з попереднього вигляду кнопки, галочка виростає без відскоку
         let done = self.kind == Kind::Done;
         let kind_id = resp.id.with("kind");
         if !done {
@@ -282,11 +289,11 @@ impl<'a> Btn<'a> {
         let dt = crate::anim::anim_bool(ui.ctx(), resp.id.with("done"), done, 0.2);
         if dt > 0.0 && dt < 1.0 {
             let base = ui.data(|d| d.get_temp::<Kind>(kind_id)).unwrap_or_default();
-            let (bf, bs, bg) = colors(base, hovered);
-            let (df, ds, dg) = colors(Kind::Done, hovered);
+            let (bf, bs, bg) = lerp3(colors(base, false), colors(base, true), h);
+            let (df, ds, dg) = lerp3(colors(Kind::Done, false), colors(Kind::Done, true), h);
             (fill, stroke, fg) = (bf.lerp_to_gamma(df, dt), bs.lerp_to_gamma(ds, dt), bg.lerp_to_gamma(dg, dt));
         }
-        let pop = if done && dt < 1.0 { 0.6 + 0.4 * dt + 0.35 * (dt * std::f32::consts::PI).sin() } else { 1.0 };
+        let pop = if done && dt < 1.0 { 0.6 + 0.4 * crate::anim::ease_out(dt) } else { 1.0 };
         if ui.is_rect_visible(rect) {
             let a = if self.enabled { 1.0 } else { 0.45 };
             let p = ui.painter();

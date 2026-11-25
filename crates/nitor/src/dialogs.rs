@@ -2366,11 +2366,14 @@ fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
     let resp = ui
         .interact(r, Id::new(("lib-card", &fx.m, &fx.n)), Sense::click())
         .on_hover_text(format!("{} — вибрати режим", library::title(&fx.m, &fx.n)));
+    // картка з дією піднімається на 2 px, рамка темнішає на крок
+    let (h, _) = nitor_ui::anim::hover_press(ui.ctx(), resp.id, resp.hovered(), false);
+    let r = nitor_ui::anim::lift_rect(r, h, 0.0, 2.0);
     ui.painter().rect(
         r,
         radius(R_LG),
         RAISED,
-        Stroke::new(1.0_f32, if resp.hovered() { LINE_STRONG } else { LINE }),
+        Stroke::new(1.0_f32, LINE.lerp_to_gamma(LINE_STRONG, h)),
         StrokeKind::Inside,
     );
     let inner = r.shrink(S3);
