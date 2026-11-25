@@ -504,10 +504,14 @@ impl App {
         let (fill, stroke) = if o.ok {
             (RAISED, if resp.hovered() { LINE_STRONG } else { LINE })
         } else {
-            // плавне червоне переливання, період 1,6 с
-            let t = ui.input(|i| i.time) as f32;
-            let k = 0.5 - 0.5 * (t * std::f32::consts::TAU / 1.6).cos();
-            ui.ctx().request_repaint();
+            // плавне червоне переливання, період 1,6 с; зі «Зменшити рух» — рівний червоний
+            let k = if anim::reduced_motion() {
+                1.0
+            } else {
+                let t = ui.input(|i| i.time) as f32;
+                ui.ctx().request_repaint();
+                0.5 - 0.5 * (t * std::f32::consts::TAU / 1.6).cos()
+            };
             (RAISED.lerp_to_gamma(DANGER_STRONG, 0.15 + 0.45 * k), alpha(DANGER, 0.4 + 0.6 * k))
         };
         p.rect(r, egui::CornerRadius::same(255), fill, Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
