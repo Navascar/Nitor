@@ -91,6 +91,7 @@ pub struct EffDraft {
     pub by_seg: bool,
     pub beat: bool,
     pub beat_pulse: bool,
+    pub order: nitor_core::effects::Order,
     pub synced: bool,
 }
 
@@ -296,6 +297,8 @@ pub struct App {
     /// кадр, на якому зробити знімок (режим NITOR_SCREENSHOT)
     pub shot_frame: Option<u64>,
     pub flash_hold: Option<FlashHold>,
+    /// Плитку перетягують на плані: прилад і зсув від його місця.
+    pub plan_drag: Option<(String, egui::Vec2)>,
     pub audio: Option<crate::audio::Audio>,
     pub midi: Option<crate::midi::Midi>,
     pub midi_error: String,
@@ -327,6 +330,7 @@ impl App {
                 by_seg: true,
                 beat: false,
                 beat_pulse: false,
+                order: Default::default(),
                 synced: false,
             },
             pane: Pane::Color,
@@ -376,6 +380,7 @@ impl App {
             quit_request: Default::default(),
             shot_frame: None,
             flash_hold: None,
+            plan_drag: None,
             audio: None,
             midi: None,
             midi_error: String::new(),
@@ -417,6 +422,7 @@ impl App {
             self.eff.by_seg = e.by_segment;
             self.eff.beat = e.beat;
             self.eff.beat_pulse = e.beat_pulse;
+            self.eff.order = e.order;
             self.eff.synced = true;
         }
     }
@@ -586,6 +592,7 @@ impl App {
             by_segment: Some(self.eff.by_seg),
             beat: Some(self.eff.beat),
             beat_pulse: Some(self.eff.beat_pulse),
+            order: Some(self.eff.order),
         }
     }
 

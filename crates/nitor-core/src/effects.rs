@@ -83,6 +83,39 @@ pub struct Effect {
     /// Спалах яскравості на кожен удар (лише з `beat`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub beat_pulse: bool,
+    /// Порядок приладів у ефекті (розкид фази, «біжучий вогонь»).
+    #[serde(default, skip_serializing_if = "Order::is_ids")]
+    pub order: Order,
+}
+
+/// Порядок приладів у ефекті: як вибрано (за адресами) чи за місцем на плані сцени.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Order {
+    #[default]
+    Ids,
+    /// Зліва направо.
+    Left,
+    /// Від центру до країв.
+    Center,
+    /// По колу за годинниковою стрілкою, починаючи згори.
+    Circle,
+}
+
+impl Order {
+    fn is_ids(&self) -> bool {
+        *self == Order::Ids
+    }
+
+    /// Ключ сортування точки плану (x, y) відносно центру (cx, cy).
+    pub fn key(self, x: f64, y: f64, cx: f64, cy: f64) -> (f64, f64) {
+        match self {
+            Order::Ids => (0.0, 0.0),
+            Order::Left => (x, y),
+            Order::Center => ((x - cx).abs(), y),
+            Order::Circle => ((x - cx).atan2(cy - y).rem_euclid(std::f64::consts::TAU), 0.0),
+        }
+    }
 }
 
 impl Default for Effect {
@@ -96,6 +129,7 @@ impl Default for Effect {
             by_segment: true,
             beat: false,
             beat_pulse: false,
+            order: Order::Ids,
         }
     }
 }

@@ -32,6 +32,9 @@ const SLIDERS: [(&str, &str, Color32); 8] = [
 /// Радіус колірного кола на екрані.
 const WHEEL_R: f32 = 110.0;
 
+/// Крок сітки плану сцени, точки.
+const PLAN_CELL: f32 = 12.0;
+
 /// HSV → RGB для колірного кола (округлення до цілих).
 fn wheel_hsv(h: f64, s: f64, v: f64) -> Rgb {
     let (r, g, b) = hsv_to_rgb(h, s, v);
@@ -916,6 +919,12 @@ impl App {
             format!("Вибрано {desc}")
         }));
         ui.add_space(S2);
+        let mut plan = self.v.prefs.plan;
+        let opts = [(false, "Сітка"), (true, "План")];
+        if widgets::segmented(ui, Id::new("plan-seg"), &mut plan, &opts, None) {
+            self.set_prefs(|p| p.plan = plan);
+        }
+        ui.add_space(S2);
         // сітка: auto-fill minmax(100px, 1fr), бари — на дві колонки
         let w = ui.available_width();
         let gap = S2;
@@ -941,8 +950,11 @@ impl App {
         let rows = positions.last().map_or(0, |p| p.1 + 1) + usize::from(col == 0 && !positions.is_empty())
             - usize::from(col == 0 && !positions.is_empty());
         let rows = rows.max(positions.iter().map(|p| p.1 + 1).max().unwrap_or(0));
-        let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (th + gap) - gap), Sense::hover());
         let eff_ids: Vec<String> = if self.v.effect_running() { self.v.show.effect.ids.clone() } else { vec![] };
+        if plan {
+            return self.plan_view(ui, &fixtures, &eff_ids, cw, th);
+        }
+        let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (th + gap) - gap), Sense::hover());
         // плитка, що змінила місце (додали чи видалили прилад, змінилася кількість колонок), переїжджає
         // плавно; новий прилад виростає на своєму місці (крім першого кадру після запуску)
         let appear = ui.input(|i| i.time) > 1.0;
@@ -953,15 +965,98 @@ impl App {
             );
             let slot = ((c as u64) << 32) | r as u64;
             let rect = anim::slot_rect(ui.ctx(), Id::new(("tile-slot", &f.id)), slot, rect, appear);
-            self.tile(ui, rect, f, &eff_ids);
+            self.tile(ui, rect, f, &eff_ids, false);
         }
         area
     }
 
-    fn tile(&mut self, ui: &mut Ui, rect: Rect, f: &nitor_core::Fixture, eff_ids: &[String]) {
+    /// План сцени: плитки стоять, де їх поставили, і перетягуються з прилипанням до сітки.
+    fn plan_view(
+        &mut self,
+        ui: &mut Ui,
+        fixtures: &[nitor_core::Fixture],
+        eff_ids: &[String],
+        tw: f32,
+        th: f32,
+    ) -> Rect {
+        let w = ui.available_width();
+        let sizes: Vec<egui::Vec2> = fixtures
+            .iter()
+            .map(|f| {
+                let span = if self.v.segs(f) > 1 { 2.0 } else { 1.0 };
+                vec2(tw * span + S2 * (span - 1.0), th)
+            })
+            .collect();
+        // ще не розставлені прилади стоять рядами під розставленими
+        let mut y0 =
+            fixtures.iter().filter_map(|f| f.pos).map(|p| p[1] as f32 * PLAN_CELL + th + S2).fold(0.0, f32::max);
+        let mut x0 = 0.0;
+        let mut auto = vec![[0i16; 2]; fixtures.len()];
+        for (i, _) in fixtures.iter().enumerate().filter(|(_, f)| f.pos.is_none()) {
+            if x0 > 0.0 && x0 + sizes[i].x > w {
+                (x0, y0) = (0.0, y0 + th + S2);
+            }
+            auto[i] = [(x0 / PLAN_CELL).round() as i16, (y0 / PLAN_CELL).ceil() as i16];
+            x0 += sizes[i].x + S2;
+        }
+        let pos = |f: &nitor_core::Fixture, i: usize| f.pos.unwrap_or(auto[i]);
+        let bottom = fixtures.iter().enumerate().map(|(i, f)| pos(f, i)[1] as f32 * PLAN_CELL + th).fold(0.0, f32::max);
+        let (area, _) = ui.allocate_exact_size(vec2(w, (bottom + th).max(320.0)), Sense::hover());
+        // точки сітки — щоб було видно, куди прилипне плитка
+        let p = ui.painter();
+        let step = PLAN_CELL * 2.0;
+        let mut y = area.top();
+        while y <= area.bottom() {
+            let mut x = area.left();
+            while x <= area.right() {
+                p.circle_filled(pos2(x, y), 1.0, LINE_STRONG);
+                x += step;
+            }
+            y += step;
+        }
+        for (i, f) in fixtures.iter().enumerate() {
+            let [x, y] = pos(f, i);
+            let mut min = pos2(area.left() + x as f32 * PLAN_CELL, area.top() + y as f32 * PLAN_CELL);
+            if let Some((id, off)) = &self.plan_drag {
+                if *id == f.id {
+                    min += *off;
+                }
+            }
+            let rect = Rect::from_min_size(min, sizes[i]);
+            let resp = self.tile(ui, rect, f, eff_ids, true);
+            if resp.drag_started() {
+                self.plan_drag = Some((f.id.clone(), egui::Vec2::ZERO));
+            }
+            if resp.dragged() {
+                if let Some((_, off)) = self.plan_drag.as_mut() {
+                    *off += resp.drag_delta();
+                }
+            }
+            if resp.drag_stopped() {
+                if let Some((_, off)) = self.plan_drag.take() {
+                    let max_x = ((w - sizes[i].x) / PLAN_CELL).floor().max(0.0);
+                    let nx = ((x as f32 * PLAN_CELL + off.x) / PLAN_CELL).round().clamp(0.0, max_x);
+                    let ny = ((y as f32 * PLAN_CELL + off.y) / PLAN_CELL).round().max(0.0);
+                    self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some([nx as i16, ny as i16]) });
+                }
+            }
+        }
+        area
+    }
+
+    /// Плитка приладу; `drag` — на плані плитку можна перетягувати.
+    fn tile(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        f: &nitor_core::Fixture,
+        eff_ids: &[String],
+        drag: bool,
+    ) -> egui::Response {
         let id = Id::new(("tile", &f.id));
         self.tile_rects.push((f.id.clone(), rect));
-        let resp = ui.interact(rect, id, Sense::click()).on_hover_text(&f.profile);
+        let sense = if drag { Sense::click_and_drag() } else { Sense::click() };
+        let resp = ui.interact(rect, id, sense).on_hover_text(&f.profile);
         let selected = self.sel.contains(&f.id);
         let p = ui.painter().clone();
         let (fill, stroke) = if selected {
@@ -1071,7 +1166,7 @@ impl App {
             text(&label, font(FS_XS), ACCENT, &mut lamp_bottom);
         }
         if seg_clicked {
-            return;
+            return resp;
         }
         if resp.double_clicked() {
             self.select_only(&f.id);
@@ -1083,7 +1178,8 @@ impl App {
             let m = self.fixture_menu(&f.id);
             self.want_menu(m);
         }
-        resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let cursor = if drag { egui::CursorIcon::Grab } else { egui::CursorIcon::PointingHand };
+        resp.on_hover_cursor(cursor)
     }
 
     // ----------------------------------------------------------------- колір --
@@ -2053,6 +2149,16 @@ impl App {
         if widgets::switch(ui, &mut self.eff.by_seg, "По сегментах").changed() {
             changed = true;
         }
+        ui.add_space(S3 - S2);
+        widgets::field_label(ui, "Порядок приладів");
+        use nitor_core::effects::Order;
+        let orders = [
+            (Order::Ids, "За адресами".to_string()),
+            (Order::Left, "Зліва направо (за планом)".to_string()),
+            (Order::Center, "Від центру (за планом)".to_string()),
+            (Order::Circle, "По колу (за планом)".to_string()),
+        ];
+        changed |= widgets::select(ui, "effOrder", &mut self.eff.order, &orders, ui.available_width());
         ui.add_space(S3 - S2);
         changed |= widgets::switch(ui, &mut self.eff.beat, "У такт музиці").changed();
         if self.eff.beat {

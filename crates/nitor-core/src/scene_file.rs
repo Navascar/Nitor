@@ -109,6 +109,7 @@ fn clean_effect(v: Option<&Value>) -> Option<Effect> {
             by_segment: v.get("by_segment").and_then(Value::as_bool).unwrap_or(true),
             beat: v.get("beat").and_then(Value::as_bool).unwrap_or(false),
             beat_pulse: v.get("beat_pulse").and_then(Value::as_bool).unwrap_or(false),
+            order: v.get("order").and_then(|o| serde_json::from_value(o.clone()).ok()).unwrap_or_default(),
         }
         .clamped(),
     )
