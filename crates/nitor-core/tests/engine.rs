@@ -929,3 +929,15 @@ fn scene_fade_curve() {
     assert!((30..=34).contains(&k(FadeCurve::EaseIn)), "м'який старт: 1/8 на половині часу");
     assert!((221..=225).contains(&k(FadeCurve::EaseOut)), "м'який кінець: 7/8 на половині часу");
 }
+
+#[test]
+fn folds_survive_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let mut e = Engine::load(&path);
+    let mut p = e.prefs.clone();
+    p.folds.insert("fadeCurve".into(), true);
+    ok(&mut e, Command::SetPrefs(p));
+    e.save(0.0).unwrap();
+    assert_eq!(Engine::load(&path).prefs.folds.get("fadeCurve"), Some(&true), "розгорнута крива лишається розгорнутою");
+}

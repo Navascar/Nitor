@@ -785,18 +785,16 @@ pub fn field_label_help(ui: &mut Ui, text: &str, help_text: &str) {
     });
 }
 
-/// Підпис частини панелі, що згортається: клік по стрілці чи підпису. Стан пам'ятається, поки програма відкрита.
-/// Повертає, чи частина розгорнута.
-pub fn fold(ui: &mut Ui, key: &str, text: &str, help_text: Option<&str>, open_default: bool) -> bool {
+/// Підпис частини панелі, що згортається: клік по стрілці чи підпису. `open` — поточний стан;
+/// повертає новий (програма зберігає його в налаштуваннях).
+pub fn fold(ui: &mut Ui, key: &str, text: &str, help_text: Option<&str>, mut open: bool) -> bool {
     let id = Id::new(("fold", key));
-    let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, open_default));
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = S1;
         let tw = text_width(ui, text, font(FS_SM));
         let (r, resp) = ui.allocate_exact_size(vec2(14.0 + S1 + tw, 18.0), Sense::click());
         if resp.clicked() {
             open = !open;
-            ui.data_mut(|d| d.insert_persisted(id, open));
         }
         resp.widget_info(|| WidgetInfo::selected(WidgetType::CollapsingHeader, true, open, text));
         let c = if resp.hovered() || resp.has_focus() { TEXT } else { MUTED };

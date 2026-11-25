@@ -238,6 +238,9 @@ pub struct Prefs {
     /// «Зменшити рух»: `None` — як у налаштуваннях системи.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reduce_motion: Option<bool>,
+    /// Згорнуті чи розгорнуті частини панелей (`effPreview`, `fadeCurve`); без запису — як за замовчуванням.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folds: BTreeMap<String, bool>,
 }
 
 /// Як світло рухається під час переходу до сцени.

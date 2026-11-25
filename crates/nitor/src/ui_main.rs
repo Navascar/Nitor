@@ -1387,7 +1387,7 @@ impl App {
     /// Смужка з 8 умовних приладів: вибраний ефект ще до запуску, з тією ж швидкістю, розкидом і палітрою.
     fn effect_preview(&mut self, ui: &mut Ui, w: f32) {
         let help = "Так ефект виглядатиме на приладах ще до запуску: з тією ж швидкістю, розкидом фази й палітрою. На прожектори його вмикає «Запустити».";
-        if !widgets::fold(ui, "effPreview", "Перегляд", Some(help), true) {
+        if !self.fold(ui, "effPreview", "Перегляд", Some(help), true) {
             return;
         }
         let eff = nitor_core::Effect {
@@ -1422,10 +1422,22 @@ impl App {
         }
     }
 
+    /// Частина панелі, що згортається; стан зберігається в налаштуваннях. Повертає, чи розгорнуто.
+    fn fold(&mut self, ui: &mut Ui, key: &str, text: &str, help: Option<&str>, default: bool) -> bool {
+        let open = self.v.prefs.folds.get(key).copied().unwrap_or(default);
+        let now = widgets::fold(ui, key, text, help, open);
+        if now != open {
+            self.set_prefs(|p| {
+                p.folds.insert(key.to_string(), now);
+            });
+        }
+        now
+    }
+
     /// Крива переходу між сценами: три плитки з графіком (налаштування зберігається).
     fn fade_curve_row(&mut self, ui: &mut Ui, w: f32) {
         use nitor_core::engine::FadeCurve;
-        if !widgets::fold(ui, "fadeCurve", "Крива переходу", None, false) {
+        if !self.fold(ui, "fadeCurve", "Крива переходу", None, false) {
             return;
         }
         let cur = self.v.prefs.fade_curve;
