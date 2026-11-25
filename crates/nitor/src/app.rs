@@ -47,6 +47,7 @@ pub struct View {
     pub schedule: Vec<nitor_core::schedule::Event>,
     pub place: Option<nitor_core::schedule::Place>,
     pub os2l: Option<u16>,
+    pub remote: Option<u16>,
 }
 
 impl View {
@@ -95,6 +96,7 @@ pub struct EffDraft {
     pub by_seg: bool,
     pub beat: bool,
     pub beat_pulse: bool,
+    pub order: nitor_core::effects::Order,
     pub synced: bool,
 }
 
@@ -302,6 +304,8 @@ pub struct App {
     /// кадр, на якому зробити знімок (режим NITOR_SCREENSHOT)
     pub shot_frame: Option<u64>,
     pub flash_hold: Option<FlashHold>,
+    /// Плитку перетягують на плані: прилад і зсув від його місця.
+    pub plan_drag: Option<(String, egui::Vec2)>,
     pub audio: Option<crate::audio::Audio>,
     pub midi: Option<crate::midi::Midi>,
     pub midi_error: String,
@@ -310,6 +314,10 @@ pub struct App {
     pub os2l: Option<crate::os2l::Server>,
     /// Помилка сервера OS2L для порту, який не вдалося відкрити.
     pub os2l_error: Option<(u16, String)>,
+    pub remote: Option<crate::remote::Server>,
+    pub remote_error: Option<(u16, String)>,
+    /// Встановлення драйвера WinUSB триває; результат — коли завершиться.
+    pub winusb: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     /// Автозапуск з Windows (читається з реєстру, коли відкрили вкладку).
     pub autostart: Option<bool>,
     /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
@@ -333,6 +341,7 @@ impl App {
                 by_seg: true,
                 beat: false,
                 beat_pulse: false,
+                order: Default::default(),
                 synced: false,
             },
             pane: Pane::Color,
@@ -382,12 +391,16 @@ impl App {
             quit_request: Default::default(),
             shot_frame: None,
             flash_hold: None,
+            plan_drag: None,
             audio: None,
             midi: None,
             midi_error: String::new(),
             midi_learn: None,
             os2l: None,
             os2l_error: None,
+            remote: None,
+            remote_error: None,
+            winusb: None,
             autostart: None,
             exit_hold: None,
         };
@@ -423,6 +436,7 @@ impl App {
             self.eff.by_seg = e.by_segment;
             self.eff.beat = e.beat;
             self.eff.beat_pulse = e.beat_pulse;
+            self.eff.order = e.order;
             self.eff.synced = true;
         }
     }
@@ -592,6 +606,7 @@ impl App {
             by_segment: Some(self.eff.by_seg),
             beat: Some(self.eff.beat),
             beat_pulse: Some(self.eff.beat_pulse),
+            order: Some(self.eff.order),
         }
     }
 
@@ -672,6 +687,27 @@ impl App {
                 Err(e) => {
                     log::warn!("OS2L: {e}");
                     self.os2l_error = Some((port, e));
+                }
+            }
+        }
+    }
+
+    /// Пульт з телефона працює, поки його ввімкнено й задано PIN.
+    pub fn remote_tick(&mut self) {
+        let want = self.v.remote.filter(|_| self.v.has_pin);
+        if self.remote.as_ref().map(|s| s.port) == want
+            || (want.is_some() && self.remote_error.as_ref().map(|e| e.0) == want)
+        {
+            return;
+        }
+        self.remote = None;
+        self.remote_error = None;
+        if let Some(port) = want {
+            match crate::remote::Server::start(self.core.clone(), port) {
+                Ok(s) => self.remote = Some(s),
+                Err(e) => {
+                    log::warn!("Пульт: {e}");
+                    self.remote_error = Some((port, e));
                 }
             }
         }
@@ -1274,6 +1310,7 @@ pub fn snapshot(core: &Core) -> View {
         schedule: e.schedule.clone(),
         place: e.place.clone(),
         os2l: e.os2l,
+        remote: e.remote,
     }
 }
 

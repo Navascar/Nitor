@@ -17,6 +17,7 @@ mod menus;
 mod midi;
 mod os2l;
 mod paths;
+mod remote;
 mod splash;
 
 mod ui_main;
@@ -33,17 +34,21 @@ struct Args {
     config: PathBuf,
     check: bool,
     reset_pin: bool,
+    install_winusb: bool,
     verbose: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { config: paths::config_path(), check: false, reset_pin: false, verbose: false };
+    let mut a =
+        Args { config: paths::config_path(), check: false, reset_pin: false, install_winusb: false, verbose: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--config" => a.config = it.next().map(PathBuf::from).ok_or("--config потребує шляху")?,
             "--check" => a.check = true,
             "--reset-pin" => a.reset_pin = true,
+            // запускає сама програма з правами адміністратора (кнопка «Встановити драйвер»)
+            "--install-winusb" => a.install_winusb = true,
             "-v" | "--verbose" => a.verbose = true,
             "-h" | "--help" => {
                 return Err("Nitor — керування RGB-прожекторами через DMX\n\n\
@@ -90,6 +95,17 @@ fn main() {
             println!("{l}");
         }
         std::process::exit(code);
+    }
+    if args.install_winusb {
+        logging::init(paths::log_path(), args.verbose);
+        match winshell::install_winusb() {
+            Ok(()) => log::info!("Драйвер WinUSB для uDMX встановлено"),
+            Err(e) => {
+                log::error!("Драйвер WinUSB не встановлено: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
     if args.reset_pin {
         attach_console();
@@ -215,6 +231,7 @@ impl eframe::App for App {
         self.audio_tick();
         self.midi_tick(ctx);
         self.os2l_tick();
+        self.remote_tick();
         self.pending_menu = None;
 
         // інсталятор оновлення запущено — програма завершується, світло не гасне
@@ -416,6 +433,7 @@ impl App {
                         "keys" => self.open_settings(Some(dialogs::Tab::Keys)),
                         "midi" => self.open_settings(Some(dialogs::Tab::Midi)),
                         "vdj" => self.open_settings(Some(dialogs::Tab::Os2l)),
+                        "remote" => self.open_settings(Some(dialogs::Tab::Remote)),
                         "libtab" => self.open_settings(Some(dialogs::Tab::Library)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "about" => self.open_settings(Some(dialogs::Tab::About)),

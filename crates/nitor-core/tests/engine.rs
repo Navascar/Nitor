@@ -943,3 +943,28 @@ fn folds_survive_restart() {
     e.save(0.0).unwrap();
     assert_eq!(Engine::load(&path).prefs.folds.get("fadeCurve"), Some(&true), "розгорнута крива лишається розгорнутою");
 }
+
+#[test]
+fn effect_order_follows_plan() {
+    use nitor_core::effects::Order;
+    let mut e = Engine::new();
+    let ids: Vec<String> = (0..3).map(|i| add(&mut e, "Dim+RGB (4 кан.)", 1 + i * 4)).collect();
+    let r: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+    ok(&mut e, hex(&r, "#ff0000"));
+    // на плані: перший — праворуч, другий — ліворуч, третій — посередині
+    for (id, x) in ids.iter().zip([20i16, 0, 10]) {
+        ok(&mut e, Command::PlaceFixture { id: id.clone(), pos: Some([x, 0]) });
+    }
+    ok(&mut e, effect(EffectKind::Chase, &r));
+    let lit = |e: &mut Engine| (0..3).find(|i| e.render(0.0)[1 + i * 4] == 255).unwrap();
+    assert_eq!(lit(&mut e), 0, "за замовчуванням — порядок приладів");
+    ok(&mut e, Command::SetEffect(EffectPatch { order: Some(Order::Left), ..Default::default() }));
+    assert_eq!(lit(&mut e), 1, "зліва направо — першим найлівіший");
+    ok(&mut e, Command::SetEffect(EffectPatch { order: Some(Order::Center), ..Default::default() }));
+    assert_eq!(lit(&mut e), 2, "від центру — першим середній");
+    ok(&mut e, Command::Undo); // зміни порядку підряд — один крок
+    ok(&mut e, Command::Undo); // запуск ефекту
+    assert_eq!(e.show.fixtures[2].pos, Some([10, 0]));
+    ok(&mut e, Command::Undo);
+    assert_eq!(e.show.fixtures[2].pos, None, "переміщення на плані скасовується");
+}

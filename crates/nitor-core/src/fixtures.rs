@@ -132,6 +132,9 @@ pub struct Fixture {
     pub speed: u8,
     #[serde(default)]
     pub model: Option<Model>,
+    /// Місце на плані сцени (клітинки сітки); `None` — ще не розставлено.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pos: Option<[i16; 2]>,
 }
 
 /// Значення колірних каналів 0..255 (дробові — після ефектів і кросфейду).
@@ -186,6 +189,7 @@ impl Fixture {
             preset: None,
             speed: 128,
             model,
+            pos: None,
         }
     }
 

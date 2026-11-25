@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "nitor"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "arboard",
  "eframe",
@@ -2215,9 +2215,11 @@ dependencies = [
  "midir",
  "nitor-core",
  "nitor-ui",
+ "qrcodegen",
  "rfd",
  "serde_json",
  "ureq",
+ "uuid",
  "wasapi",
  "windows-sys 0.59.0",
  "winreg",
@@ -2226,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-core"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "flate2",
  "indexmap",
@@ -2242,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-library"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "flate2",
  "regex",
@@ -2252,7 +2254,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-setup"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2270,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "nitor-ui"
-version = "2.3.4"
+version = "2.4.0"
 dependencies = [
  "ab_glyph",
  "eframe",
@@ -2908,6 +2910,12 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
 
 [[package]]
 name = "quick-error"

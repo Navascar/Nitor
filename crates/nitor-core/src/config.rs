@@ -57,6 +57,8 @@ pub struct ConfigFile {
     pub place: Option<crate::schedule::Place>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os2l: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<u16>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub operator: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,6 +174,7 @@ impl Engine {
         self.schedule = crate::schedule::check(cfg.schedule).unwrap_or_default();
         self.place = crate::schedule::check_place(cfg.place).unwrap_or_default();
         self.os2l = cfg.os2l;
+        self.remote = cfg.remote;
         self.pin = cfg.pin.filter(|p| p.contains(':'));
     }
 
@@ -205,6 +208,7 @@ impl Engine {
             schedule: self.schedule.clone(),
             place: self.place.clone(),
             os2l: self.os2l,
+            remote: self.remote,
             pin: self.pin.clone(),
         }
     }

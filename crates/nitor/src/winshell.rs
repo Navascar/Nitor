@@ -137,6 +137,119 @@ mod imp {
         (min(&l) - min(&u)) as i32
     }
 
+    /// Запускає цю ж програму з правами адміністратора (запит UAC) для встановлення драйвера WinUSB
+    /// і чекає на результат. `Ok` — драйвер встановлено.
+    pub fn install_winusb_elevated() -> Result<(), String> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
+        use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let (file, verb, args) = (wide(&exe.to_string_lossy()), wide("runas"), wide("--install-winusb"));
+        let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = file.as_ptr();
+        info.lpParameters = args.as_ptr();
+        if unsafe { ShellExecuteExW(&mut info) } == 0 || info.hProcess.is_null() {
+            return Err("встановлення скасовано".into());
+        }
+        let mut code = 1u32;
+        unsafe {
+            WaitForSingleObject(info.hProcess, INFINITE);
+            GetExitCodeProcess(info.hProcess, &mut code);
+            CloseHandle(info.hProcess);
+        }
+        if code == 0 { Ok(()) } else { Err("Windows не встановила драйвер".into()) }
+    }
+
+    /// Прив'язує до uDMX (USB 16C0:05DC) вбудований у Windows драйвер WinUSB (`winusb.inf`, підписаний
+    /// Microsoft) — те саме, що вибрати «WinUsb Device» у Диспетчері пристроїв. Потрібні права адміністратора.
+    // shortcut: не перевірено на справжньому Windows, якщо не спрацює — підписаний INF із власним сертифікатом
+    pub fn install_winusb() -> Result<(), String> {
+        use windows_sys::Win32::Devices::DeviceAndDriverInstallation::*;
+        // клас «USBDevice» — у ньому драйвер WinUSB
+        const USBDEVICE: &str = "{88BAE032-5A81-49F0-BC3D-A4FF138216D6}";
+        let last = || std::io::Error::last_os_error().to_string();
+        unsafe {
+            let devs = SetupDiGetClassDevsW(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                DIGCF_ALLCLASSES | DIGCF_PRESENT,
+            );
+            if devs as isize == -1 {
+                return Err(last());
+            }
+            let mut result = Err("uDMX не знайдено".to_string());
+            let mut i = 0;
+            loop {
+                let mut data: SP_DEVINFO_DATA = std::mem::zeroed();
+                data.cbSize = std::mem::size_of::<SP_DEVINFO_DATA>() as u32;
+                if SetupDiEnumDeviceInfo(devs, i, &mut data) == 0 {
+                    break;
+                }
+                i += 1;
+                let mut buf = [0u16; 1024];
+                let ok = SetupDiGetDeviceRegistryPropertyW(
+                    devs,
+                    &data,
+                    SPDRP_HARDWAREID,
+                    std::ptr::null_mut(),
+                    buf.as_mut_ptr().cast(),
+                    (buf.len() * 2) as u32,
+                    std::ptr::null_mut(),
+                );
+                let ids = String::from_utf16_lossy(&buf).to_uppercase();
+                if ok == 0 || !ids.contains("USB\\VID_16C0&PID_05DC") {
+                    continue;
+                }
+                result = (|| {
+                    let class = wide(USBDEVICE);
+                    if SetupDiSetDeviceRegistryPropertyW(
+                        devs,
+                        &mut data,
+                        SPDRP_CLASSGUID,
+                        class.as_ptr().cast(),
+                        (class.len() * 2) as u32,
+                    ) == 0
+                    {
+                        return Err(format!("клас пристрою: {}", last()));
+                    }
+                    let mut params: SP_DEVINSTALL_PARAMS_W = std::mem::zeroed();
+                    params.cbSize = std::mem::size_of::<SP_DEVINSTALL_PARAMS_W>() as u32;
+                    if SetupDiGetDeviceInstallParamsW(devs, &data, &mut params) == 0 {
+                        return Err(last());
+                    }
+                    let inf = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()) + r"\INF\winusb.inf";
+                    let inf = wide(&inf);
+                    params.DriverPath[..inf.len()].copy_from_slice(&inf);
+                    params.Flags |= DI_ENUMSINGLEINF;
+                    params.FlagsEx |= DI_FLAGSEX_ALLOWEXCLUDEDDRVS;
+                    if SetupDiSetDeviceInstallParamsW(devs, &data, &params) == 0 {
+                        return Err(last());
+                    }
+                    if SetupDiBuildDriverInfoList(devs, &mut data, SPDIT_CLASSDRIVER) == 0 {
+                        return Err(format!("список драйверів: {}", last()));
+                    }
+                    let mut drv: SP_DRVINFO_DATA_V2_W = std::mem::zeroed();
+                    drv.cbSize = std::mem::size_of::<SP_DRVINFO_DATA_V2_W>() as u32;
+                    if SetupDiEnumDriverInfoW(devs, &data, SPDIT_CLASSDRIVER, 0, &mut drv) == 0 {
+                        return Err("у Windows не знайдено драйвера WinUSB".into());
+                    }
+                    let mut reboot = 0;
+                    if DiInstallDevice(std::ptr::null_mut(), devs, &data, &drv, 0, &mut reboot) == 0 {
+                        return Err(format!("встановлення: {}", last()));
+                    }
+                    Ok(())
+                })();
+                break;
+            }
+            SetupDiDestroyDeviceInfoList(devs);
+            result
+        }
+    }
+
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
     /// Nitor запускається разом із Windows.
@@ -213,6 +326,14 @@ mod imp {
     pub fn reveal(path: &str) -> Result<(), String> {
         let dir = std::path::Path::new(path).parent().unwrap_or(std::path::Path::new("."));
         std::process::Command::new("xdg-open").arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    pub fn install_winusb_elevated() -> Result<(), String> {
+        Err("драйвер WinUSB потрібен лише у Windows".into())
+    }
+
+    pub fn install_winusb() -> Result<(), String> {
+        install_winusb_elevated()
     }
 
     pub fn set_autostart(_on: bool) -> Result<(), String> {

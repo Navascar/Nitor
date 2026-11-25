@@ -208,6 +208,9 @@ pub struct Prefs {
     /// Не показувати підказки клавіш на кнопках.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_keys: bool,
+    /// Прилади показуються планом сцени, а не сіткою.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan: bool,
     /// Не показувати знаки «?» з поясненнями.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_help: bool,
@@ -395,6 +398,7 @@ pub struct EffectPatch {
     pub by_segment: Option<bool>,
     pub beat: Option<bool>,
     pub beat_pulse: Option<bool>,
+    pub order: Option<crate::effects::Order>,
 }
 
 /// Команда від інтерфейсу. Вибір `ids`: `"id"` — увесь прилад, `"id#k"` — сегмент k.
@@ -452,6 +456,11 @@ pub enum Command {
         id: String,
         delta: i32,
     },
+    /// Місце приладу на плані сцени; `None` — прибрати з плану.
+    PlaceFixture {
+        id: String,
+        pos: Option<[i16; 2]>,
+    },
     SaveProfile {
         name: String,
         channels: Vec<String>,
@@ -499,6 +508,8 @@ pub enum Command {
     SetPlace(Option<crate::schedule::Place>),
     /// Сервер OS2L для VirtualDJ: порт або `None` — вимкнено.
     SetOs2l(Option<u16>),
+    /// Пульт з телефона: порт або `None` — вимкнено (працює лише із заданим PIN).
+    SetRemote(Option<u16>),
     /// `Some` — «Спалах» натиснули, `None` — відпустили.
     Flash(Option<FlashSource>),
     SetGroups(IndexMap<String, Vec<String>>),
@@ -530,6 +541,7 @@ impl Command {
             Command::UpdateFixture { .. } => "update_fixture",
             Command::DeleteFixture { .. } => "delete_fixture",
             Command::MoveFixture { .. } => "move_fixture",
+            Command::PlaceFixture { .. } => "place_fixture",
             Command::SaveProfile { .. } => "save_profile",
             Command::RawSet { .. } => "raw_set",
             Command::RawClear(_) => "raw_clear",
@@ -548,6 +560,7 @@ impl Command {
             Command::SetSchedule(_) => "set_schedule",
             Command::SetPlace(_) => "set_place",
             Command::SetOs2l(_) => "set_os2l",
+            Command::SetRemote(_) => "set_remote",
             Command::SetGroups(_) => "set_groups",
             Command::Operator { .. } => "operator",
             Command::SetPin(_) => "set_pin",
@@ -573,6 +586,7 @@ impl Command {
                 | Command::SetSchedule(_)
                 | Command::SetPlace(_)
                 | Command::SetOs2l(_)
+                | Command::SetRemote(_)
                 | Command::Operator { .. }
                 | Command::SetPin(_)
         )
@@ -630,6 +644,7 @@ impl Command {
             "update_fixture" => "зміну приладу",
             "delete_fixture" => "видалення приладу",
             "move_fixture" => "переміщення приладу",
+            "place_fixture" => "переміщення на плані",
             "save_scene" => "збереження сцени",
             "recall_scene" => "виклик сцени",
             "delete_scene" => "видалення сцени",
@@ -684,6 +699,8 @@ pub struct Engine {
     pub place: Option<crate::schedule::Place>,
     /// Порт сервера OS2L (VirtualDJ); `None` — вимкнено. Зберігається.
     pub os2l: Option<u16>,
+    /// Порт пульта з телефона; `None` — вимкнено. Зберігається.
+    pub remote: Option<u16>,
     /// Режим оператора: лише сцени, кольори, групи й майстер. Зберігається.
     pub operator: bool,
     /// PIN виходу з режиму оператора: `сіль:sha256`; `None` — без PIN.
@@ -761,6 +778,7 @@ impl Engine {
             schedule: vec![],
             place: None,
             os2l: None,
+            remote: None,
             operator: false,
             pin: None,
             hotkeys: IndexMap::new(),
@@ -1041,6 +1059,10 @@ impl Engine {
                 let fx = self.show.fixtures.remove(i);
                 self.show.fixtures.insert(j, fx);
             }
+            Command::PlaceFixture { id, pos } => {
+                let i = self.fx_index(&id)?;
+                self.show.fixtures[i].pos = pos;
+            }
             Command::SaveProfile { name, channels, assign_to } => self.save_profile(&name, channels, assign_to)?,
             Command::RawSet { address, value } => {
                 if !(1..=DMX_CHANNELS as u16).contains(&address) {
@@ -1079,6 +1101,7 @@ impl Engine {
                     by_segment: p.by_segment.unwrap_or(cur.by_segment),
                     beat: p.beat.unwrap_or(cur.beat),
                     beat_pulse: p.beat_pulse.unwrap_or(cur.beat_pulse),
+                    order: p.order.unwrap_or(cur.order),
                 };
             }
             Command::SaveScene { name, with_effect } => {
@@ -1119,6 +1142,7 @@ impl Engine {
             Command::SetSchedule(s) => self.schedule = crate::schedule::check(s)?,
             Command::SetPlace(p) => self.place = crate::schedule::check_place(p)?,
             Command::SetOs2l(p) => self.os2l = p,
+            Command::SetRemote(p) => self.remote = p,
             Command::SetGroups(groups) => self.show.groups = self.check_groups(groups)?,
             Command::Operator { on, pin } => {
                 if !on && !self.pin_ok(&pin) {
@@ -1141,6 +1165,33 @@ impl Engine {
             Command::SetPrefs(p) => self.prefs = p.clamped(),
         }
         Ok(())
+    }
+
+    /// Прилади ефекту в порядку `order`. Прилад, ще не поставлений на план, стоїть праворуч від інших
+    /// у порядку списку приладів.
+    fn effect_order<'a>(&self, eff: &'a Effect) -> Vec<&'a String> {
+        let mut ids: Vec<&String> = eff.ids.iter().collect();
+        if eff.order == crate::effects::Order::Ids {
+            return ids;
+        }
+        let at = |id: &str| -> (f64, f64) {
+            let i = self.fx_index(id).unwrap_or(0);
+            match self.show.fixtures.get(i).and_then(|f| f.pos) {
+                Some([x, y]) => (x as f64, y as f64),
+                None => (10_000.0 + i as f64, 0.0),
+            }
+        };
+        let pts: Vec<(f64, f64)> = ids.iter().map(|id| at(id)).collect();
+        let n = pts.len().max(1) as f64;
+        let (cx, cy) = (pts.iter().map(|p| p.0).sum::<f64>() / n, pts.iter().map(|p| p.1).sum::<f64>() / n);
+        ids.sort_by(|a, b| {
+            let (pa, pb) = (at(a), at(b));
+            eff.order
+                .key(pa.0, pa.1, cx, cy)
+                .partial_cmp(&eff.order.key(pb.0, pb.1, cx, cy))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ids
     }
 
     /// Дія розкладу: сцена (з плавним переходом; Blackout знімається), «Очистити» чи Blackout.
@@ -1609,7 +1660,7 @@ impl Engine {
         let mut pixel: IndexMap<(&str, usize), usize> = IndexMap::new();
         let mut count = 0usize;
         if eff.kind != EffectKind::None {
-            for fid in &eff.ids {
+            for fid in self.effect_order(eff) {
                 let Some(fx) = self.fixture(fid) else { continue };
                 let n = self.segments(fx);
                 if eff.by_segment {
