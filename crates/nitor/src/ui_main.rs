@@ -958,8 +958,8 @@ impl App {
         area
     }
 
-    /// Порожній список приладів: нагадування про прилади, а поки вихід не працює — ще й про адаптер,
-    /// поруч і з акцентом, бо це перша дія. Синя кнопка — одна, на першій дії.
+    /// Порожній список приладів: нагадування про прилади, а поки вихід не працює — над ним ще й про адаптер,
+    /// з акцентом, бо це перша дія. Синя кнопка — одна, на першій дії.
     fn first_steps(&mut self, ui: &mut Ui) {
         ui.add_space(S5);
         let adapter = !self.v.output.ok;
@@ -993,17 +993,10 @@ impl App {
                     open_output = btn("Вибрати вихід").primary().show(ui).clicked();
                 });
             };
-            // поруч, якщо кожному вистачає місця на текст; інакше адаптер першим, прилади під ним
-            if ui.available_width() >= 2.0 * 260.0 + S5 {
-                ui.columns(2, |c| {
-                    output(&mut c[0]);
-                    fixtures(&mut c[1]);
-                });
-            } else {
-                output(ui);
-                ui.add_space(S5);
-                fixtures(ui);
-            }
+            // адаптер першим, прилади під ним
+            output(ui);
+            ui.add_space(S5);
+            fixtures(ui);
         }
         if open_output && !self.v.operator {
             self.open_settings(Some(crate::dialogs::Tab::Output));
