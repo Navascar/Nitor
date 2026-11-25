@@ -24,6 +24,7 @@ pub enum Tab {
     Keys,
     Midi,
     Os2l,
+    Remote,
     Schedule,
     About,
 }
@@ -115,6 +116,7 @@ fn tab_icon(tab: Tab) -> &'static str {
         Tab::Keys => "keyboard",
         Tab::Midi => "music",
         Tab::Os2l => "disc",
+        Tab::Remote => "phone",
         Tab::Schedule => "clock",
         Tab::About => "info",
     }
@@ -124,7 +126,7 @@ fn tab_icon(tab: Tab) -> &'static str {
 const SIDE_W: f32 = 240.0;
 
 /// Вкладки налаштувань: назва, пояснення для новачка (знак питання біля назви) і слова для пошуку.
-const TABS: [(Tab, &str, &str, &str); 11] = [
+const TABS: [(Tab, &str, &str, &str); 12] = [
     (
         Tab::General,
         "Загальні",
@@ -172,6 +174,12 @@ const TABS: [(Tab, &str, &str, &str); 11] = [
         "VirtualDJ",
         "Світло в такт музиці з VirtualDJ (протокол OS2L). Позначте «Приймати з VirtualDJ», і VirtualDJ сам знайде Nitor на цьому комп'ютері чи в локальній мережі. Удари з VirtualDJ задають темп ефектів «у такт музиці». Кнопка VirtualDJ, названа як сцена, вмикає цю сцену.",
         "os2l dj музика такт темп bpm",
+    ),
+    (
+        Tab::Remote,
+        "Пульт з телефона",
+        "Керування світлом з телефона чи планшета в тій самій мережі Wi-Fi, без встановлення програм. Увімкніть пульт і відкрийте на телефоні показану адресу або наведіть камеру на QR-код. Вхід — за PIN режиму оператора, тож без PIN пульт не вмикається. На телефоні є сцени, кольори палітри, групи, майстер, «Очистити», Blackout і «Спалах». Під час першого запуску Windows може спитати дозвіл для мережі — дозвольте для приватних мереж.",
+        "телефон планшет wi-fi мережа браузер qr pin віддалено",
     ),
     (
         Tab::Schedule,
@@ -735,6 +743,7 @@ impl App {
                                             self.os2l_block(ui);
                                         }
                                         Tab::Schedule => self.tab_schedule(ui),
+                                        Tab::Remote => self.tab_remote(ui),
                                         Tab::General => self.tab_general(ui),
                                         Tab::Access => self.tab_access(ui),
                                         Tab::About => self.tab_about(ui),
@@ -1243,6 +1252,62 @@ impl App {
         }
         if changed {
             self.send(Command::SetSchedule(ev));
+        }
+    }
+
+    fn tab_remote(&mut self, ui: &mut Ui) {
+        if !self.v.has_pin {
+            widgets::alert(
+                ui,
+                widgets::Tone::Warn,
+                "Спершу задайте PIN",
+                "Пульт відкривається лише за PIN. Його задають, коли вмикають режим оператора (замок угорі вікна).",
+                None,
+            );
+            return;
+        }
+        let mut on = self.v.remote.is_some();
+        let mut port = self.v.remote.unwrap_or(crate::remote::PORT) as i64;
+        ui.horizontal(|ui| {
+            let a = widgets::switch(ui, &mut on, "Пульт з телефона").changed();
+            ui.add_space(S3);
+            ui.label(widgets::muted("Порт"));
+            ui.add_space(S1);
+            let b = widgets::number(ui, &mut port, 1024, 65535, 80.0).changed();
+            if a || (b && on) {
+                self.send(Command::SetRemote(on.then_some(port as u16)));
+            }
+        });
+        ui.add_space(S3);
+        if let Some((p, e)) = &self.remote_error {
+            ui.label(widgets::muted(format!("Порт {p}: {e}")));
+            return;
+        }
+        let Some(srv) = &self.remote else { return };
+        let Some(ip) = crate::remote::lan_ip() else {
+            ui.label(widgets::muted("Комп'ютер не підключено до мережі"));
+            return;
+        };
+        let url = format!("http://{ip}:{}/", srv.port);
+        ui.label(RichText::new("Відкрийте на телефоні:").size(FS_MD));
+        ui.label(RichText::new(&url).font(bold(FS_LG)).color(ACCENT));
+        ui.add_space(S3);
+        // QR-код адреси: темні модулі на білому, з полем у 4 модулі, як вимагає стандарт
+        if let Ok(qr) = qrcodegen::QrCode::encode_text(&url, qrcodegen::QrCodeEcc::Medium) {
+            let n = qr.size();
+            let m = 5.0;
+            let side = (n + 8) as f32 * m;
+            let (r, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
+            let p = ui.painter();
+            p.rect_filled(r, radius(R_SM), WHITE);
+            for y in 0..n {
+                for x in 0..n {
+                    if qr.get_module(x, y) {
+                        let min = r.min + vec2((x + 4) as f32 * m, (y + 4) as f32 * m);
+                        p.rect_filled(Rect::from_min_size(min, vec2(m, m)), 0.0, INK);
+                    }
+                }
+            }
         }
     }
 

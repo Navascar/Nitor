@@ -43,6 +43,7 @@ pub struct View {
     pub schedule: Vec<nitor_core::schedule::Event>,
     pub place: Option<nitor_core::schedule::Place>,
     pub os2l: Option<u16>,
+    pub remote: Option<u16>,
 }
 
 impl View {
@@ -307,6 +308,8 @@ pub struct App {
     pub os2l: Option<crate::os2l::Server>,
     /// Помилка сервера OS2L для порту, який не вдалося відкрити.
     pub os2l_error: Option<(u16, String)>,
+    pub remote: Option<crate::remote::Server>,
+    pub remote_error: Option<(u16, String)>,
     /// Автозапуск з Windows (читається з реєстру, коли відкрили вкладку).
     pub autostart: Option<bool>,
     /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
@@ -387,6 +390,8 @@ impl App {
             midi_learn: None,
             os2l: None,
             os2l_error: None,
+            remote: None,
+            remote_error: None,
             autostart: None,
             exit_hold: None,
         };
@@ -673,6 +678,27 @@ impl App {
                 Err(e) => {
                     log::warn!("OS2L: {e}");
                     self.os2l_error = Some((port, e));
+                }
+            }
+        }
+    }
+
+    /// Пульт з телефона працює, поки його ввімкнено й задано PIN.
+    pub fn remote_tick(&mut self) {
+        let want = self.v.remote.filter(|_| self.v.has_pin);
+        if self.remote.as_ref().map(|s| s.port) == want
+            || (want.is_some() && self.remote_error.as_ref().map(|e| e.0) == want)
+        {
+            return;
+        }
+        self.remote = None;
+        self.remote_error = None;
+        if let Some(port) = want {
+            match crate::remote::Server::start(self.core.clone(), port) {
+                Ok(s) => self.remote = Some(s),
+                Err(e) => {
+                    log::warn!("Пульт: {e}");
+                    self.remote_error = Some((port, e));
                 }
             }
         }
@@ -1260,6 +1286,7 @@ pub fn snapshot(core: &Core) -> View {
         schedule: e.schedule.clone(),
         place: e.place.clone(),
         os2l: e.os2l,
+        remote: e.remote,
     }
 }
 

@@ -495,6 +495,8 @@ pub enum Command {
     SetPlace(Option<crate::schedule::Place>),
     /// Сервер OS2L для VirtualDJ: порт або `None` — вимкнено.
     SetOs2l(Option<u16>),
+    /// Пульт з телефона: порт або `None` — вимкнено (працює лише із заданим PIN).
+    SetRemote(Option<u16>),
     /// `Some` — «Спалах» натиснули, `None` — відпустили.
     Flash(Option<FlashSource>),
     SetGroups(IndexMap<String, Vec<String>>),
@@ -544,6 +546,7 @@ impl Command {
             Command::SetSchedule(_) => "set_schedule",
             Command::SetPlace(_) => "set_place",
             Command::SetOs2l(_) => "set_os2l",
+            Command::SetRemote(_) => "set_remote",
             Command::SetGroups(_) => "set_groups",
             Command::Operator { .. } => "operator",
             Command::SetPin(_) => "set_pin",
@@ -569,6 +572,7 @@ impl Command {
                 | Command::SetSchedule(_)
                 | Command::SetPlace(_)
                 | Command::SetOs2l(_)
+                | Command::SetRemote(_)
                 | Command::Operator { .. }
                 | Command::SetPin(_)
         )
@@ -679,6 +683,8 @@ pub struct Engine {
     pub place: Option<crate::schedule::Place>,
     /// Порт сервера OS2L (VirtualDJ); `None` — вимкнено. Зберігається.
     pub os2l: Option<u16>,
+    /// Порт пульта з телефона; `None` — вимкнено. Зберігається.
+    pub remote: Option<u16>,
     /// Режим оператора: лише сцени, кольори, групи й майстер. Зберігається.
     pub operator: bool,
     /// PIN виходу з режиму оператора: `сіль:sha256`; `None` — без PIN.
@@ -755,6 +761,7 @@ impl Engine {
             schedule: vec![],
             place: None,
             os2l: None,
+            remote: None,
             operator: false,
             pin: None,
             hotkeys: IndexMap::new(),
@@ -1101,6 +1108,7 @@ impl Engine {
             Command::SetSchedule(s) => self.schedule = crate::schedule::check(s)?,
             Command::SetPlace(p) => self.place = crate::schedule::check_place(p)?,
             Command::SetOs2l(p) => self.os2l = p,
+            Command::SetRemote(p) => self.remote = p,
             Command::SetGroups(groups) => self.show.groups = self.check_groups(groups)?,
             Command::Operator { on, pin } => {
                 if !on && !self.pin_ok(&pin) {

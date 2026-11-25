@@ -17,6 +17,7 @@ mod menus;
 mod midi;
 mod os2l;
 mod paths;
+mod remote;
 mod splash;
 
 mod ui_main;
@@ -215,6 +216,7 @@ impl eframe::App for App {
         self.audio_tick();
         self.midi_tick(ctx);
         self.os2l_tick();
+        self.remote_tick();
         self.pending_menu = None;
 
         // інсталятор оновлення запущено — програма завершується, світло не гасне
@@ -416,6 +418,7 @@ impl App {
                         "keys" => self.open_settings(Some(dialogs::Tab::Keys)),
                         "midi" => self.open_settings(Some(dialogs::Tab::Midi)),
                         "vdj" => self.open_settings(Some(dialogs::Tab::Os2l)),
+                        "remote" => self.open_settings(Some(dialogs::Tab::Remote)),
                         "libtab" => self.open_settings(Some(dialogs::Tab::Library)),
                         "schedule" => self.open_settings(Some(dialogs::Tab::Schedule)),
                         "about" => self.open_settings(Some(dialogs::Tab::About)),

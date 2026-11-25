@@ -20,7 +20,10 @@ pub struct Server {
 
 impl Server {
     pub fn start(core: Core, port: u16) -> Result<Server, String> {
-        let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("порт {port} зайнятий: {e}"))?;
+        let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AddrInUse => "зайнятий іншою програмою — виберіть інший".to_string(),
+            _ => nitor_core::error::io_text(&e),
+        })?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();

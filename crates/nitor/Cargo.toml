@@ -19,6 +19,9 @@ image = { version = "0.25.9", default-features = false, features = ["png", "ico"
 egui = "0.32.3"
 arboard = "3.7.0"
 ureq = "2"
+# пульт з телефона: сесії (uuid) і QR-код адреси
+uuid.workspace = true
+qrcodegen = "1.8"
 # VirtualDJ знаходить сервер OS2L через mDNS (DNS-SD)
 mdns-sd = "0.22"
 
