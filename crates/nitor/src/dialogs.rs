@@ -633,7 +633,17 @@ impl App {
                             widgets::focus_ring(ui, &resp, r, R_MD);
                             if on {
                                 let r = nitor_ui::anim::glide_rect(ui.ctx(), pill_id, r, 0.2);
-                                ui.painter().set(pill, egui::Shape::rect_filled(r, radius(R_MD), ACCENT_SOFT));
+                                // вибране — тло й рамка акценту, текст світлий (синій текст на цьому тлі — 4.46:1)
+                                ui.painter().set(
+                                    pill,
+                                    egui::epaint::RectShape::new(
+                                        r,
+                                        radius(R_MD),
+                                        ACCENT_SOFT,
+                                        Stroke::new(1.0_f32, ACCENT),
+                                        StrokeKind::Inside,
+                                    ),
+                                );
                                 pill_shown = true;
                             } else if resp.hovered() {
                                 ui.painter().rect_filled(r, radius(R_MD), RAISED);
@@ -651,7 +661,7 @@ impl App {
                                 Align2::LEFT_CENTER,
                                 label,
                                 font(FS_MD),
-                                fg,
+                                if on { TEXT } else { MUTED },
                             );
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 go = Some(tab);
@@ -1893,11 +1903,17 @@ impl App {
                     });
                     widgets::focus_ring(ui, &resp, r, R_MD);
                     if on {
-                        ui.painter().rect_filled(r, radius(R_MD), ACCENT_SOFT);
+                        ui.painter().rect(
+                            r,
+                            radius(R_MD),
+                            ACCENT_SOFT,
+                            Stroke::new(1.0_f32, ACCENT),
+                            StrokeKind::Inside,
+                        );
                     } else if resp.hovered() && enabled {
                         ui.painter().rect_filled(r, radius(R_MD), RAISED);
                     }
-                    let fg = if on { ACCENT } else { TEXT }.gamma_multiply(a);
+                    let fg = TEXT.gamma_multiply(a);
                     ui.painter().text(pos2(r.left() + S3, r.center().y), Align2::LEFT_CENTER, label, font(FS_MD), fg);
                     ui.painter().text(
                         pos2(r.right() - S3, r.center().y),

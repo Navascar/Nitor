@@ -245,3 +245,127 @@ pub fn spinner(ui: &Ui, rect: Rect, color: Color32) {
     ui.painter().add(egui::Shape::line(pts, Stroke::new(2.0_f32, color)));
     ui.ctx().request_repaint();
 }
+
+/// Мінімальний проміжок між протилежними стрибками яскравості на екрані, секунди: не більше
+/// 4 стрибків, тобто 2 спалахів на секунду (WCAG 2.3.1 дозволяє 3).
+const FLASH_GAP: f64 = 0.25;
+/// Стрибок, що вважається спалахом: зміна відносної яскравості на 10 % (як у WCAG).
+const FLASH_STEP: f32 = 0.1;
+
+#[derive(Clone, Copy)]
+struct Calm {
+    shown: Color32,
+    /// Найсвітліше (поки яскравість росте) чи найтемніше (поки падає) з показаного.
+    ext: f32,
+    up: bool,
+    t_rev: f64,
+}
+
+/// Відносна яскравість кольору за WCAG (0..1).
+pub fn luminance(c: Color32) -> f32 {
+    let ch = |v: u8| {
+        let v = v as f32 / 255.0;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * ch(c.r()) + 0.7152 * ch(c.g()) + 0.0722 * ch(c.b())
+}
+
+/// Колір живого світла для екрана без небезпечного миготіння: строб, «Спалах» і швидкі ефекти
+/// на прожекторах лишаються як є, а на екрані яскравість змінює напрям не частіше ніж раз на
+/// `FLASH_GAP`. Плавні переходи й зміни в межах 10 % показуються одразу.
+pub fn calm_color(ctx: &Context, id: Id, c: Color32) -> Color32 {
+    let now = ctx.input(|i| i.time);
+    let (s, wait) = calm_step(ctx.data(|d| d.get_temp(id)), c, now);
+    if let Some(w) = wait {
+        // зарано для нового спалаху: лишається попередній колір, а за мить — перевірка знову
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(w));
+    }
+    ctx.data_mut(|d| d.insert_temp(id, s));
+    s.shown
+}
+
+/// Один крок `calm_color`: новий стан і, якщо колір притримано, скільки ще чекати.
+fn calm_step(prev: Option<Calm>, c: Color32, now: f64) -> (Calm, Option<f64>) {
+    let l = luminance(c);
+    let mut s = prev.unwrap_or(Calm { shown: c, ext: l, up: true, t_rev: f64::MIN });
+    let rising = l >= s.ext;
+    if rising == s.up {
+        // яскравість іде далі в тому ж напрямку
+        s.ext = l;
+        s.shown = c;
+    } else if (l - s.ext).abs() < FLASH_STEP {
+        s.shown = c;
+    } else if now - s.t_rev >= FLASH_GAP {
+        s.up = rising;
+        s.ext = l;
+        s.t_rev = now;
+        s.shown = c;
+    } else {
+        return (s, Some(FLASH_GAP - (now - s.t_rev)));
+    }
+    (s, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Скільки разів показана яскравість змінила напрям на 10 % і більше.
+    fn reversals(frames: impl Iterator<Item = (f64, Color32)>) -> usize {
+        let (mut s, mut n, mut last) = (None, 0, None::<(f32, bool)>);
+        for (t, c) in frames {
+            let (next, _) = calm_step(s, c, t);
+            s = Some(next);
+            let l = luminance(next.shown);
+            match last {
+                None => last = Some((l, true)),
+                Some((ext, up)) => {
+                    if (l >= ext) == up {
+                        last = Some((l, up));
+                    } else if (l - ext).abs() >= FLASH_STEP {
+                        n += 1;
+                        last = Some((l, !up));
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn strobe_is_calmed_to_two_flashes_per_second() {
+        // строб 10 Гц, екран 60 кадрів/с, 3 секунди
+        let frames = (0..180).map(|i| {
+            let t = i as f64 / 60.0;
+            (t, if (t * 10.0).fract() < 0.5 { Color32::WHITE } else { Color32::BLACK })
+        });
+        // спалах — два протилежні стрибки; за 3 с не більше 3 × 2 спалахи × 2 = 12 стрибків
+        assert!(reversals(frames) <= 12);
+    }
+
+    #[test]
+    fn smooth_fade_is_untouched() {
+        let mut s = None;
+        for i in 0..=60 {
+            let v = (i * 255 / 60) as u8;
+            let c = Color32::from_rgb(v, v, v);
+            let (next, wait) = calm_step(s, c, i as f64 / 60.0);
+            assert_eq!(next.shown, c);
+            assert!(wait.is_none());
+            s = Some(next);
+        }
+    }
+
+    #[test]
+    fn slow_blink_passes() {
+        // 1 Гц — нижче межі: кожна зміна показується одразу
+        let mut s = None;
+        for i in 0..240 {
+            let t = i as f64 / 60.0;
+            let c = if (t * 1.0).fract() < 0.5 { Color32::WHITE } else { Color32::BLACK };
+            let (next, _) = calm_step(s, c, t);
+            assert_eq!(next.shown, c);
+            s = Some(next);
+        }
+    }
+}

@@ -407,7 +407,8 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
         Kind::Outline => (if hovered { alpha(TEXT, 0.12) } else { Color32::TRANSPARENT }, TEXT, TEXT),
         Kind::Close if hovered => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Close => (Color32::TRANSPARENT, Color32::TRANSPARENT, TEXT),
-        Kind::Update => (ACCENT_SOFT, ACCENT, ACCENT),
+        // текст світлий: синій на ACCENT_SOFT поверх SURFACE — лише 4.46:1
+        Kind::Update => (ACCENT_SOFT, ACCENT, TEXT),
         Kind::Toggled => (ACCENT_SOFT, ACCENT, TEXT),
         Kind::Done => (Color32::TRANSPARENT, OK, OK),
     }
