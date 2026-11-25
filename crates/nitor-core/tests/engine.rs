@@ -60,10 +60,12 @@ fn commands_and_scene_fade() {
     ok(&mut e, Command::SaveScene { name: "green".into(), with_effect: false });
     ok(&mut e, hex(&[&all[0]], "#000000"));
     e.handle(Command::RecallScene { name: "green".into(), fade: 2.0 }, 100.0).unwrap();
+    assert_eq!(e.fade_window(), Some((100.0, 2.0)), "перехід видно інтерфейсу");
     e.render(101.0);
     assert!((120..=135).contains(&e.show.fixtures[0].g));
     e.render(103.0);
     assert_eq!(e.show.fixtures[0].g, 255);
+    assert_eq!(e.fade_window(), None, "перехід завершився");
     assert_eq!(e.active_scene.as_deref(), Some("green"), "сцену увімкнено");
     let prefs = e.prefs.clone();
     ok(&mut e, Command::SetPrefs(prefs));

@@ -33,6 +33,8 @@ pub struct View {
     pub overlaps: Vec<(String, String)>,
     /// увімкнена сцена
     pub active_scene: Option<String>,
+    /// плавний перехід, що йде: початок і тривалість (годинник рушія)
+    pub fade: Option<(f64, f64)>,
     pub output: OutputInfo,
     pub flashing: bool,
     pub operator: bool,
@@ -1260,6 +1262,7 @@ pub fn snapshot(core: &Core) -> View {
         preset_fixtures: e.preset_fixtures(),
         overlaps: e.overlaps(),
         active_scene: e.active_scene.clone(),
+        fade: e.fade_window(),
         output: s.output.info(),
         flashing: !e.flash.is_empty(),
         operator: e.operator,

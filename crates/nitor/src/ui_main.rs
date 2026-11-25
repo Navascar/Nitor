@@ -1581,7 +1581,15 @@ impl App {
                     }
                 }
                 let bw = ui.available_width() - 2.0 * (CONTROL_H_SM + S1);
-                let r = btn(name.clone()).min_width(bw).left().tip(scene_tip(&name)).show(ui);
+                // поки сцена плавно вмикається, кнопка заповнюється зліва направо
+                let k = match self.v.fade {
+                    Some((t0, dur)) if on && dur > 0.0 => ((self.core.now() - t0) / dur).clamp(0.0, 1.0) as f32,
+                    _ => 0.0,
+                };
+                if k > 0.0 && k < 1.0 {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+                }
+                let r = btn(name.clone()).min_width(bw).left().progress(k).tip(scene_tip(&name)).show(ui);
                 self.scene_button(&r, &name);
                 if r.secondary_clicked() {
                     let m = self.scene_menu(Some(&name));

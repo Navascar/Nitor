@@ -1575,6 +1575,11 @@ impl Engine {
         }
     }
 
+    /// Плавний перехід, що зараз іде (сцена чи «Очистити»): початок і тривалість за годинником рушія.
+    pub fn fade_window(&self) -> Option<(f64, f64)> {
+        self.fade.as_ref().map(|f| (f.start, f.dur))
+    }
+
     /// Рендер кадру в момент `now`: кросфейд, ефекти, строб, блекаут, ручні канали.
     pub fn render(&mut self, now: f64) -> [u8; DMX_CHANNELS] {
         if let Some(fade) = self.fade.take() {
