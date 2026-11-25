@@ -265,11 +265,6 @@ impl App {
         let mut m = self.v.show.master as f32;
         ui.spacing_mut().item_spacing.x = S1;
         ui.label(RichText::new("Майстер").size(FS_MD));
-        widgets::help(
-            ui,
-            "Загальна яскравість усього світла. 100 % — як задано в кольорах і сценах, 50 % — усе вдвічі тьмяніше, \
-             0 % — темно. Кольори при цьому не губляться: підніміть майстер, і світло повернеться.",
-        );
         ui.spacing_mut().item_spacing.x = S3;
         let sw = if self.top_compact { 90.0 } else { 160.0 };
         let mut changed = widgets::slider_named(ui, "Майстер", &mut m, 0.0, 255.0, ACCENT, sw).changed();
@@ -809,27 +804,28 @@ impl App {
     // --------------------------------------------------------------- прилади --
     /// Пояснення для новачка біля назви панелі (знак «?»).
     fn panel_help(title: &str) -> Option<&'static str> {
+        // «Колір» і «Ефекти» зрозумілі з назви — без «?»; тут лише те, чого не видно на екрані
         Some(match title {
             "Прилади" => {
-                "Ваші прожектори. Клацніть прилад, щоб вибрати його. Кілька приладів вибирають із Shift або рамкою мишею, усі одразу — Ctrl+A. Колір і ефекти діють на вибрані прилади, а якщо нічого не вибрано, то на всі. Подвійний клік відкриває властивості приладу, права кнопка миші — його меню. Кнопка «Група» зберігає вибрані прилади як групу. «План» показує прилади так, як вони стоять на сцені: перетягніть плитку на її місце (або виберіть її клавішею Tab і зсувайте стрілками), і ефекти зможуть бігти зліва направо, від центру чи по колу."
+                "Shift або рамка мишею — вибрати кілька, Ctrl+A — усі. Колір і ефекти діють на вибрані, а якщо нічого \
+                 не вибрано — на всі. Подвійний клік — властивості, права кнопка — меню. «План» розставляє прилади, \
+                 як на сцені, щоб ефекти бігли зліва направо чи від центру."
             }
             "Сцени" => {
-                "Сцена запам'ятовує кольори всіх приладів, а з галочкою «Зберегти разом з ефектом» ще й ефект. Налаштуйте світло, введіть назву і натисніть «Зберегти». Клік по сцені вмикає її, а «Час переходу» задає, за скільки секунд світло плавно зміниться. Якщо затиснути Alt і тримати сцену, вона світить лише поки кнопку тримають. Сцену можна зберегти у файл через її меню й відкрити на іншому комп'ютері кнопкою «Відкрити з файлу»."
-            }
-            "Ефекти" => {
-                "Ефект сам змінює світло на вибраних приладах (або на всіх). Виберіть ефект, швидкість і кольори палітри та натисніть «Запустити». Статичний колір чи «Очистити» зупиняють ефект на своїх приладах."
+                "Сцена запам'ятовує кольори приладів, з галочкою — ще й ефект. Клік вмикає сцену плавно, за «Час \
+                 переходу». Alt + утримання — сцена світить, поки тримаєте."
             }
             "Кольори" => {
-                "Готові кольори. Клік вмикає колір на вибраних приладах, а якщо нічого не вибрано, то на всіх, і зупиняє на них ефект. Якщо затиснути Alt і тримати колір, він світить лише поки кнопку тримають."
+                "Клік вмикає колір на вибраних приладах (або на всіх) і зупиняє на них ефект. Alt + утримання — колір \
+                 світить, поки тримаєте."
             }
             "Групи" => {
-                "Група — кілька приладів під однією назвою, наприклад «Ліва сторона». Клік по групі вибирає її прилади, Shift + клік додає їх до вже вибраних. Створюють групу кнопкою «Група» над приладами; один прилад може бути в кількох групах."
-            }
-            "Колір" => {
-                "Колір вибраних приладів (або всіх, якщо нічого не вибрано). Клацніть колір на колі чи в палітрі праворуч; клавіші 1–9 вмикають перші кольори палітри. Кнопка «+» додає поточний колір у палітру. Повзунки нижче налаштовують окремі канали: червоний, зелений, синій, білий, яскравість тощо. Видно лише ті повзунки, канали яких є у вибраних приладів. Щоб вписати точне значення, клацніть число біля повзунка."
+                "Клік вибирає прилади групи, Shift + клік додає їх до вибраних. Створити групу — кнопкою «Група» над \
+                 приладами."
             }
             "Пресети" => {
-                "Вбудовані програми прожектора: він сам перемикає кольори чи ефекти, а Nitor лише вибирає програму. Є не в усіх приладів. Повернутися до звичайного керування кольором можна перемикачем «Колір» угорі."
+                "Вбудовані програми прожектора: він сам змінює кольори, Nitor лише вибирає програму. Назад до кольору — \
+                 перемикач «Колір»."
             }
             _ => return None,
         })
@@ -900,19 +896,7 @@ impl App {
             self.act(ui.ctx(), a);
         }
         if self.v.show.fixtures.is_empty() {
-            ui.add_space(S5);
-            widgets::empty_state(
-                ui,
-                "bulb",
-                "Приладів ще немає",
-                "Додайте прожектори з адресами, як на самих приладах. Модель можна вибрати з бібліотеки.",
-            );
-            ui.add_space(S3);
-            ui.vertical_centered(|ui| {
-                if btn("Додати прилад").icon("plus").primary().show(ui).clicked() {
-                    self.open_add();
-                }
-            });
+            self.first_steps(ui);
             return Rect::NOTHING;
         }
         self.groups_row(ui);
@@ -972,6 +956,61 @@ impl App {
             self.tile(ui, rect, f, &eff_ids, false);
         }
         area
+    }
+
+    /// Порожній список приладів: нагадування про прилади, а поки вихід не працює — ще й про адаптер,
+    /// поруч і з акцентом, бо це перша дія. Синя кнопка — одна, на першій дії.
+    fn first_steps(&mut self, ui: &mut Ui) {
+        ui.add_space(S5);
+        let adapter = !self.v.output.ok;
+        let mut open_output = false;
+        let mut add = false;
+        let mut fixtures = |ui: &mut Ui| {
+            widgets::empty_state(
+                ui,
+                "bulb",
+                "Приладів ще немає",
+                "Додайте прожектори з адресами, як на самих приладах. Модель можна вибрати з бібліотеки.",
+            );
+            ui.add_space(S3);
+            ui.vertical_centered(|ui| {
+                let b = btn("Додати прилад").icon("plus");
+                add = if adapter { b } else { b.primary() }.show(ui).clicked();
+            });
+        };
+        if !adapter {
+            fixtures(ui);
+        } else {
+            let mut output = |ui: &mut Ui| {
+                widgets::empty_state_accent(
+                    ui,
+                    "plug",
+                    "Адаптер не підключено",
+                    "Підключіть USB-адаптер DMX і виберіть його. Без обладнання можна спробувати «Симулятор».",
+                );
+                ui.add_space(S3);
+                ui.vertical_centered(|ui| {
+                    open_output = btn("Вибрати вихід").primary().show(ui).clicked();
+                });
+            };
+            // поруч, якщо кожному вистачає місця на текст; інакше адаптер першим, прилади під ним
+            if ui.available_width() >= 2.0 * 260.0 + S5 {
+                ui.columns(2, |c| {
+                    output(&mut c[0]);
+                    fixtures(&mut c[1]);
+                });
+            } else {
+                output(ui);
+                ui.add_space(S5);
+                fixtures(ui);
+            }
+        }
+        if open_output && !self.v.operator {
+            self.open_settings(Some(crate::dialogs::Tab::Output));
+        }
+        if add {
+            self.open_add();
+        }
     }
 
     /// План сцени: плитки стоять, де їх поставили, і перетягуються з прилипанням до сітки.
@@ -1238,10 +1277,11 @@ impl App {
                 if widgets::segmented(ui, Id::new("pane-seg"), &mut pane, &opts, None) {
                     self.pane = pane;
                 }
-                widgets::help(ui, Self::panel_help(if show_presets { "Пресети" } else { "Колір" }).unwrap_or_default());
+                if show_presets {
+                    widgets::help(ui, Self::panel_help("Пресети").unwrap_or_default());
+                }
             } else {
                 widgets::h2(ui, "Колір");
-                widgets::help(ui, Self::panel_help("Колір").unwrap_or_default());
             }
         });
         ui.add_space(S3 - S2);
@@ -1488,7 +1528,7 @@ impl App {
                 ui.data_mut(|d| d.remove::<String>(id));
             }
             if r.lost_focus() && text.trim() != shown {
-                match nitor_core::Rgb::from_hex(text.trim()) {
+                match nitor_core::Rgb::from_typed(&text) {
                     Ok(c) => {
                         self.set_color(ColorValues { hex: Some(c), ..Default::default() });
                         ui.data_mut(|d| d.remove::<String>(id));
@@ -1506,14 +1546,13 @@ impl App {
         });
         if ui.data(|d| d.get_temp::<bool>(err_id).unwrap_or(false)) {
             ui.painter().rect_stroke(field, radius(R_MD), Stroke::new(2.0_f32, DANGER), StrokeKind::Inside);
-            ui.label(RichText::new("Потрібно шість знаків після #, наприклад #FF8000").size(FS_SM).color(DANGER));
+            ui.label(RichText::new("Потрібно 3 або 6 знаків 0–9 і A–F, наприклад #FF8000").size(FS_SM).color(DANGER));
         }
     }
 
     /// Смужка з 8 умовних приладів: вибраний ефект ще до запуску, з тією ж швидкістю, розкидом і палітрою.
     fn effect_preview(&mut self, ui: &mut Ui, w: f32) {
-        let help = "Так ефект виглядатиме на приладах ще до запуску: з тією ж швидкістю, розкидом фази й палітрою. На прожектори його вмикає «Запустити».";
-        if !self.fold(ui, "effPreview", "Перегляд", Some(help), true) {
+        if !self.fold(ui, "effPreview", "Перегляд", None, true) {
             return;
         }
         let eff = nitor_core::Effect {
@@ -1626,54 +1665,20 @@ impl App {
             self.act(ui.ctx(), Act::SwapSide);
         }
         let w = ui.available_width();
-        ui.horizontal(|ui| {
-            let r = widgets::input(ui, &mut self.scene_name, "Назва сцени", w - 110.0);
-            if r.secondary_clicked() {
-                let m = self.input_menu(r.id);
-                self.want_menu(m);
-            }
-            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let label = if self.flashing("sceneSave") { "Збережено" } else { "Зберегти" };
-            let kind = if self.flashing("sceneSave") { Kind::Done } else { Kind::Normal };
-            let mut b = btn(label).kind(kind).min_width(100.0);
-            if self.flashing("sceneSave") {
-                b = b.icon("check");
-            }
-            if b.show(ui).clicked() || enter {
-                let name = self.scene_name.trim().to_string();
-                if name.is_empty() {
-                    self.toast("Вкажіть назву сцени", false);
-                } else {
-                    let with_effect = self.scene_with_effect;
-                    if self.send(Command::SaveScene { name, with_effect }) {
-                        self.scene_name.clear();
-                        self.flash("sceneSave");
-                    }
-                }
-            }
-        });
-        ui.add_space(S3 - S2);
-        widgets::check(ui, &mut self.scene_with_effect, "Зберегти разом з ефектом");
-        ui.add_space(S3 - S2);
-        widgets::field_label(ui, "Час переходу, с");
-        widgets::number_f(ui, &mut self.scene_fade, 0.0, 60.0, 0.1, 1, w);
-        ui.add_space(S3 - S2);
-        self.fade_curve_row(ui, w);
-        ui.add_space(S3 - S2);
-        if btn("Відкрити з файлу").small().icon("upload").show(ui).clicked() {
-            self.act(ui.ctx(), Act::OpenSceneFile);
-        }
-        ui.add_space(S3 - S2);
+        // спершу кнопки сцен — їх натискають на виступі; створення нової сцени — під ними
         let names: Vec<String> = self.v.show.scenes.keys().cloned().collect();
         if names.is_empty() {
-            ui.add_space(S3);
+            ui.add_space(S2);
             widgets::empty_state(
                 ui,
                 "layers",
                 "Збережених сцен немає",
-                "Налаштуйте світло, введіть назву вгорі й натисніть «Зберегти».",
+                "Налаштуйте світло, введіть назву нижче й натисніть «Зберегти».",
             );
+            ui.add_space(S4);
         }
+        let has_scenes = !names.is_empty();
+        let gap = ui.spacing().item_spacing.y;
         ui.spacing_mut().item_spacing.y = S1;
         for name in names {
             ui.horizontal(|ui| {
@@ -1724,6 +1729,51 @@ impl App {
                     self.act(ui.ctx(), Act::AskDeleteScene(name.clone()));
                 }
             });
+        }
+        ui.spacing_mut().item_spacing.y = gap;
+        if has_scenes {
+            // тонка лінія відділяє сцени від створення нової
+            ui.add_space(S3);
+            let (line, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
+            ui.painter().rect_filled(line, 0.0, LINE);
+            ui.add_space(S3 - S2);
+        }
+        ui.horizontal(|ui| {
+            let r = widgets::input(ui, &mut self.scene_name, "Назва нової сцени", w - 110.0);
+            if r.secondary_clicked() {
+                let m = self.input_menu(r.id);
+                self.want_menu(m);
+            }
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let label = if self.flashing("sceneSave") { "Збережено" } else { "Зберегти" };
+            let kind = if self.flashing("sceneSave") { Kind::Done } else { Kind::Normal };
+            let mut b = btn(label).kind(kind).min_width(100.0);
+            if self.flashing("sceneSave") {
+                b = b.icon("check");
+            }
+            if b.show(ui).clicked() || enter {
+                let name = self.scene_name.trim().to_string();
+                if name.is_empty() {
+                    self.toast("Вкажіть назву сцени", false);
+                } else {
+                    let with_effect = self.scene_with_effect;
+                    if self.send(Command::SaveScene { name, with_effect }) {
+                        self.scene_name.clear();
+                        self.flash("sceneSave");
+                    }
+                }
+            }
+        });
+        ui.add_space(S3 - S2);
+        widgets::check(ui, &mut self.scene_with_effect, "Зберегти разом з ефектом");
+        ui.add_space(S3 - S2);
+        widgets::field_label(ui, "Час переходу, с");
+        widgets::number_f(ui, &mut self.scene_fade, 0.0, 60.0, 0.1, 1, w);
+        ui.add_space(S3 - S2);
+        self.fade_curve_row(ui, w);
+        ui.add_space(S3 - S2);
+        if btn("Відкрити з файлу").small().icon("upload").show(ui).clicked() {
+            self.act(ui.ctx(), Act::OpenSceneFile);
         }
         Rect::from_min_max(start, pos2(start.x + w, ui.cursor().min.y))
     }
@@ -2401,7 +2451,9 @@ impl App {
             let frames = self.v.output.frames;
             let (r, resp) = ui.allocate_exact_size(vec2(inner.width(), 22.0), Sense::click());
             let open = self.monitor_open;
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, "DMX-монітор"));
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, "DMX-монітор")
+            });
             widgets::focus_ring(ui, &resp, r, R_SM);
             // трикутник розкриття малюємо самі: у шрифтах Windows може не бути гліфа «▸»
             let c = pos2(r.left() + 5.0, r.center().y);
@@ -2418,18 +2470,7 @@ impl App {
                 bold(FS_MD),
                 TEXT,
             );
-            let mut tw = 16.0 + widgets::text_width(ui, "DMX-монітор", bold(FS_MD));
-            if widgets::help_shown() {
-                let at = Rect::from_min_size(pos2(r.left() + tw + S2, r.center().y - 9.0), vec2(18.0, 18.0));
-                ui.scope_builder(egui::UiBuilder::new().max_rect(at), |ui| {
-                    widgets::help(
-                        ui,
-                        "Показує, що програма зараз надсилає на кожен із 512 каналів DMX: чим вища смужка, тим більше значення (0–255). \
-                         Зручно перевірити, чи доходить команда до потрібної адреси. Сховати монітор можна в «Налаштування → Загальні».",
-                    )
-                });
-                tw += 18.0 + S1;
-            }
+            let tw = 16.0 + widgets::text_width(ui, "DMX-монітор", bold(FS_MD));
             ui.painter().text(
                 pos2(r.left() + tw + S2, r.center().y),
                 Align2::LEFT_CENTER,

@@ -1220,11 +1220,20 @@ pub fn chip(ui: &mut Ui, tone: Tone, text: &str) -> Response {
 
 /// Порожній стан: значок у колі, заголовок і пояснення по центру. Кнопку дії додає викликач нижче.
 pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, text: &str) {
+    empty_state_in(ui, icon, title, text, (RAISED, LINE, MUTED));
+}
+
+/// Порожній стан першої дії: значок синій у колі `ACCENT_SOFT` з рамкою `ACCENT`.
+pub fn empty_state_accent(ui: &mut Ui, icon: &str, title: &str, text: &str) {
+    empty_state_in(ui, icon, title, text, (ACCENT_SOFT, ACCENT, ACCENT));
+}
+
+fn empty_state_in(ui: &mut Ui, icon: &str, title: &str, text: &str, (fill, ring, ink): (Color32, Color32, Color32)) {
     ui.vertical_centered(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-        ui.painter().circle_filled(r.center(), 24.0, RAISED);
-        ui.painter().circle_stroke(r.center(), 24.0, Stroke::new(1.0_f32, LINE));
-        icons::image(icon, 22.0, MUTED).paint_at(ui, Rect::from_center_size(r.center(), vec2(22.0, 22.0)));
+        ui.painter().circle_filled(r.center(), 24.0, fill);
+        ui.painter().circle_stroke(r.center(), 24.0, Stroke::new(1.0_f32, ring));
+        icons::image(icon, 22.0, ink).paint_at(ui, Rect::from_center_size(r.center(), vec2(22.0, 22.0)));
         ui.add_space(S2);
         ui.label(RichText::new(title).font(bold(FS_MD)).color(TEXT));
         if !text.is_empty() {

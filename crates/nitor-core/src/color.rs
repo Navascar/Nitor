@@ -23,6 +23,26 @@ impl Rgb {
         }
     }
 
+    /// Колір, вписаний людиною: як `from_hex`, а ще `#f80`, пробіли й літери з української
+    /// розкладки (клавіші A–F: ф и с в у а).
+    pub fn from_typed(s: &str) -> Result<Rgb> {
+        let h: String = s
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '#')
+            .map(|c| match c.to_lowercase().next().unwrap_or(c) {
+                'ф' => 'a',
+                'и' => 'b',
+                'с' => 'c',
+                'в' => 'd',
+                'у' => 'e',
+                'а' => 'f',
+                c => c,
+            })
+            .collect();
+        let h = if h.len() == 3 { h.chars().flat_map(|c| [c, c]).collect() } else { h };
+        Rgb::from_hex(&h).map_err(|_| crate::err!("некоректний колір {s:?}"))
+    }
+
     pub fn hex(self) -> String {
         format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
     }
@@ -102,6 +122,16 @@ mod tests {
         assert!(Rgb::from_hex("#fff").is_err());
         assert!(Rgb::from_hex("#gg0000").is_err());
         assert!(Rgb::from_hex("#ффф").is_err());
+    }
+
+    #[test]
+    fn typed_hex_is_forgiving() {
+        assert_eq!(Rgb::from_typed("#f80").unwrap(), Rgb(255, 136, 0));
+        assert_eq!(Rgb::from_typed(" FF 80 00 ").unwrap(), Rgb(255, 128, 0));
+        assert_eq!(Rgb::from_typed("аа8000").unwrap(), Rgb(255, 128, 0));
+        assert_eq!(Rgb::from_typed("ФИС").unwrap(), Rgb(170, 187, 204));
+        assert!(Rgb::from_typed("#ff80").is_err());
+        assert!(Rgb::from_typed("#gg0000").is_err());
     }
 
     #[test]
