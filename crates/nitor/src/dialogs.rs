@@ -868,6 +868,7 @@ impl App {
                         self.find_udmx(true);
                     }
                 });
+                self.winusb_block(ui);
             }
             "enttec_pro" | "open_dmx" => {
                 widgets::field_label(ui, "Послідовний порт");
@@ -1252,6 +1253,41 @@ impl App {
         }
         if changed {
             self.send(Command::SetSchedule(ev));
+        }
+    }
+
+    /// uDMX знайдено, але драйвер не той: кнопка ставить WinUSB (Windows спитає дозвіл адміністратора).
+    fn winusb_block(&mut self, ui: &mut Ui) {
+        let done = self.winusb.as_ref().and_then(|r| r.try_recv().ok());
+        if let Some(r) = done {
+            self.winusb = None;
+            match r {
+                Ok(()) => self.toast("Драйвер WinUSB встановлено", true),
+                Err(e) => self.toast(&format!("Драйвер не встановлено: {e}. Його можна поставити через Zadig."), false),
+            }
+            self.find_udmx(false);
+        }
+        if !cfg!(windows) || self.udmx_devices.iter().all(|d| d.driver_ok) {
+            return;
+        }
+        ui.add_space(S3);
+        if self.winusb.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            widgets::alert(ui, widgets::Tone::Info, "Встановлюю драйвер…", "Дозвольте зміни у вікні Windows.", None);
+        } else if widgets::alert(
+            ui,
+            widgets::Tone::Warn,
+            "uDMX потрібен драйвер WinUSB",
+            "Адаптер підключено, але Windows поставила для нього інший драйвер. Nitor може встановити WinUSB сам — Windows спитає дозвіл адміністратора.",
+            Some("Встановити драйвер"),
+        ) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx = ui.ctx().clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::winshell::install_winusb_elevated());
+                ctx.request_repaint();
+            });
+            self.winusb = Some(rx);
         }
     }
 

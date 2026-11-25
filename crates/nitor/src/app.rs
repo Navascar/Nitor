@@ -310,6 +310,8 @@ pub struct App {
     pub os2l_error: Option<(u16, String)>,
     pub remote: Option<crate::remote::Server>,
     pub remote_error: Option<(u16, String)>,
+    /// Встановлення драйвера WinUSB триває; результат — коли завершиться.
+    pub winusb: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     /// Автозапуск з Windows (читається з реєстру, коли відкрили вкладку).
     pub autostart: Option<bool>,
     /// коли почали утримувати «Вийти з режиму оператора» (без PIN)
@@ -392,6 +394,7 @@ impl App {
             os2l_error: None,
             remote: None,
             remote_error: None,
+            winusb: None,
             autostart: None,
             exit_hold: None,
         };

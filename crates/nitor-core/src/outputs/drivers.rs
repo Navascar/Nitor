@@ -259,6 +259,8 @@ pub struct UdmxDevice {
     pub address: u8,
     pub product: String,
     pub serial: String,
+    /// Пристрій відкривається (драйвер підходить). `false` у Windows — потрібен WinUSB.
+    pub driver_ok: bool,
 }
 
 /// Контекст libusb (один на програму). Без доступу до USB — зрозуміла помилка, а не збій.
@@ -281,12 +283,13 @@ fn udmx_list() -> Result<Vec<(rusb::Device<rusb::Context>, UdmxDevice)>> {
             continue;
         }
         // без прав/драйвера рядки не прочитати
-        let (product, serial) = match dev.open() {
+        let (product, serial, driver_ok) = match dev.open() {
             Ok(h) => (
                 h.read_product_string_ascii(&desc).unwrap_or_default(),
                 h.read_serial_number_string_ascii(&desc).unwrap_or_default(),
+                true,
             ),
-            Err(_) => (String::new(), String::new()),
+            Err(_) => (String::new(), String::new(), false),
         };
         // VID/PID 16C0:05DC спільний для багатьох саморобних пристроїв V-USB
         if !product.is_empty() && !product.to_lowercase().contains("udmx") {
@@ -297,6 +300,7 @@ fn udmx_list() -> Result<Vec<(rusb::Device<rusb::Context>, UdmxDevice)>> {
             address: dev.address(),
             product: if product.is_empty() { "uDMX".into() } else { product },
             serial,
+            driver_ok,
         };
         out.push((dev, info));
     }
