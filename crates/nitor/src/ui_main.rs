@@ -379,7 +379,7 @@ impl App {
     fn flash_button(&mut self, ui: &mut Ui, key: Option<String>) {
         let rate = self.v.prefs.flash_rate;
         let (icon, label, tip) = if rate > 0.0 {
-            ("bolt", format!("Спалах · {} Гц", rate.round()), "Строб, поки кнопку тримають")
+            ("bolt", format!("Спалах {}\u{a0}Гц", rate.round()), "Строб, поки кнопку тримають")
         } else {
             ("sun", "Спалах".to_string(), "Повний білий, поки кнопку тримають")
         };
@@ -471,7 +471,7 @@ impl App {
         // помилка: лише назва інтерфейсу й червоне переливання, сам текст помилки — у налаштуваннях виходу
         let text = match () {
             _ if !o.ok => kind.to_string(),
-            _ if self.v.prefs.output_device => format!("{kind} · {}", cap(&o.status)),
+            _ if self.v.prefs.output_device => format!("{kind}: {}", o.status),
             _ => kind.to_string(),
         };
         let tip = if !o.ok {
@@ -1287,7 +1287,7 @@ impl App {
                 );
                 let resp = ui
                     .interact(r, Id::new(("prog", n)), Sense::click())
-                    .on_hover_text(format!("{} · DMX {}–{}", p.name, p.lo, p.hi));
+                    .on_hover_text(format!("{}, DMX {}–{}", p.name, p.lo, p.hi));
                 let c = used.get(&n).copied().unwrap_or(0);
                 let (fill, stroke, fg) = if c > 0 && c == fx.len() {
                     (ACCENT_STRONG, ACCENT_STRONG, WHITE)
@@ -1379,7 +1379,7 @@ impl App {
                 }
             }
             if let Some(c) = cur {
-                ui.label(widgets::muted(format!("R {} · G {} · B {}", c.0, c.1, c.2)));
+                ui.label(widgets::muted(format!("R {}   G {}   B {}", c.0, c.1, c.2)));
             }
         });
         if ui.data(|d| d.get_temp::<bool>(err_id).unwrap_or(false)) {
@@ -2036,7 +2036,7 @@ impl App {
     fn effects_block(&mut self, ui: &mut Ui) {
         let e = self.v.show.effect.clone();
         let state = if e.kind != EffectKind::None {
-            format!("{} · {} прил.", e.kind.label(), e.ids.len())
+            format!("{}, {} прил.", e.kind.label(), e.ids.len())
         } else {
             String::new()
         };
@@ -2286,7 +2286,7 @@ impl App {
             ui.painter().text(
                 pos2(r.left() + tw + S2, r.center().y),
                 Align2::LEFT_CENTER,
-                format!("· Відправлено кадрів: {frames}"),
+                format!("Відправлено кадрів: {frames}"),
                 font(FS_SM),
                 MUTED,
             );

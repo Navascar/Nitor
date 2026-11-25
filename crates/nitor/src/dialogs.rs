@@ -320,12 +320,12 @@ fn focus_on_open(ui: &Ui, r: &egui::Response, key: &str, len: usize) {
 
 /// «Режим: …» без повтору кількості каналів, якщо вона вже є в назві режиму.
 fn mode_text(mode: &str, n: usize) -> String {
-    if mode.contains("кан.") { format!("Режим: {mode}") } else { format!("Режим: {mode} · {n} кан.") }
+    if mode.contains("кан.") { format!("Режим: {mode}") } else { format!("Режим: {mode}, {n} кан.") }
 }
 
 pub fn model_label(m: &Model) -> String {
     let t = library::title(&m.m, &m.n);
-    if m.mode.is_empty() { t } else { format!("{t} · {}", m.mode) }
+    if m.mode.is_empty() { t } else { format!("{t}, {}", m.mode) }
 }
 
 impl App {
@@ -672,9 +672,9 @@ impl App {
                     .response
                     .rect
                     .height();
+                // права частина — крок тла (BG → SURFACE), без власної рамки: не картка в картці
                 egui::Frame::new()
                     .fill(SURFACE)
-                    .stroke(Stroke::new(1.0_f32, LINE_STRONG))
                     .corner_radius(egui::CornerRadius { nw: 0, ne: R_LG, sw: 0, se: R_LG })
                     .inner_margin(egui::Margin::same(S5 as i8))
                     .show(ui, |ui| {
@@ -1497,7 +1497,7 @@ impl App {
             ui.add_space(S2);
             ui.label(RichText::new(label).size(FS_MD));
             if changed {
-                ui.label(widgets::muted("· змінено"));
+                ui.label(widgets::muted("змінено"));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = S1;
@@ -1665,15 +1665,14 @@ impl App {
             let count = a.count.max(1);
             let start = a.address.max(1);
             let last = start + ch.len() as i64 * count - 1;
-            let mut info = format!("{} кан.", ch.len());
-            if n > 1 {
-                info += &format!(" · {n} сегм.");
-            }
-            info += &format!(" · канали: {} · займе адреси {start}–{last}", ch.join(" "));
+            // факти — окремими рядками, а не ланцюжком через крапки
+            let segs = if n > 1 { format!(", {n} сегм.") } else { String::new() };
+            let mut info = format!("Займе адреси {start}–{last}: {} кан.{segs}", ch.len());
             if last > DMX_CHANNELS as i64 {
-                info += " · за межами 512";
+                info += ", за межами 512";
             }
             ui.label(widgets::muted(info));
+            ui.label(RichText::new(ch.join(" ")).font(mono(FS_SM)).color(MUTED));
             ui.add_space(S3 - S2);
             // сітка 2fr 1fr 1fr
             let cw = (w - 2.0 * S3) / 4.0;
@@ -2063,7 +2062,7 @@ impl App {
                     ui.painter().text(
                         pos2(r.left() + w1, r.center().y),
                         Align2::LEFT_CENTER,
-                        format!(" · DMX {addr}"),
+                        format!("  DMX {addr}"),
                         font(FS_SM),
                         MUTED,
                     );
@@ -2171,8 +2170,9 @@ impl App {
             let start = p.address.max(1);
             let end = start + ch.len() as i64 - 1;
             let n = segment_count(&ch);
-            let segs = if n > 1 { format!(" · {n} сегм.") } else { String::new() };
-            ui.label(widgets::muted(format!("Адреси {start}–{end} · {} кан.{segs} · {}", ch.len(), ch.join(" "))));
+            let segs = if n > 1 { format!(", {n} сегм.") } else { String::new() };
+            ui.label(widgets::muted(format!("Адреси {start}–{end}: {} кан.{segs}", ch.len())));
+            ui.label(RichText::new(ch.join(" ")).font(mono(FS_SM)).color(MUTED));
             let clash: Vec<String> = self
                 .v
                 .show

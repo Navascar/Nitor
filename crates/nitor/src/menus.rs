@@ -143,7 +143,7 @@ impl App {
         let head = if items.len() > 1 {
             format!("Вибрано: {}", self.label_sel())
         } else if let Some(k) = seg {
-            format!("{} · сегмент {}", f.name, k + 1)
+            format!("{}, сегмент {}", f.name, k + 1)
         } else {
             f.name.clone()
         };
@@ -190,9 +190,9 @@ impl App {
         let ids = self.sel.clone();
         let cur = self.first_sel_color();
         let mut m = vec![Item::Title(if has {
-            format!("Колір · вибрано {}", self.label_sel())
+            format!("Колір: вибрано {}", self.label_sel())
         } else {
-            "Колір · нічого не вибрано".into()
+            "Колір: нічого не вибрано".into()
         })];
         if has {
             m.push(Item::Colors(ids.clone()));
@@ -230,7 +230,7 @@ impl App {
             "Застосувати до вибраних"
         };
         let mut m = vec![
-            Item::Title(format!("Колір · {}", c.name)),
+            Item::Title(format!("Колір «{}»", c.name)),
             item("dot", label, Act::StaticTo { index: i, ids: ids.clone() })
                 .key(short_key(&self.v.hotkeys, &format!("static{}", i + 1))),
         ];
@@ -267,7 +267,7 @@ impl App {
         let eff_name = self.eff.kind.label();
         let picked = self.sel_fixtures();
         let mut m = vec![Item::Title(if running {
-            format!("Ефект · {} ({} прил.)", e.kind.label(), e.ids.len())
+            format!("Ефект «{}», {} прил.", e.kind.label(), e.ids.len())
         } else {
             "Ефекти".into()
         })];
@@ -293,7 +293,7 @@ impl App {
     pub fn scene_menu(&self, name: Option<&str>) -> Vec<Item> {
         let fade = self.scene_fade;
         let mut m = vec![Item::Title(match name {
-            Some(n) => format!("Сцена · {n}"),
+            Some(n) => format!("Сцена «{n}»"),
             None => "Сцени".into(),
         })];
         if let Some(n) = name {
@@ -320,7 +320,7 @@ impl App {
 
     pub fn group_menu(&self, name: &str) -> Vec<Item> {
         vec![
-            Item::Title(format!("Група · {name}")),
+            Item::Title(format!("Група «{name}»")),
             item("refresh", "Замінити вибраними приладами", Act::SaveGroup(name.into())).disabled(self.sel.is_empty()),
             item("edit", "Перейменувати…", Act::AskRenameGroup(name.into())),
             item("trash", "Видалити групу", Act::DeleteGroup(name.into())).danger(),

@@ -250,7 +250,7 @@ pub(crate) fn import(engine: &mut Engine, data: &Value, name: Option<&str>, file
     if skipped > 0 {
         parts.push(format!("пропущено (адреса зайнята): {skipped}"));
     }
-    engine.set_notice(format!("Сцену «{scene_name}» відкрито з файлу · {}", parts.join(", ")));
+    engine.set_notice(format!("Сцену «{scene_name}» відкрито з файлу ({})", parts.join(", ")));
     Ok(())
 }
 
