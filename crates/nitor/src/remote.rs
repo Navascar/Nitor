@@ -269,12 +269,20 @@ fn css() -> String {
     use nitor_ui::theme::*;
     let h = |c: egui::Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
     format!(
-        "*{{box-sizing:border-box}}body{{margin:0;padding:16px;background:{bg};color:{text};\
-         font:16px system-ui,sans-serif}}h2{{font-size:15px;color:{muted};margin:20px 0 8px;font-weight:600}}\
+        "*{{box-sizing:border-box}}:root{{color-scheme:dark}}\
+         body{{margin:0;padding:16px max(16px,env(safe-area-inset-right)) 16px max(16px,env(safe-area-inset-left));\
+         background:{bg};color:{text};font:16px system-ui,sans-serif;-webkit-tap-highlight-color:transparent}}h2{{font-size:15px;color:{muted};margin:20px 0 8px;font-weight:600}}\
          form{{margin:0}}.row{{display:flex;flex-wrap:wrap;gap:8px}}\
          button{{font:inherit;min-height:48px;padding:0 16px;border-radius:10px;border:1px solid {line};\
-         background:{raised};color:{text};flex:1 1 140px}}button.on{{border-color:{accent};color:{accent}}}\
-         button.danger{{border-color:{danger};color:{danger}}}.colors button{{flex:1 1 30%;font-weight:600}}\
+         background:{raised};color:{text};flex:1 1 140px;touch-action:manipulation;overflow-wrap:break-word;hyphens:auto;\
+         transition:transform 90ms ease-out}}button:active{{transform:translateY(1px) scale(.985)}}\
+         button:focus-visible,input:focus-visible{{outline:2px solid {accent};outline-offset:2px}}\
+         button.on{{border-color:{accent};color:{accent}}}\
+         button.danger{{border-color:{danger};color:{danger}}}button.danger.on{{background:{danger_fill};\
+         border-color:{danger_fill};color:#fff}}#flash{{user-select:none;-webkit-user-select:none;\
+         -webkit-touch-callout:none}}label{{display:flex;justify-content:space-between}}\
+         @media (prefers-reduced-motion:reduce){{button{{transition:none}}button:active{{transform:none}}}}.colors button{{flex:1 1 30%;font-weight:600;padding:0 6px;font-size:15px}}\
+         button.primary{{background:{accent_fill};border-color:{accent_fill};color:#fff;width:100%}}\
          input[type=range]{{width:100%;accent-color:{accent}}}input[type=password]{{font:inherit;width:100%;\
          min-height:48px;border-radius:10px;border:1px solid {line};background:{raised};color:{text};padding:0 12px}}\
          .err{{color:{danger}}}.muted{{color:{muted};font-size:14px}}",
@@ -285,14 +293,21 @@ fn css() -> String {
         raised = h(RAISED),
         accent = h(ACCENT),
         danger = h(DANGER),
+        danger_fill = h(DANGER_STRONG),
+        accent_fill = h(ACCENT_STRONG),
     )
 }
 
 fn html(body: &str) -> String {
     format!(
         "<!doctype html><html lang=uk><head><meta charset=utf-8><meta name=viewport \
-         content=\"width=device-width,initial-scale=1\"><title>Nitor</title><style>{}</style></head>\
+         content=\"width=device-width,initial-scale=1,viewport-fit=cover\"><meta name=theme-color content=\"{}\">\
+         <title>Nitor</title><style>{}</style></head>\
          <body>{body}</body></html>",
+        {
+            let c = nitor_ui::theme::BG;
+            format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
+        },
         css()
     )
 }
@@ -300,14 +315,15 @@ fn html(body: &str) -> String {
 fn login(err: Option<&str>) -> String {
     let err = err.map_or(String::new(), |e| format!("<p class=err>{e}</p>"));
     html(&format!(
-        "<h1>Nitor</h1><p class=muted>Введіть PIN режиму оператора.</p>{err}\
-         <form method=post action=/login><input type=password name=pin inputmode=numeric autofocus \
-         autocomplete=off><p></p><button>Увійти</button></form>"
+        "<h1>Nitor</h1>{err}<form method=post action=/login>\
+         <p><label for=pin class=muted>PIN режиму оператора</label></p>\
+         <input type=password id=pin name=pin inputmode=numeric autofocus autocomplete=off><p></p>\
+         <button class=primary>Увійти</button></form>"
     ))
 }
 
 fn page(core: &Core, st: &State) -> String {
-    let (master, blackout, colors, scenes, groups) = {
+    let (master, blackout, colors, scenes, groups, active) = {
         let s = core.lock();
         let sh = &s.engine.show;
         (
@@ -316,15 +332,24 @@ fn page(core: &Core, st: &State) -> String {
             sh.static_colors.clone(),
             sh.scenes.keys().cloned().collect::<Vec<_>>(),
             sh.groups.clone(),
+            s.engine.active_scene.clone(),
         )
     };
+    let pct = (master as f32 / 2.55).round();
     let btn = |a: &str, label: &str, class: &str, style: &str| {
-        format!("<button name=a value=\"{}\" class=\"{class}\" style=\"{style}\">{}</button>", esc(a), esc(label))
+        // стан «увімкнено» чує й екранний диктор
+        let pressed = if class.split(' ').any(|c| c == "on") { " aria-pressed=true" } else { "" };
+        format!(
+            "<button name=a value=\"{}\" class=\"{class}\" style=\"{style}\"{pressed}>{}</button>",
+            esc(a),
+            esc(label)
+        )
     };
     let mut b = String::from("<h1>Nitor</h1>");
     b += &format!(
-        "<form method=post action=/act><input type=hidden name=a value=master><h2>Майстер</h2>\
-         <input type=range name=v min=0 max=255 value={master} onchange=\"this.form.submit()\"></form>"
+        "<form method=post action=/act><input type=hidden name=a value=master><h2>Майстер {pct}\u{a0}%</h2>\
+         <input type=range name=v min=0 max=255 value={master} aria-label=Майстер \
+         aria-valuetext=\"{pct} %\" onchange=\"this.form.submit()\"></form>"
     );
     b += "<h2>Світло</h2><form method=post action=/act class=row>";
     b += "<button type=button id=flash>Спалах</button>";
@@ -349,7 +374,7 @@ fn page(core: &Core, st: &State) -> String {
     if !scenes.is_empty() {
         b += "<h2>Сцени</h2><form method=post action=/act class=row>";
         for s in &scenes {
-            b += &btn(&format!("scene:{s}"), s, "", "");
+            b += &btn(&format!("scene:{s}"), s, if active.as_deref() == Some(s.as_str()) { "on" } else { "" }, "");
         }
         b += "</form>";
     }

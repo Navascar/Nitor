@@ -811,7 +811,7 @@ impl App {
     fn panel_help(title: &str) -> Option<&'static str> {
         Some(match title {
             "Прилади" => {
-                "Ваші прожектори. Клацніть прилад, щоб вибрати його. Кілька приладів вибирають із Shift або рамкою мишею, усі одразу — Ctrl+A. Колір і ефекти діють на вибрані прилади, а якщо нічого не вибрано, то на всі. Подвійний клік відкриває властивості приладу, права кнопка миші — його меню. Кнопка «Група» зберігає вибрані прилади як групу. «План» показує прилади так, як вони стоять на сцені: перетягніть плитку на її місце, і ефекти зможуть бігти зліва направо, від центру чи по колу."
+                "Ваші прожектори. Клацніть прилад, щоб вибрати його. Кілька приладів вибирають із Shift або рамкою мишею, усі одразу — Ctrl+A. Колір і ефекти діють на вибрані прилади, а якщо нічого не вибрано, то на всі. Подвійний клік відкриває властивості приладу, права кнопка миші — його меню. Кнопка «Група» зберігає вибрані прилади як групу. «План» показує прилади так, як вони стоять на сцені: перетягніть плитку на її місце (або виберіть її клавішею Tab і зсувайте стрілками), і ефекти зможуть бігти зліва направо, від центру чи по колу."
             }
             "Сцени" => {
                 "Сцена запам'ятовує кольори всіх приладів, а з галочкою «Зберегти разом з ефектом» ще й ефект. Налаштуйте світло, введіть назву і натисніть «Зберегти». Клік по сцені вмикає її, а «Час переходу» задає, за скільки секунд світло плавно зміниться. Якщо затиснути Alt і тримати сцену, вона світить лише поки кнопку тримають. Сцену можна зберегти у файл через її меню й відкрити на іншому комп'ютері кнопкою «Відкрити з файлу»."
@@ -1028,6 +1028,32 @@ impl App {
             }
             let rect = Rect::from_min_size(min, sizes[i]);
             let resp = self.tile(ui, rect, f, eff_ids, true);
+            if resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            // без миші: стрілки зсувають плитку у фокусі на клітинку, із Shift — на чотири
+            if resp.has_focus() {
+                let filter = egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() };
+                ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, filter));
+                let step = if ui.input(|i| i.modifiers.shift) { 4 } else { 1 };
+                let key = |k: egui::Key| {
+                    ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k) | i.consume_key(egui::Modifiers::SHIFT, k))
+                };
+                let d = [
+                    (egui::Key::ArrowLeft, [-step, 0]),
+                    (egui::Key::ArrowRight, [step, 0]),
+                    (egui::Key::ArrowUp, [0, -step]),
+                    (egui::Key::ArrowDown, [0, step]),
+                ]
+                .into_iter()
+                .find(|(k, _)| key(*k));
+                if let Some((_, [dx, dy])) = d {
+                    let max_x = ((w - sizes[i].x) / PLAN_CELL).floor().max(0.0) as i16;
+                    let nx = (x + dx).clamp(0, max_x);
+                    let ny = (y + dy).max(0);
+                    self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some([nx, ny]) });
+                }
+            }
             if resp.drag_started() {
                 self.plan_drag = Some((f.id.clone(), egui::Vec2::ZERO));
             }

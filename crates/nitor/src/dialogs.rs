@@ -1347,17 +1347,30 @@ impl App {
         });
         ui.add_space(S3);
         if let Some((p, e)) = &self.remote_error {
-            ui.label(widgets::muted(format!("Порт {p}: {e}")));
+            let t = format!(
+                "Порт {p}: {e}. Вкажіть інший порт, наприклад {}, і ввімкніть пульт знову.",
+                p.saturating_add(1)
+            );
+            ui.label(RichText::new(t).size(FS_SM).color(DANGER));
             return;
         }
         let Some(srv) = &self.remote else { return };
         let Some(ip) = crate::remote::lan_ip() else {
-            ui.label(widgets::muted("Комп'ютер не підключено до мережі"));
+            ui.label(widgets::muted(
+                "Комп'ютер не підключено до мережі. Підключіть його до тієї самої Wi-Fi, що й телефон.",
+            ));
             return;
         };
         let url = format!("http://{ip}:{}/", srv.port);
         ui.label(RichText::new("Відкрийте на телефоні:").size(FS_MD));
-        ui.label(RichText::new(&url).font(bold(FS_LG)).color(ACCENT));
+        // адреса — звичайним текстом (синій лише для дій), поруч кнопка копіювання
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(&url).font(bold(FS_LG)));
+            if icon_btn("copy").small().tip("Копіювати адресу").show(ui).clicked() {
+                ui.ctx().copy_text(url.clone());
+                self.toast("Адресу скопійовано", true);
+            }
+        });
         ui.add_space(S3);
         // QR-код адреси: темні модулі на білому, з полем у 4 модулі, як вимагає стандарт
         if let Ok(qr) = qrcodegen::QrCode::encode_text(&url, qrcodegen::QrCodeEcc::Medium) {
