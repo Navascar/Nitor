@@ -35,6 +35,11 @@ pub const WARN: Color32 = Color32::from_rgb(0xf5, 0xa5, 0x24);
 pub const OK: Color32 = Color32::from_rgb(0x3e, 0xcf, 0x8e);
 pub const WHITE: Color32 = Color32::WHITE;
 pub const TOAST_ERR_BG: Color32 = Color32::from_rgb(0x3a, 0x1f, 0x22);
+/// тінь вікон, меню й спливних панелей
+pub const SHADOW: egui::Shadow =
+    egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_rgba_premultiplied(0, 0, 0, 115) };
+/// затемнення головного вікна під діалогом (чорний, 60 %)
+pub const BACKDROP: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 153);
 /// найтемніше: текст на світлих кольорах, «вимкнене» світло, тло монітора
 pub const INK: Color32 = Color32::from_rgb(0x0b, 0x0d, 0x10);
 
@@ -186,7 +191,7 @@ pub fn apply(ctx: &egui::Context) {
         v.window_stroke = Stroke::new(1.0_f32, LINE);
         v.window_corner_radius = radius(R_LG);
         v.menu_corner_radius = radius(R_LG);
-        v.window_shadow = egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.45) };
+        v.window_shadow = SHADOW;
         v.popup_shadow = v.window_shadow;
         v.override_text_color = Some(TEXT);
         v.hyperlink_color = ACCENT;

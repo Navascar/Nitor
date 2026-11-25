@@ -785,7 +785,7 @@ pub fn field_label_help(ui: &mut Ui, text: &str, help_text: &str) {
     });
 }
 
-/// Підпис частини панелі, що згортається: клік по стрілці чи підпису. Стан пам'ятається між запусками.
+/// Підпис частини панелі, що згортається: клік по стрілці чи підпису. Стан пам'ятається, поки програма відкрита.
 /// Повертає, чи частина розгорнута.
 pub fn fold(ui: &mut Ui, key: &str, text: &str, help_text: Option<&str>, open_default: bool) -> bool {
     let id = Id::new(("fold", key));

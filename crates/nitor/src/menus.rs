@@ -423,7 +423,7 @@ impl App {
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
                     .corner_radius(radius(R_LG))
                     .inner_margin(egui::Margin::same(S1 as i8))
-                    .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.45) })
+                    .shadow(SHADOW)
                     .show(ui, |ui| {
                         ui.set_min_width(230.0);
                         ui.set_max_width(320.0);

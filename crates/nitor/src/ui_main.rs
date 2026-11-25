@@ -407,7 +407,7 @@ impl App {
                     .stroke(Stroke::new(1.0_f32, LINE_STRONG))
                     .corner_radius(radius(R_LG))
                     .inner_margin(egui::Margin::same(S4 as i8))
-                    .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: rgba(0, 0, 0, 0.45) })
+                    .shadow(SHADOW)
                     .show(ui, |ui| {
                         ui.set_width(300.0);
                         ui.label(RichText::new("Спалах").font(bold(FS_MD)));

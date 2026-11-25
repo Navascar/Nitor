@@ -294,7 +294,7 @@ fn modal_with(ctx: &egui::Context, id: &str, width: f32, frame: egui::Frame, add
     let screen = ctx.screen_rect();
     let w = width.min(screen.width() * 0.96);
     let pad = frame.inner_margin.sum();
-    let r = egui::Modal::new(Id::new(id)).frame(frame).backdrop_color(rgba(0, 0, 0, 0.6)).show(ctx, |ui| {
+    let r = egui::Modal::new(Id::new(id)).frame(frame).backdrop_color(BACKDROP).show(ctx, |ui| {
         ui.set_width(w - pad.x);
         ui.set_max_height(screen.height() * 0.9 - pad.y);
         add(ui);
@@ -1879,10 +1879,8 @@ impl App {
         let screen = ctx.screen_rect();
         let w = 1180f32.min(screen.width() * 0.96);
         let h = 860f32.min(screen.height() * 0.92);
-        let modal = egui::Modal::new(Id::new("lib-dlg"))
-            .frame(dialog_frame(w))
-            .backdrop_color(rgba(0, 0, 0, 0.6))
-            .show(ctx, |ui| {
+        let modal =
+            egui::Modal::new(Id::new("lib-dlg")).frame(dialog_frame(w)).backdrop_color(BACKDROP).show(ctx, |ui| {
                 ui.set_width(w - 2.0 * S5);
                 ui.set_height(h - 2.0 * S5);
                 close |= dialog_head(ui, "Бібліотека приладів");
