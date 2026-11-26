@@ -89,8 +89,8 @@ mod imp {
         });
     }
 
-    /// Робоча область основного монітора (без панелі задач) у точках інтерфейсу.
-    pub fn work_area() -> Option<egui::Vec2> {
+    /// Робоча область основного монітора (без панелі задач) у точках інтерфейсу: де вона й якого розміру.
+    pub fn work_area() -> Option<egui::Rect> {
         use windows_sys::Win32::Foundation::RECT;
         use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
         use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
@@ -102,7 +102,37 @@ mod imp {
         // поки winit не ввімкнув DPI-обізнаність, і розміри, і DPI — «віртуальні» (96); потім — справжні
         let scale = unsafe { GetDpiForSystem() }.max(96) as f32 / 96.0;
         let size = egui::vec2((r.right - r.left) as f32, (r.bottom - r.top) as f32) / scale;
-        (size.x > 0.0 && size.y > 0.0).then_some(size)
+        let min = egui::pos2(r.left as f32, r.top as f32) / scale;
+        (size.x > 0.0 && size.y > 0.0).then_some(egui::Rect::from_min_size(min, size))
+    }
+
+    /// Розгорнуте вікно відновлюється до `size` (точки) по центру робочої області. Вікно створюємо
+    /// одразу на всю робочу область і розгортаємо вже після появи (без анімації й білого спалаху), тож
+    /// Windows запам'ятала б для «Відновити» весь екран — виправляємо розмір відновлення без руху вікна.
+    pub fn set_restore_size(hwnd: isize, size: egui::Vec2) {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowPlacement, SPI_GETWORKAREA, SetWindowPlacement, SystemParametersInfoW, WINDOWPLACEMENT,
+        };
+        let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+        let mut wp: WINDOWPLACEMENT = unsafe { std::mem::zeroed() };
+        wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        let mut area = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        let ok = unsafe {
+            GetWindowPlacement(hwnd, &mut wp) != 0
+                && SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut area as *mut RECT).cast(), 0) != 0
+        };
+        if !ok {
+            return;
+        }
+        let scale = unsafe { GetDpiForWindow(hwnd) }.max(96) as f32 / 96.0;
+        let (w, h) = ((size.x * scale) as i32, (size.y * scale) as i32);
+        // rcNormalPosition — у координатах робочої області (відносно її лівого верхнього кута)
+        let (aw, ah) = (area.right - area.left, area.bottom - area.top);
+        let (left, top) = (((aw - w) / 2).max(0), ((ah - h) / 2).max(0));
+        wp.rcNormalPosition = RECT { left, top, right: left + w.min(aw), bottom: top + h.min(ah) };
+        unsafe { SetWindowPlacement(hwnd, &wp) };
     }
 
     /// У Windows вимкнено ефекти анімації (Спеціальні можливості → Візуальні ефекти).
@@ -301,9 +331,11 @@ mod imp {
 
     pub fn listen_quit(_flag: Arc<AtomicBool>, _ctx: egui::Context) {}
 
-    pub fn work_area() -> Option<egui::Vec2> {
+    pub fn work_area() -> Option<egui::Rect> {
         None
     }
+
+    pub fn set_restore_size(_hwnd: isize, _size: egui::Vec2) {}
 
     pub fn set_app_id() {
         let _ = super::APP_ID;

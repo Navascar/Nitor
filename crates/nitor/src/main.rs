@@ -156,7 +156,8 @@ fn main() {
     // розмір. Тому вікно одразу створюється таким, яким воно буде: головним або вікном запуску
     // (якщо вже відомо, що є оновлення). Недовго чекаємо на перевірку тут; решту очікування
     // бере перший кадр, поки вікно ще приховане (див. `App::boot_gate`).
-    let main_size = splash::main_size(winshell::work_area());
+    let area = winshell::work_area();
+    let main_size = splash::main_size(area.map(|r| r.size()));
     let mut splash_now = false;
     if with_splash {
         while !updater.info().checked && t0.elapsed() < Duration::from_millis(600) {
@@ -175,17 +176,24 @@ fn main() {
     viewport = if splash_now {
         viewport.with_inner_size([splash::WIDTH, splash_h]).with_decorations(false).with_resizable(false)
     } else {
-        // своя панель вікна (як у вікні запуску й інсталятора); одразу на весь екран
-        viewport
-            .with_inner_size(main_size)
+        // своя панель вікна (як у вікні запуску й інсталятора); одразу на весь екран.
+        // Не `with_maximized`: розгортання під час створення показує вікно ще до першого кадру (білий
+        // спалах на весь екран) і з анімацією розгортання. Тому вікно одразу займає всю робочу область,
+        // eframe показує його вже намальованим, а «розгорнуто» стає після появи — без зміни розміру
+        let v = viewport
             .with_min_inner_size([900.0_f32.min(main_size.x), 600.0_f32.min(main_size.y)])
-            .with_decorations(false)
-            .with_maximized(true)
+            .with_decorations(false);
+        match area {
+            Some(r) => v.with_inner_size(r.size()).with_position(r.min),
+            None => v.with_inner_size(main_size).with_maximized(true),
+        }
     };
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
-    let mut options = eframe::NativeOptions { viewport, persist_window: false, centered: true, ..Default::default() };
+    // по центру — лише вікно запуску чи вікно без відомої робочої області; головне вже стоїть на своєму місці
+    let centered = splash_now || area.is_none();
+    let mut options = eframe::NativeOptions { viewport, persist_window: false, centered, ..Default::default() };
     nitor_ui::render::set_renderer(&mut options);
     let core2 = core.clone();
     let updater2 = updater.clone();
@@ -201,6 +209,9 @@ fn main() {
                 app.splash = Some(splash::Splash::new(t0, splash_h));
             } else if with_splash {
                 app.boot = Some(t0);
+            }
+            if !splash_now && area.is_some() {
+                app.maximize_later = Some(main_size);
             }
             winshell::listen_show(app.show_request.clone(), cc.egui_ctx.clone());
             winshell::listen_quit(app.quit_request.clone(), cc.egui_ctx.clone());
@@ -220,7 +231,7 @@ fn main() {
 const ESC_REPEAT_DELAY: f64 = 0.6;
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.refresh();
         // «Зменшити рух»: вбудовані анімації egui (поява вікон, списків) теж миттєві
         let want = if self.reduce_motion() { 0.0 } else { nitor_ui::theme::ANIMATION_TIME };
@@ -263,6 +274,7 @@ impl eframe::App for App {
         if !self.boot_gate(ctx) {
             return;
         }
+        self.maximize_after_show(ctx, frame);
         if self.splash.is_some() {
             if !self.splash_frame(ctx) {
                 self.screenshot(ctx);
@@ -332,6 +344,32 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Вікно створено на всю робочу область, але не розгорнутим (див. `main`). Коли воно вже показане
+    /// (eframe показує його після першого кадру), робимо його розгорнутим: розмір той самий, тож нічого
+    /// не смикається; потім повертаємо розмір для «Відновити» (1400×900, а не весь екран).
+    fn maximize_after_show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let Some(size) = self.maximize_later else { return };
+        if self.splash.is_some() {
+            self.maximize_later = None; // вікно стало вікном запуску; розгорне `open_main_window`
+            return;
+        }
+        if ctx.cumulative_frame_nr() < 2 {
+            return;
+        }
+        if ctx.input(|i| i.viewport().maximized) != Some(true) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            ctx.request_repaint();
+            return;
+        }
+        self.maximize_later = None;
+        use eframe::wgpu::rwh::{HasWindowHandle, RawWindowHandle};
+        if let Ok(h) = frame.window_handle() {
+            if let RawWindowHandle::Win32(w) = h.as_raw() {
+                winshell::set_restore_size(w.hwnd.get(), size);
+            }
+        }
+    }
+
     /// Операції з текстом із контекстного меню поля вводу (через події egui).
     fn text_ops(&mut self, ctx: &egui::Context) {
         let Some((id, op, wait)) = self.pending_text_op.take() else { return };

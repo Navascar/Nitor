@@ -275,6 +275,8 @@ pub struct App {
     pub esc_t: f64,
     /// Розмір вікна в попередньому кадрі: змінився — анімації одразу на місці (`anim::set_snap`).
     pub last_size: egui::Vec2,
+    /// Розгорнути вікно, щойно воно з'явиться; значення — розмір для «Відновити» (`maximize_after_show`).
+    pub maximize_later: Option<egui::Vec2>,
     pub toasts: Vec<Toast>,
     /// у системі вимкнено анімацію (зчитано під час запуску)
     pub sys_reduce_motion: bool,
@@ -371,6 +373,7 @@ impl App {
             title_open: false,
             esc_t: 0.0,
             last_size: egui::Vec2::ZERO,
+            maximize_later: None,
             toasts: vec![],
             sys_reduce_motion: crate::winshell::system_reduce_motion(),
             focus_back: None,
