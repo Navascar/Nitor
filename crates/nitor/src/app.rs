@@ -121,6 +121,8 @@ pub struct Toast {
     pub until: Instant,
     /// номер для власної області egui: повідомлення рухаються незалежно
     pub seq: u64,
+    /// кнопка «Повернути»: скасовує цей крок, поки він останній у списку скасування
+    pub undo: Option<&'static str>,
 }
 
 /// Скільки повідомлень видно одночасно (старіші зникають).
@@ -154,10 +156,6 @@ pub enum Act {
     OpenPresets,
     OpenProps(String),
     Duplicate(String),
-    AskDeleteFixtures {
-        ids: Vec<String>,
-        close_props: bool,
-    },
     DeleteFixtures {
         ids: Vec<String>,
         close_props: bool,
@@ -167,7 +165,7 @@ pub enum Act {
     AddPaletteColor,
     /// Зберегти колір першого вибраного приладу в палітру.
     SaveColor,
-    AskDeleteColor(usize),
+    DeleteColor(usize),
     ClearPalette,
     RecallScene {
         name: String,
@@ -178,7 +176,7 @@ pub enum Act {
     SaveSceneFile(String),
     /// Показати файл сцени в провіднику.
     RevealSceneFile(String),
-    AskDeleteScene(String),
+    DeleteScene(String),
     AskNewScene,
     OpenSceneFile,
     OpenAdd,
@@ -188,8 +186,8 @@ pub enum Act {
     Undo,
     Redo,
     Blackout,
-    /// «Видалити» на клавіатурі: вибрані прилади — після підтвердження.
-    AskDeleteSelected,
+    /// «Видалити» на клавіатурі: вибрані прилади (Ctrl+Z повертає).
+    DeleteSelected,
     /// Поміняти місцями «Ефекти» і «Сцени».
     SwapSide,
     /// Показати чи сховати назву кнопки верхньої панелі (`clear`, `flash`, `blackout`).
@@ -479,9 +477,19 @@ impl App {
             return;
         }
         self.toast_seq += 1;
-        self.toasts.push(Toast { text, info, born: now, until, seq: self.toast_seq });
+        self.toasts.push(Toast { text, info, born: now, until, seq: self.toast_seq, undo: None });
         if self.toasts.len() > TOASTS_MAX {
             self.toasts.remove(0);
+        }
+    }
+
+    /// Повідомлення про виконану дію з кнопкою «Повернути» (замість питання «Ви впевнені?»).
+    /// `step` — назва кроку скасування; кнопка зникає, щойно після нього зробили щось інше.
+    pub fn toast_undo(&mut self, text: &str, step: &'static str) {
+        self.toast(text, true);
+        if let Some(t) = self.toasts.last_mut() {
+            t.undo = Some(step);
+            t.until = t.until.max(Instant::now() + Duration::from_secs(6));
         }
     }
 
@@ -857,8 +865,21 @@ impl App {
     }
 
     pub fn undo(&mut self, redo: bool) {
+        let step = if redo { self.v.redo } else { self.v.undo };
         if self.send(if redo { Command::Redo } else { Command::Undo }) {
-            self.toast(if redo { "Дію повторено" } else { "Дію скасовано" }, true);
+            // що саме скасовано чи повторено — назва кроку, а не просто «дію»
+            let label = step.map(Command::undo_label).filter(|l| *l != "дію");
+            let text = match (redo, label) {
+                (false, Some(l)) => format!("Скасовано {l}"),
+                (true, Some(l)) => format!("Повторено {l}"),
+                (false, None) => "Дію скасовано".into(),
+                (true, None) => "Дію повторено".into(),
+            };
+            // повідомлення «… видалено» про скасований крок уже неправдиве
+            if !redo {
+                self.toasts.retain(|t| t.undo.is_none() || t.undo != step);
+            }
+            self.toast(&text, true);
         }
     }
 
@@ -951,33 +972,22 @@ impl App {
             Act::OpenPresets => self.open_presets(),
             Act::OpenProps(id) => self.open_props(&id),
             Act::Duplicate(id) => self.duplicate(&id),
-            Act::AskDeleteFixtures { ids, close_props } => {
+            // без питання: видалення скасовується одним кроком, у повідомленні — «Повернути»
+            Act::DeleteFixtures { ids, close_props } => {
                 let names: Vec<String> =
                     self.v.show.fixtures.iter().filter(|f| ids.contains(&f.id)).map(|f| f.name.clone()).collect();
-                if names.is_empty() {
+                if names.is_empty() || !self.send(Command::DeleteFixtures { ids: ids.clone() }) {
                     return;
-                }
-                let title = if names.len() > 1 {
-                    format!("Видалити прилади ({})?", names.len())
-                } else {
-                    "Видалити прилад?".into()
-                };
-                self.ui_dlg = Some(UiDlg::confirm(
-                    &title,
-                    &names.join(", "),
-                    "Видалити",
-                    true,
-                    Act::DeleteFixtures { ids, close_props },
-                ));
-            }
-            Act::DeleteFixtures { ids, close_props } => {
-                for id in &ids {
-                    self.send(Command::DeleteFixture { id: id.clone() });
                 }
                 self.sel.retain(|s| !ids.contains(&s.split('#').next().unwrap_or("").to_string()));
                 if close_props {
                     self.close_props();
                 }
+                let text = match names.as_slice() {
+                    [one] => format!("Прилад «{one}» видалено"),
+                    _ => format!("Видалено приладів: {}", names.len()),
+                };
+                self.toast_undo(&text, "delete_fixtures");
             }
             Act::CopyColor => {
                 if let Some(c) = self.first_sel_color() {
@@ -999,11 +1009,10 @@ impl App {
                     }
                 }
             },
-            Act::AskDeleteColor(i) => {
-                if let Some(c) = self.v.show.static_colors.get(i) {
-                    let t = format!("Видалити колір «{}» з палітри?", c.name);
-                    let cmd = Act::Cmd(Command::DeleteStaticColor { index: i });
-                    self.ui_dlg = Some(UiDlg::confirm(&t, "", "Видалити", true, cmd));
+            Act::DeleteColor(i) => {
+                let Some(name) = self.v.show.static_colors.get(i).map(|c| c.name.clone()) else { return };
+                if self.send(Command::DeleteStaticColor { index: i }) {
+                    self.toast_undo(&format!("Колір «{name}» видалено з палітри"), "delete_static_color");
                 }
             }
             Act::AddPaletteColor => {
@@ -1037,9 +1046,10 @@ impl App {
                     self.toast(&format!("Не вдалося відкрити папку: {e}. Файл сцени: {file}"), false);
                 }
             }
-            Act::AskDeleteScene(name) => {
-                let t = format!("Видалити сцену «{name}»?");
-                self.ui_dlg = Some(UiDlg::confirm(&t, "", "Видалити", true, Act::Cmd(Command::DeleteScene { name })));
+            Act::DeleteScene(name) => {
+                if self.send(Command::DeleteScene { name: name.clone() }) {
+                    self.toast_undo(&format!("Сцену «{name}» видалено"), "delete_scene");
+                }
             }
             Act::AskNewScene => self.ui_dlg = Some(UiDlg::prompt("Назва сцени", "", Act::SaveScene(String::new()))),
             Act::OpenSceneFile => self.open_scene_file(),
@@ -1052,9 +1062,9 @@ impl App {
             Act::Blackout => {
                 self.send(Command::Blackout(None));
             }
-            Act::AskDeleteSelected => {
+            Act::DeleteSelected => {
                 let ids = self.sel_fixtures();
-                self.act(ctx, Act::AskDeleteFixtures { ids, close_props: false });
+                self.act(ctx, Act::DeleteFixtures { ids, close_props: false });
             }
             Act::SwapSide => {
                 self.side_anim = Some(ctx.input(|i| i.time));
@@ -1257,7 +1267,7 @@ impl App {
         }
         let a = match id {
             "blackout" => Act::Blackout,
-            "deleteFixtures" => Act::AskDeleteSelected,
+            "deleteFixtures" => Act::DeleteSelected,
             "clear" => Act::Clear,
             "effectStop" => Act::StopEffect,
             "selectAll" => Act::SelectAll,

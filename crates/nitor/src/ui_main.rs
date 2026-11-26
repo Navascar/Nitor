@@ -1775,7 +1775,7 @@ impl App {
                     self.act(ui.ctx(), Act::SaveSceneFile(name.clone()));
                 }
                 if icon_btn("trash").small().tip("Видалити сцену").show(ui).clicked() {
-                    self.act(ui.ctx(), Act::AskDeleteScene(name.clone()));
+                    self.act(ui.ctx(), Act::DeleteScene(name.clone()));
                 }
             });
         }
@@ -2581,6 +2581,8 @@ impl App {
         let mut bottom = screen.bottom() - S4;
         let mut moving = false;
         let (mut hold, mut close) = (vec![], vec![]);
+        let mut undo_seq = None;
+        let (last_step, undo_key, operator) = (self.v.undo, short_key(&self.v.hotkeys, "undo"), self.v.operator);
         let pointer = ctx.pointer_hover_pos();
         for t in self.toasts.iter().rev() {
             let id = Id::new(("toast", t.seq));
@@ -2610,6 +2612,14 @@ impl App {
                                 let l = ui.label(RichText::new(&t.text).size(FS_MD));
                                 // диктор зачитує повідомлення, щойно воно з'явилось
                                 ui.ctx().accesskit_node_builder(l.id, |n| n.set_live(egui::accesskit::Live::Polite));
+                                // «Повернути» — лише поки цей крок останній у списку скасування
+                                if t.undo.is_some()
+                                    && t.undo == last_step
+                                    && !operator
+                                    && btn("Повернути").small().key(undo_key.clone()).show(ui).clicked()
+                                {
+                                    undo_seq = Some(t.seq);
+                                }
                                 if !t.info && icon_btn("x").small().kind(Kind::Ghost).tip("Закрити").show(ui).clicked()
                                 {
                                     close.push(t.seq);
@@ -2628,7 +2638,10 @@ impl App {
         for t in self.toasts.iter_mut().filter(|t| hold.contains(&t.seq)) {
             t.until = t.until.max(now + std::time::Duration::from_millis(1500));
         }
-        self.toasts.retain(|t| !close.contains(&t.seq));
+        self.toasts.retain(|t| !close.contains(&t.seq) && Some(t.seq) != undo_seq);
+        if undo_seq.is_some() {
+            self.undo(false);
+        }
         if moving {
             ctx.request_repaint();
         } else {

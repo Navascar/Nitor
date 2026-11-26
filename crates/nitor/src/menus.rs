@@ -177,7 +177,7 @@ impl App {
                 "Видалити прилад".into()
             };
             m.push(
-                item("trash", label, Act::AskDeleteFixtures { ids: whole, close_props: false })
+                item("trash", label, Act::DeleteFixtures { ids: whole, close_props: false })
                     .danger()
                     .key(short_key(&h, "deleteFixtures")),
             );
@@ -243,7 +243,7 @@ impl App {
         );
         // стандартні кольори лишаються; видаляються лише збережені користувачем
         if i >= nitor_core::engine::default_static_colors().len() {
-            m.push(item("trash", "Видалити колір з палітри", Act::AskDeleteColor(i)).danger());
+            m.push(item("trash", "Видалити колір з палітри", Act::DeleteColor(i)).danger());
         }
         m.push(Item::Sep);
         m.push(
@@ -310,7 +310,7 @@ impl App {
             m.push(item("download", "Зберегти у файл…", Act::SaveSceneFile(n.into())));
             let file = self.v.show.scenes.get(n).is_some_and(|s| s.file.is_some());
             m.push(item("folder", "Показати файл у папці", Act::RevealSceneFile(n.into())).disabled(!file));
-            m.push(item("trash", "Видалити сцену", Act::AskDeleteScene(n.into())).danger());
+            m.push(item("trash", "Видалити сцену", Act::DeleteScene(n.into())).danger());
             m.push(Item::Sep);
         }
         m.push(item("plus", "Зберегти нову сцену…", Act::AskNewScene));

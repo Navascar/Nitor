@@ -1078,7 +1078,7 @@ impl App {
                     acts.push(Command::MoveFixture { id: f.id.clone(), delta: 1 });
                 }
                 if icon_btn("trash").small().tip("Видалити прилад").show(ui).clicked() {
-                    self.act(ui.ctx(), Act::AskDeleteFixtures { ids: vec![f.id.clone()], close_props: false });
+                    self.act(ui.ctx(), Act::DeleteFixtures { ids: vec![f.id.clone()], close_props: false });
                 }
             });
             ui.add_space(S1);
@@ -2450,7 +2450,7 @@ impl App {
         if del {
             let id = p.id.clone();
             self.props = Some(p);
-            self.act(ctx, Act::AskDeleteFixtures { ids: vec![id], close_props: true });
+            self.act(ctx, Act::DeleteFixtures { ids: vec![id], close_props: true });
             return;
         }
         let esc = esc && self.modes.is_none() && self.lib.is_none() && self.ui_dlg.is_none();

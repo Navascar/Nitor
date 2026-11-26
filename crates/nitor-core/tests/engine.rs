@@ -765,7 +765,7 @@ fn deleting_last_effect_fixture_stops_effect() {
     let mut e = Engine::new();
     let a = add(&mut e, "RGB (3 кан.)", 1);
     ok(&mut e, effect(EffectKind::Rainbow, &[&a]));
-    ok(&mut e, Command::DeleteFixture { id: a });
+    ok(&mut e, Command::DeleteFixtures { ids: vec![a] });
     assert_eq!(e.show.effect.kind, EffectKind::None);
 }
 
@@ -827,7 +827,7 @@ fn flash_scene_and_groups() {
     g.insert(" Сцена ".to_string(), ids(&[&a, &a, "немає"]));
     ok(&mut e, Command::SetGroups(g));
     assert_eq!(e.show.groups["Сцена"], ids(&[&a]), "без повторів і зниклих приладів");
-    ok(&mut e, Command::DeleteFixture { id: a.clone() });
+    ok(&mut e, Command::DeleteFixtures { ids: vec![a.clone()] });
     assert!(e.show.groups["Сцена"].is_empty());
     ok(&mut e, Command::Undo);
     assert_eq!(e.show.groups["Сцена"], ids(&[&a]), "скасування повертає прилад і в групу");
@@ -967,4 +967,17 @@ fn effect_order_follows_plan() {
     assert_eq!(e.show.fixtures[2].pos, Some([10, 0]));
     ok(&mut e, Command::Undo);
     assert_eq!(e.show.fixtures[2].pos, None, "переміщення на плані скасовується");
+}
+
+#[test]
+fn deleting_several_fixtures_is_one_undo_step() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    let b = add(&mut e, "RGB (3 кан.)", 4);
+    let c = add(&mut e, "RGB (3 кан.)", 7);
+    ok(&mut e, Command::DeleteFixtures { ids: vec![a.clone(), b.clone()] });
+    assert_eq!(e.show.fixtures.iter().map(|f| f.id.clone()).collect::<Vec<_>>(), vec![c.clone()]);
+    assert_eq!(e.can_undo(), Some("delete_fixtures"));
+    ok(&mut e, Command::Undo);
+    assert_eq!(e.show.fixtures.len(), 3, "одне скасування повертає обидва прилади");
 }

@@ -31,7 +31,7 @@ cargo run -p nitor -- --config /tmp/cfg.json             # програма з �
 
 Перевірка вигляду без Windows: `NITOR_HOME=<тека> NITOR_SCREENSHOT=знімок.png [NITOR_SCREENSHOT_ACTS=selectAll,settings]
 xvfb-run -a ./target/debug/nitor` — програма зберігає знімок вікна й закривається (дії: `settings`, `patch`, `keys`, `midi`, `vdj`, `remote`, `libtab`, `schedule`, `about`, `edit`, `output`, `access`,
-`add`, `library`, `props`, `close`, `monitor`, `menu`, `flash`, `flashmenu`). Вікно запуску — `NITOR_SCREENSHOT_SPLASH=1`; фальшивий реліз —
+`add`, `library`, `props`, `close`, `monitor`, `menu`, `flash`, `flashmenu`, `delete`, `undo`). Вікно запуску — `NITOR_SCREENSHOT_SPLASH=1`; фальшивий реліз —
 `NITOR_UPDATE_API=<файл latest.json> NITOR_UPDATE_ALLOW=1`. Інсталятор знімається так само (`NITOR_SCREENSHOT`).
 
 ## Правила

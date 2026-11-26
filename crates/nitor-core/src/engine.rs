@@ -449,8 +449,9 @@ pub enum Command {
         address: Option<u16>,
         profile: Option<ProfileSpec>,
     },
-    DeleteFixture {
-        id: String,
+    /// Видалити прилади — одним кроком скасування, скільки б їх не було.
+    DeleteFixtures {
+        ids: Vec<String>,
     },
     MoveFixture {
         id: String,
@@ -539,7 +540,7 @@ impl Command {
             Command::Blackout(_) => "blackout",
             Command::AddFixture { .. } => "add_fixture",
             Command::UpdateFixture { .. } => "update_fixture",
-            Command::DeleteFixture { .. } => "delete_fixture",
+            Command::DeleteFixtures { .. } => "delete_fixtures",
             Command::MoveFixture { .. } => "move_fixture",
             Command::PlaceFixture { .. } => "place_fixture",
             Command::SaveProfile { .. } => "save_profile",
@@ -642,7 +643,7 @@ impl Command {
             "set_effect" => "зміну ефекту",
             "add_fixture" => "додавання приладу",
             "update_fixture" => "зміну приладу",
-            "delete_fixture" => "видалення приладу",
+            "delete_fixtures" => "видалення приладів",
             "move_fixture" => "переміщення приладу",
             "place_fixture" => "переміщення на плані",
             "save_scene" => "збереження сцени",
@@ -1044,13 +1045,15 @@ impl Engine {
             Command::UpdateFixture { id, name, address, profile } => {
                 self.update_fixture(&id, name, address, profile)?
             }
-            Command::DeleteFixture { id } => {
-                self.show.fixtures.retain(|f| f.id != id);
-                self.drop_from_effect(std::slice::from_ref(&id));
-                for ids in self.show.groups.values_mut() {
-                    ids.retain(|i| *i != id);
+            Command::DeleteFixtures { ids } => {
+                self.show.fixtures.retain(|f| !ids.contains(&f.id));
+                self.drop_from_effect(&ids);
+                for group in self.show.groups.values_mut() {
+                    group.retain(|i| !ids.contains(i));
                 }
-                self.flash.shift_remove(&id);
+                for id in &ids {
+                    self.flash.shift_remove(id);
+                }
             }
             Command::MoveFixture { id, delta } => {
                 let i = self.fx_index(&id)?;

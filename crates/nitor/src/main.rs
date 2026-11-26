@@ -216,8 +216,8 @@ fn main() {
     log::info!("Nitor завершено");
 }
 
-/// Скільки секунд після попереднього Esc (знятий вибір, закрите вікно) Esc не закриває програму.
-const ESC_QUIT_DELAY: f64 = 0.6;
+/// Скільки секунд після попереднього Esc (знятий вибір, закрите вікно) Esc не питає про кінець редагування вигляду.
+const ESC_REPEAT_DELAY: f64 = 0.6;
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -360,7 +360,7 @@ impl App {
         let now = ctx.input(|i| i.time);
         // у полях введення — своє скасування й виділення
         if ctx.wants_keyboard_input() || self.any_dialog() || self.menu.is_some() {
-            self.esc_t = now; // Esc, що закрив вікно чи меню, не просить одразу закрити програму
+            self.esc_t = now; // Esc, що закрив вікно чи меню, не просить одразу закінчити редагування вигляду
             return;
         }
         let events: Vec<(egui::Key, egui::Modifiers, bool)> = ctx.input(|i| {
@@ -388,11 +388,11 @@ impl App {
                 self.flash_color(app::FLASH_WHITE, app::FlashHold::Key(key));
                 continue;
             }
-            // Esc під час редагування вигляду — закінчити його, без вибору — закрити програму
-            // (обидва з підтвердженням), але не одразу після іншого Esc: затиснута чи двічі
-            // натиснута клавіша не відкриває питання випадково
+            // Esc під час редагування вигляду — закінчити його (з підтвердженням), але не одразу після
+            // іншого Esc: затиснута чи двічі натиснута клавіша не відкриває питання випадково. Програму Esc
+            // не закриває (для цього хрестик чи Alt+F4): Esc і Enter підряд не мають гасити світло на виступі.
             if action == "selectNone" {
-                let calm = now - self.esc_t > ESC_QUIT_DELAY;
+                let calm = now - self.esc_t > ESC_REPEAT_DELAY;
                 self.esc_t = now;
                 if self.layout_edit {
                     if calm {
@@ -405,10 +405,6 @@ impl App {
                             Act::EndLayoutEdit,
                         ));
                     }
-                    continue;
-                }
-                if self.sel.is_empty() && calm {
-                    self.request_close();
                     continue;
                 }
             }
@@ -452,6 +448,8 @@ impl App {
                             }
                         }
                         "close" => self.request_close(),
+                        "delete" => self.act(ctx, Act::DeleteSelected),
+                        "undo" => self.undo(false),
                         "flash" => {
                             let w = ctx.screen_rect().width();
                             self.flash_cfg =
