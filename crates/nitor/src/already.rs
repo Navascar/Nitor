@@ -61,20 +61,20 @@ impl eframe::App for Already {
                 if drag.drag_started_by(egui::PointerButton::Primary) {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
-                egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 20, bottom: 0 }).show(
-                    ui,
-                    |ui| {
+                egui::Frame::new()
+                    .inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S5 as i8, bottom: 0 })
+                    .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
                                     .fit_to_exact_size(vec2(28.0, 28.0)),
                             );
-                            ui.add_space(10.0);
+                            ui.add_space(S2);
                             ui.label(RichText::new("Nitor").font(bold(FS_LG)));
                         });
-                        ui.add_space(18.0);
+                        ui.add_space(S4);
                         ui.label(RichText::new("Nitor уже відкрито").font(bold(FS_XL)));
-                        ui.add_space(6.0);
+                        ui.add_space(S2);
                         ui.label(
                             RichText::new(
                                 "Друга копія не запускається, щоб дві програми не керували світлом одночасно. \
@@ -83,15 +83,14 @@ impl eframe::App for Already {
                             .size(FS_SM)
                             .color(MUTED),
                         );
-                    },
-                );
+                    });
                 // кнопки — внизу вікна
                 let footer_h = 1.0 + 14.0 + CONTROL_H + 14.0;
                 ui.add_space((ui.available_height() - footer_h).max(0.0));
                 let w = ui.available_width();
                 let (r, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
                 ui.painter().rect_filled(r, 0.0, LINE);
-                egui::Frame::new().inner_margin(egui::Margin::symmetric(24, 14)).show(ui, |ui| {
+                egui::Frame::new().inner_margin(egui::Margin::symmetric(S5 as i8, S3 as i8)).show(ui, |ui| {
                     ui.allocate_ui_with_layout(vec2(w - 48.0, CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         show = btn("Перейти до Nitor").kind(Kind::Primary).key(Some("Enter".into())).show(ui).clicked();

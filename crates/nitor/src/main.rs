@@ -450,6 +450,11 @@ impl App {
                         "close" => self.request_close(),
                         "delete" => self.act(ctx, Act::DeleteSelected),
                         "undo" => self.undo(false),
+                        "scene" => {
+                            if let Some(name) = self.v.show.scenes.keys().next().cloned() {
+                                self.send(nitor_core::Command::RecallScene { name, fade: 0.0 });
+                            }
+                        }
                         "flash" => {
                             let w = ctx.screen_rect().width();
                             self.flash_cfg =

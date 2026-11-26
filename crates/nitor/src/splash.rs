@@ -122,26 +122,26 @@ impl App {
                 }
                 // заголовок: логотип, назва, версія
                 ui.horizontal(|ui| {
-                    ui.add_space(20.0);
+                    ui.add_space(S5);
                     ui.set_min_height(16.0 + 28.0);
                     ui.add_space(0.0);
                     ui.vertical(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(S4);
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
                                     .fit_to_exact_size(vec2(28.0, 28.0)),
                             );
-                            ui.add_space(10.0);
+                            ui.add_space(S2);
                             ui.label(RichText::new("Nitor").font(bold(FS_LG)));
-                            ui.add_space(8.0);
+                            ui.add_space(S2);
                             ui.label(RichText::new(&u.current).size(FS_SM).color(MUTED));
                         });
                     });
                 });
-                egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 18, bottom: 22 }).show(
-                    ui,
-                    |ui| {
+                egui::Frame::new()
+                    .inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S4 as i8, bottom: S5 as i8 })
+                    .show(ui, |ui| {
                         let (heading, status) = match phase {
                             SplashPhase::Checking => ("Запуск Nitor".to_string(), "Перевірка оновлень…".to_string()),
                             SplashPhase::Update => (
@@ -167,9 +167,9 @@ impl App {
                             SplashPhase::Open => (String::new(), String::new()),
                         };
                         ui.label(RichText::new(heading).font(bold(FS_XL)));
-                        ui.add_space(6.0);
+                        ui.add_space(S2);
                         ui.label(RichText::new(&status).size(FS_SM).color(MUTED));
-                        ui.add_space(18.0);
+                        ui.add_space(S4);
                         match phase {
                             SplashPhase::Checking | SplashPhase::Installing => {
                                 progress(ui, progress_percent(&status));
@@ -180,7 +180,7 @@ impl App {
                                     egui::Frame::new()
                                         .fill(RAISED)
                                         .corner_radius(radius(R_MD))
-                                        .inner_margin(egui::Margin::symmetric(12, 10))
+                                        .inner_margin(egui::Margin::symmetric(S3 as i8, S3 as i8))
                                         .show(ui, |ui| {
                                             ui.set_width(ui.available_width());
                                             ui.label(RichText::new(notes).size(FS_SM));
@@ -192,7 +192,7 @@ impl App {
                                     .fill(TOAST_ERR_BG)
                                     .stroke(Stroke::new(1.0_f32, DANGER))
                                     .corner_radius(radius(R_MD))
-                                    .inner_margin(egui::Margin::symmetric(12, 10))
+                                    .inner_margin(egui::Margin::symmetric(S3 as i8, S3 as i8))
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.label(RichText::new(&u.error).size(FS_SM));
@@ -200,8 +200,7 @@ impl App {
                             }
                             SplashPhase::Open => {}
                         }
-                    },
-                );
+                    });
                 let with_footer = matches!(phase, SplashPhase::Update | SplashPhase::Failed);
                 // скільки місця справді потрібно вмісту
                 // (за курсором: розмір панелі вже включає порожнє місце над кнопками)
@@ -212,7 +211,7 @@ impl App {
                     let w = ui.available_width();
                     let (r, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
                     ui.painter().rect_filled(r, 0.0, LINE);
-                    egui::Frame::new().inner_margin(egui::Margin::symmetric(24, 14)).show(ui, |ui| {
+                    egui::Frame::new().inner_margin(egui::Margin::symmetric(S5 as i8, S3 as i8)).show(ui, |ui| {
                         ui.allocate_ui_with_layout(
                             vec2(w - 48.0, CONTROL_H),
                             Layout::right_to_left(Align::Center),

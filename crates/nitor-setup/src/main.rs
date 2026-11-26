@@ -468,15 +468,15 @@ impl eframe::App for Gui {
                 let w = ui.available_width();
                 // заголовок вікна: логотип, «Nitor», «Згорнути», «Закрити» — за нього вікно перетягується
                 let head = ui.allocate_ui_with_layout(vec2(w, 56.0), Layout::left_to_right(Align::Center), |ui| {
-                    ui.add_space(20.0);
+                    ui.add_space(S5);
                     ui.add(
                         egui::Image::new(egui::include_image!("../../../assets/icon.svg"))
                             .fit_to_exact_size(vec2(28.0, 28.0)),
                     );
-                    ui.add_space(10.0);
+                    ui.add_space(S2);
                     ui.label(RichText::new("Nitor").font(bold(FS_LG)));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.add_space(12.0);
+                        ui.add_space(S3);
                         ui.spacing_mut().item_spacing.x = 4.0;
                         let can_close = self.phase != Phase::Working;
                         if icon_btn("x").kind(Kind::Ghost).enabled(can_close).tip("Закрити").show(ui).clicked() {
@@ -500,27 +500,27 @@ impl eframe::App for Gui {
                 if drag.drag_started() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
-                egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 8, bottom: 20 }).show(
-                    ui,
-                    |ui| {
+                egui::Frame::new()
+                    .inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S2 as i8, bottom: S5 as i8 })
+                    .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.label(RichText::new(&heading).font(bold(FS_XL)));
-                        ui.add_space(6.0);
+                        ui.add_space(S2);
                         let status_col = if self.phase == Phase::Failed { DANGER } else { MUTED };
                         ui.label(RichText::new(&status).size(FS_SM).color(status_col));
                         if self.phase == Phase::Ask {
-                            ui.add_space(18.0);
+                            ui.add_space(S4);
                             match &self.mode {
                                 Mode::Install => {
                                     widgets::check(ui, &mut self.desktop, "Створити ярлик на робочому столі");
-                                    ui.add_space(12.0);
+                                    ui.add_space(S3);
                                     widgets::check(ui, &mut self.start_menu, "Додати ярлик у меню «Пуск»");
                                 }
                                 Mode::Uninstall { .. } => self.uninstall_options(ui),
                             }
                         }
                         if self.phase == Phase::Working || (self.phase != Phase::Ask && pct > 0.0) {
-                            ui.add_space(14.0);
+                            ui.add_space(S3);
                             let bw = ui.available_width();
                             let (r, _) = ui.allocate_exact_size(vec2(bw, 6.0), Sense::hover());
                             ui.painter().rect_filled(r, egui::CornerRadius::same(3), LINE);
@@ -532,11 +532,11 @@ impl eframe::App for Gui {
                             );
                         }
                         if self.show_log {
-                            ui.add_space(12.0);
+                            ui.add_space(S3);
                             egui::Frame::new()
                                 .fill(RAISED)
                                 .corner_radius(radius(R_MD))
-                                .inner_margin(egui::Margin::same(10))
+                                .inner_margin(egui::Margin::same(S3 as i8))
                                 .show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     egui::ScrollArea::vertical().max_height(160.0).stick_to_bottom(true).show(
@@ -549,11 +549,10 @@ impl eframe::App for Gui {
                                     );
                                 });
                         }
-                    },
-                );
+                    });
                 let (line, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
                 ui.painter().rect_filled(line, 0.0, LINE);
-                egui::Frame::new().inner_margin(egui::Margin::symmetric(24, 14)).show(ui, |ui| {
+                egui::Frame::new().inner_margin(egui::Margin::symmetric(S5 as i8, S3 as i8)).show(ui, |ui| {
                     ui.allocate_ui_with_layout(vec2(w - 48.0, CONTROL_H), Layout::left_to_right(Align::Center), |ui| {
                         if !log.is_empty() && btn("Журнал").show(ui).clicked() {
                             self.show_log = !self.show_log;
@@ -695,7 +694,7 @@ impl Gui {
         ) {
             self.with_data = false;
         }
-        ui.add_space(8.0);
+        ui.add_space(S2);
         if card(
             ui,
             self.with_data,
@@ -705,7 +704,7 @@ impl Gui {
             self.with_data = true;
         }
         if self.with_data {
-            ui.add_space(12.0);
+            ui.add_space(S3);
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.vertical(|ui| {
                 for (part, label) in [
@@ -716,7 +715,7 @@ impl Gui {
                     (Part::Settings, "Налаштування: DMX-інтерфейс, яскравість і гарячі клавіші"),
                 ] {
                     ui.horizontal(|ui| {
-                        ui.add_space(26.0);
+                        ui.add_space(S5);
                         let mut on = self.parts.contains(&part);
                         if widgets::check(ui, &mut on, label).changed() {
                             if on {

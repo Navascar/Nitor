@@ -1235,7 +1235,7 @@ fn empty_state_in(ui: &mut Ui, icon: &str, title: &str, text: &str, (fill, ring,
         ui.add_space(S2);
         ui.label(RichText::new(title).font(bold(FS_MD)).color(TEXT));
         if !text.is_empty() {
-            ui.add_space(2.0);
+            ui.add_space(S1);
             ui.scope(|ui| {
                 ui.set_max_width(280.0);
                 ui.label(RichText::new(text).size(FS_SM).color(MUTED));

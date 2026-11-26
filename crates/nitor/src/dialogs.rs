@@ -593,7 +593,12 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.add_space(S2);
                             // поле з лупою ліворуч
-                            let pad = egui::Margin { left: (S2 + 16.0 + S2) as i8, right: S2 as i8, top: 8, bottom: 8 };
+                            let pad = egui::Margin {
+                                left: (S2 + 16.0 + S2) as i8,
+                                right: S2 as i8,
+                                top: S2 as i8,
+                                bottom: S2 as i8,
+                            };
                             let r = ui.add_sized(
                                 vec2(SIDE_W - 2.0 * S2, CONTROL_H),
                                 egui::TextEdit::singleline(&mut st.q)

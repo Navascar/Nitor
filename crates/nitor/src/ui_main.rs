@@ -1275,7 +1275,9 @@ impl App {
         };
         text(&f.name, bold(FS_MD), TEXT, &mut lamp_bottom);
         let end = self.v.end(f);
-        text(&format!("DMX {}–{}", f.address, end), font(FS_SM), MUTED, &mut lamp_bottom);
+        // на синюватому тлі вибраної плитки — синювато-сірий, а не нейтральний сірий (9.4:1)
+        let second = if selected { TEXT.lerp_to_gamma(ACCENT, 0.35) } else { MUTED };
+        text(&format!("DMX {}–{}", f.address, end), font(FS_SM), second, &mut lamp_bottom);
         let badge = if let Some(n) = f.preset {
             programs().get(n as usize - 1).map_or(format!("Пресет {n}"), |p| p.name.clone())
         } else if eff_ids.contains(&f.id) {
@@ -1285,7 +1287,7 @@ impl App {
         };
         if !badge.is_empty() {
             let label = format!("●  {badge}");
-            text(&label, font(FS_SM), MUTED, &mut lamp_bottom);
+            text(&label, font(FS_SM), second, &mut lamp_bottom);
         }
         if seg_clicked {
             return resp;
@@ -1765,7 +1767,9 @@ impl App {
                 if k > 0.0 && k < 1.0 {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
                 }
-                let r = btn(name.clone()).min_width(bw).left().progress(k).tip(scene_tip(&name)).show(ui);
+                // увімкнену сцену видно з першого погляду: вибрана кнопка (тло й рамка акценту)
+                let kind = if on { Kind::Toggled } else { Kind::Normal };
+                let r = btn(name.clone()).min_width(bw).left().kind(kind).progress(k).tip(scene_tip(&name)).show(ui);
                 self.scene_button(&r, &name);
                 if r.secondary_clicked() {
                     let m = self.scene_menu(Some(&name));
@@ -1994,9 +1998,9 @@ impl App {
     fn side_panel(&mut self, ui: &mut Ui) -> Rect {
         // кожен блок — окрема картка, щоб «Ефекти» і «Сцени» не зливалися в одне
         let card = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
+            // без рамки: картку й так відділяє тло `SURFACE` на `BG` (Refactoring UI, «Use fewer borders»)
             egui::Frame::new()
                 .fill(SURFACE)
-                .stroke(Stroke::new(1.0_f32, LINE))
                 .corner_radius(radius(R_LG))
                 .inner_margin(egui::Margin::same(S4 as i8))
                 .show(ui, |ui| {
