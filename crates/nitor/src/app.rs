@@ -126,6 +126,16 @@ pub struct Toast {
 /// Скільки повідомлень видно одночасно (старіші зникають).
 pub const TOASTS_MAX: usize = 3;
 
+/// Скільки показується повідомлення (WCAG 2.2.1): довше для довшого тексту, близько 0,3 с на слово,
+/// але не менше 3,5 с. Помилка висить, доки її не закриють хрестиком (або не витіснять три новіші).
+pub fn toast_time(text: &str, info: bool) -> Duration {
+    if !info {
+        return Duration::from_secs(24 * 3600);
+    }
+    let words = text.split_whitespace().count() as u64;
+    Duration::from_millis((1500 + 300 * words).max(3500))
+}
+
 /// Дії з меню, гарячих клавіш і вікон підтвердження.
 #[derive(Clone, Debug)]
 pub enum Act {
@@ -462,7 +472,7 @@ impl App {
 
     pub fn toast(&mut self, text: &str, info: bool) {
         let (text, now) = (cap(text), Instant::now());
-        let until = now + Duration::from_millis(3500);
+        let until = now + toast_time(&text, info);
         // те саме повідомлення ще раз — лише довше показується, без дубля
         if let Some(t) = self.toasts.iter_mut().find(|t| t.text == text && t.info == info) {
             t.until = until;

@@ -110,7 +110,6 @@ pub fn help(ui: &mut Ui, text: &str) {
     let c = if resp.hovered() || open || resp.has_focus() { TEXT } else { MUTED };
     icons::image("help", 16.0, c).paint_at(ui, r);
     focus_ring(ui, &resp, r, 9);
-    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     if !open {
         resp.on_hover_ui(|ui| {
             ui.set_max_width(360.0);
@@ -244,7 +243,7 @@ impl<'a> Btn<'a> {
             .as_ref()
             .filter(|t| !t.text().is_empty())
             .map(|t| t.clone().into_galley(ui, Some(egui::TextWrapMode::Truncate), f32::INFINITY, font.clone()));
-        let kbd = self.kbd.as_ref().map(|k| kbd_width(ui, k, FS_XS));
+        let kbd = self.kbd.as_ref().map(|k| kbd_width(ui, k, FS_SM));
         let kbd_w = kbd.map_or(0.0, |w| w + gap);
         let mut w = match (&galley, self.icon) {
             (None, Some(_)) if kbd.is_some() => pad * 2.0 + isz + kbd_w,
@@ -354,7 +353,7 @@ impl<'a> Btn<'a> {
                     Stroke::new(1.0_f32, fg.gamma_multiply(0.45)),
                     StrokeKind::Inside,
                 );
-                kbd_label(ui, kr, k, FS_XS, fg.gamma_multiply(0.85));
+                kbd_label(ui, kr, k, FS_SM, fg.gamma_multiply(0.85));
             }
             if let Some(name) = self.icon {
                 let r = Rect::from_min_size(pos2(x, rect.center().y - isz / 2.0), Vec2::splat(isz));
@@ -385,7 +384,6 @@ impl<'a> Btn<'a> {
                 }
             }
         }
-        let resp = if self.enabled { resp.on_hover_cursor(CursorIcon::PointingHand) } else { resp };
         match self.tooltip {
             Some(t) if !t.is_empty() && !self.quiet => resp.on_hover_text(t),
             _ => resp,
@@ -578,7 +576,7 @@ fn slider_impl(
     let v = *value as f64;
     resp.widget_info(|| WidgetInfo::slider(true, v, name));
     link_label(ui, &resp);
-    resp.on_hover_cursor(CursorIcon::PointingHand)
+    resp
 }
 
 /// Як показувати число біля повзунка.
@@ -819,7 +817,6 @@ pub fn fold(ui: &mut Ui, key: &str, text: &str, help_text: Option<&str>, mut ope
             .rotate((t - 1.0) * std::f32::consts::FRAC_PI_2, Vec2::splat(0.5))
             .paint_at(ui, ic);
         ui.painter().text(pos2(ic.right() + S1, r.center().y), Align2::LEFT_CENTER, text, font(FS_SM), c);
-        resp.on_hover_cursor(CursorIcon::PointingHand);
         if let Some(h) = help_text {
             help(ui, h);
         }
@@ -881,7 +878,7 @@ pub fn check(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
         p.rect_stroke(b.expand(2.0), CornerRadius::same(6), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
     }
     p.text(pos2(b.right() + S2, rect.center().y), Align2::LEFT_CENTER, text, font(FS_MD), TEXT);
-    resp.on_hover_cursor(CursorIcon::PointingHand)
+    resp
 }
 
 /// Вибір зі списку (як `<select>`). Повертає `true`, якщо значення змінилося.
@@ -946,7 +943,7 @@ pub fn switch(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
     if !text.is_empty() {
         p.text(pos2(track.right() + S2, rect.center().y), Align2::LEFT_CENTER, text, font(FS_MD), TEXT);
     }
-    resp.on_hover_cursor(CursorIcon::PointingHand)
+    resp
 }
 
 /// PIN окремими клітинками (лише цифри). Клітинки після `required` — необов'язкові (тонша рамка).
@@ -1044,7 +1041,7 @@ fn stepper(ui: &mut Ui, value: &mut f64, min: f64, max: f64, step: f64, decimals
             .paint_at(ui, Rect::from_center_size(br.center(), vec2(16.0, 16.0)));
         let name = if d < 0.0 { "Зменшити" } else { "Збільшити" };
         resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, can, name));
-        if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+        if resp.clicked() {
             let p = 10f64.powi(decimals as i32);
             *value = (((*value + d) * p).round() / p).clamp(min, max);
             r.mark_changed();
@@ -1077,7 +1074,7 @@ pub fn segmented<T: PartialEq + Clone>(
                 // (якщо назви не вміщаються — пункти стискаються пропорційно)
                 let pad = if width.is_some() { S2 } else { S3 };
                 let mut natural: Vec<f32> =
-                    options.iter().map(|(_, l)| text_width(ui, l, bold(FS_SM)) + 2.0 * pad).collect();
+                    options.iter().map(|(_, l)| text_width(ui, l, font(FS_MD)) + 2.0 * pad).collect();
                 let mut extra = 0.0;
                 if let Some(w) = width {
                     let room = w - 2.0 * S1 - 2.0 - 2.0 * (n - 1.0);
@@ -1105,10 +1102,10 @@ pub fn segmented<T: PartialEq + Clone>(
                         r.center(),
                         Align2::CENTER_CENTER,
                         *label,
-                        bold(FS_SM),
+                        font(FS_MD),
                         if on { WHITE } else { MUTED },
                     );
-                    if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() && !on {
+                    if resp.clicked() && !on {
                         *value = v.clone();
                         changed = true;
                     }

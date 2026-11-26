@@ -250,7 +250,7 @@ impl App {
         // логотип, назва й версія — до «Про програму»
         let about = ui.interact(brand, Id::new("title-about"), Sense::click());
         about.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Про програму"));
-        if about.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !self.v.operator {
+        if about.clicked() && !self.v.operator {
             self.open_settings(Some(crate::dialogs::Tab::About));
         }
         ui.add_space(S2);
@@ -527,7 +527,7 @@ impl App {
             p.galley(pos2(r.left() + S3 + 8.0 + S2, r.center().y - g.size().y / 2.0), g, TEXT);
         }
         // індикатор виходу — одразу до вибору DMX-виходу
-        if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !self.v.operator {
+        if resp.on_hover_text(tip).clicked() && !self.v.operator {
             self.open_settings(Some(crate::dialogs::Tab::Output));
         }
         w
@@ -689,18 +689,44 @@ impl App {
                 // ручка посередині межі
                 let grip = Rect::from_center_size(pos2(x, hit.center().y), vec2(8.0, 40.0));
                 ui.painter().rect_filled(grip, radius(R_SM), ACCENT);
-                if resp.dragged() {
+                // межу зсуває й перетягування, і кнопки над ручкою (без перетягування, WCAG 2.5.7)
+                let shift = |dx: f32| {
                     let mut w = *widths;
-                    let dx = resp.drag_delta().x;
                     let pair = w[k] + w[k + 1];
                     w[k] = (w[k] + dx).clamp(col_min(order[k]), (pair - col_min(order[k + 1])).max(col_min(order[k])));
                     w[k + 1] = pair - w[k];
-                    self.col_live = Some(order.iter().map(|id| id.to_string()).zip(w).collect());
+                    order.iter().map(|id| id.to_string()).zip(w).collect::<std::collections::BTreeMap<_, _>>()
+                };
+                if resp.dragged() {
+                    self.col_live = Some(shift(resp.drag_delta().x));
                 }
                 if resp.drag_stopped() {
                     if let Some(w) = self.col_live.take() {
                         self.set_prefs(|p| p.col_width = w);
                     }
+                }
+                let pair = Rect::from_center_size(
+                    pos2(x, grip.top() - S2 - CONTROL_H_SM / 2.0),
+                    vec2(2.0 * CONTROL_H_SM + S1, CONTROL_H_SM),
+                );
+                let mut step = 0.0;
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(pair).layout(Layout::left_to_right(Align::Center)),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = S1;
+                        if icon_btn("arrowLeft").small().tip("Зсунути межу ліворуч").show(ui).clicked()
+                        {
+                            step = -COL_STEP;
+                        }
+                        if icon_btn("arrowRight").small().tip("Зсунути межу праворуч").show(ui).clicked()
+                        {
+                            step = COL_STEP;
+                        }
+                    },
+                );
+                if step != 0.0 {
+                    let w = shift(step);
+                    self.set_prefs(|p| p.col_width = w);
                 }
             }
         }
@@ -709,7 +735,7 @@ impl App {
         for (i, r) in rects.iter().enumerate() {
             let name = COLS.iter().find(|c| c.0 == order[i]).map_or("", |c| c.3);
             let size =
-                vec2(widgets::text_width(ui, name, bold(FS_SM)) + 2.0 * CONTROL_H_SM + 2.0 * S3, CONTROL_H_SM + S2);
+                vec2(widgets::text_width(ui, name, bold(FS_MD)) + 2.0 * CONTROL_H_SM + 2.0 * S3, CONTROL_H_SM + S2);
             let bar = Rect::from_center_size(pos2(r.center().x, r.bottom() - S4 - size.y / 2.0), size);
             ui.painter().rect(bar, radius(R_MD), RAISED, Stroke::new(1.0_f32, ACCENT), StrokeKind::Inside);
             ui.scope_builder(
@@ -724,7 +750,7 @@ impl App {
                     if icon_btn("arrowLeft").small().kind(Kind::Ghost).enabled(i > 0).tip(left).show(ui).clicked() {
                         swap = Some(i - 1);
                     }
-                    ui.label(RichText::new(name).font(bold(FS_SM)));
+                    ui.label(RichText::new(name).font(bold(FS_MD)));
                     let right = if wide {
                         "Перемістити праворуч"
                     } else {
@@ -1037,6 +1063,32 @@ impl App {
             x0 += sizes[i].x + S2;
         }
         let pos = |f: &nitor_core::Fixture, i: usize| f.pos.unwrap_or(auto[i]);
+        // кнопки зсуву вибраних приладів: план без перетягування (WCAG 2.5.7)
+        let sel = self.sel_fixtures();
+        let mut moved: Option<[i16; 2]> = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = S1;
+            ui.label(widgets::muted("Зсунути вибрані"));
+            for (icon, tip, d) in [
+                ("arrowLeft", "Ліворуч", [-PLAN_STEP, 0]),
+                ("arrowRight", "Праворуч", [PLAN_STEP, 0]),
+                ("arrowUp", "Вгору", [0, -PLAN_STEP]),
+                ("arrowDown", "Вниз", [0, PLAN_STEP]),
+            ] {
+                if icon_btn(icon).small().enabled(!sel.is_empty()).tip(tip).show(ui).clicked() {
+                    moved = Some(d);
+                }
+            }
+        });
+        ui.add_space(S2);
+        if let Some([dx, dy]) = moved {
+            for (i, f) in fixtures.iter().enumerate().filter(|(_, f)| sel.contains(&f.id)) {
+                let [x, y] = pos(f, i);
+                let max_x = ((w - sizes[i].x) / PLAN_CELL).floor().max(0.0) as i16;
+                let to = [(x + dx).clamp(0, max_x), (y + dy).max(0)];
+                self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some(to) });
+            }
+        }
         let bottom = fixtures.iter().enumerate().map(|(i, f)| pos(f, i)[1] as f32 * PLAN_CELL + th).fold(0.0, f32::max);
         let (area, _) = ui.allocate_exact_size(vec2(w, (bottom + th).max(320.0)), Sense::hover());
         // точки сітки — щоб було видно, куди прилипне плитка
@@ -1221,9 +1273,9 @@ impl App {
             p.galley(pos2(inner.center().x, *y), g, col);
             *y += h;
         };
-        text(&f.name, bold(FS_SM), TEXT, &mut lamp_bottom);
+        text(&f.name, bold(FS_MD), TEXT, &mut lamp_bottom);
         let end = self.v.end(f);
-        text(&format!("DMX {}–{}", f.address, end), font(FS_XS), MUTED, &mut lamp_bottom);
+        text(&format!("DMX {}–{}", f.address, end), font(FS_SM), MUTED, &mut lamp_bottom);
         let badge = if let Some(n) = f.preset {
             programs().get(n as usize - 1).map_or(format!("Пресет {n}"), |p| p.name.clone())
         } else if eff_ids.contains(&f.id) {
@@ -1233,7 +1285,7 @@ impl App {
         };
         if !badge.is_empty() {
             let label = format!("●  {badge}");
-            text(&label, font(FS_XS), ACCENT, &mut lamp_bottom);
+            text(&label, font(FS_SM), MUTED, &mut lamp_bottom);
         }
         if seg_clicked {
             return resp;
@@ -1248,8 +1300,7 @@ impl App {
             let m = self.fixture_menu(&f.id);
             self.want_menu(m);
         }
-        let cursor = if drag { egui::CursorIcon::Grab } else { egui::CursorIcon::PointingHand };
-        resp.on_hover_cursor(cursor)
+        if drag { resp.on_hover_cursor(egui::CursorIcon::Grab) } else { resp }
     }
 
     // ----------------------------------------------------------------- колір --
@@ -1474,7 +1525,7 @@ impl App {
                     x += 12.0 + S2;
                 }
                 painter.text(pos2(x, r.center().y), Align2::LEFT_CENTER, label, font(FS_SM), fg);
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                if resp.clicked() {
                     self.send(Command::Preset { ids: targets.to_vec(), n: Some(Some(n)), speed: None });
                 }
             }
@@ -1639,10 +1690,10 @@ impl App {
                     pos2(r.center().x, r.bottom() - S2),
                     Align2::CENTER_BOTTOM,
                     name,
-                    font(FS_XS),
+                    font(FS_SM),
                     if on { TEXT } else { MUTED },
                 );
-                if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
+                if resp.on_hover_text(tip).clicked() && !on {
                     pick = Some(c);
                 }
             }
@@ -2061,7 +2112,7 @@ impl App {
                     rr.left_top() + vec2(4.0, 2.0),
                     Align2::LEFT_TOP,
                     k,
-                    font(FS_XS),
+                    font(FS_SM),
                     readable_text(c.hex),
                 );
             }
@@ -2085,7 +2136,6 @@ impl App {
                 let m = self.static_menu(i);
                 self.want_menu(m);
             }
-            resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
         // новий «поточний» колір стає фокусованим у наступному кадрі
         if let Some(t) = next {
@@ -2132,9 +2182,7 @@ impl App {
         if resp.clicked() {
             self.act(ui.ctx(), Act::SaveColor);
         }
-        if can {
-            resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-        }
+        if can {}
     }
 
     fn static_grid(&mut self, ui: &mut Ui) {
@@ -2145,7 +2193,7 @@ impl App {
         let word_w = colors
             .iter()
             .flat_map(|c| c.name.split_whitespace())
-            .map(|word| widgets::text_width(ui, word, bold(FS_XS)))
+            .map(|word| widgets::text_width(ui, word, bold(FS_MD)))
             .fold(0.0_f32, f32::max);
         let min_w = (word_w + 2.0 * S1).max(92.0);
         let cols = (((w + gap) / (min_w + gap)).floor() as usize).max(1);
@@ -2179,17 +2227,12 @@ impl App {
                     rr.left_top() + vec2(6.0, 3.0),
                     Align2::LEFT_TOP,
                     "W",
-                    font(FS_XS),
+                    font(FS_SM),
                     fg.gamma_multiply(0.75),
                 );
             }
-            let long = widgets::text_width(ui, &c.name, bold(FS_SM)) > r.width() - 2.0 * S1;
-            let mut job = egui::text::LayoutJob::simple(
-                c.name.clone(),
-                bold(if long { FS_XS } else { FS_SM }),
-                fg,
-                r.width() - 2.0 * S1,
-            );
+            // напівжирний не дрібніший за 14 px (Windows 11); довга назва переноситься на другий рядок
+            let mut job = egui::text::LayoutJob::simple(c.name.clone(), bold(FS_MD), fg, r.width() - 2.0 * S1);
             job.wrap.max_rows = 2;
             job.halign = Align::Center;
             let g = ui.fonts(|f| f.layout_job(job));
@@ -2207,7 +2250,6 @@ impl App {
                 let m = self.static_menu(i);
                 self.want_menu(m);
             }
-            resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
     }
 
@@ -2476,7 +2518,7 @@ impl App {
                 font(FS_SM),
                 MUTED,
             );
-            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            if resp.clicked() {
                 self.monitor_open = !self.monitor_open;
             }
             if !self.monitor_open {
@@ -2512,14 +2554,14 @@ impl App {
                         pos2(r.center().x, r.top() + 2.0),
                         Align2::CENTER_TOP,
                         (i + 1).to_string(),
-                        font(FS_XS),
+                        font(FS_SM),
                         MUTED,
                     );
                     p.text(
                         pos2(r.center().x, r.bottom() - 2.0),
                         Align2::CENTER_BOTTOM,
                         v.to_string(),
-                        font(FS_XS),
+                        font(FS_SM),
                         TEXT,
                     );
                 }
@@ -2538,6 +2580,8 @@ impl App {
         let screen = ctx.screen_rect();
         let mut bottom = screen.bottom() - S4;
         let mut moving = false;
+        let (mut hold, mut close) = (vec![], vec![]);
+        let pointer = ctx.pointer_hover_pos();
         for t in self.toasts.iter().rev() {
             let id = Id::new(("toast", t.seq));
             let age = now.duration_since(t.born).as_secs_f32();
@@ -2553,7 +2597,6 @@ impl App {
                 .order(egui::Order::Tooltip)
                 .pivot(Align2::CENTER_BOTTOM)
                 .fixed_pos(pos2(screen.center().x, y))
-                .interactable(false)
                 .show(ctx, |ui| {
                     ui.multiply_opacity(fade);
                     egui::Frame::new()
@@ -2563,16 +2606,29 @@ impl App {
                         .inner_margin(egui::Margin::symmetric(S4 as i8, S2 as i8))
                         .show(ui, |ui| {
                             ui.set_max_width(screen.width() * 0.9);
-                            let l = ui.label(RichText::new(&t.text).size(FS_MD));
-                            // диктор зачитує повідомлення, щойно воно з'явилось
-                            ui.ctx().accesskit_node_builder(l.id, |n| n.set_live(egui::accesskit::Live::Polite));
+                            ui.horizontal(|ui| {
+                                let l = ui.label(RichText::new(&t.text).size(FS_MD));
+                                // диктор зачитує повідомлення, щойно воно з'явилось
+                                ui.ctx().accesskit_node_builder(l.id, |n| n.set_live(egui::accesskit::Live::Polite));
+                                if !t.info && icon_btn("x").small().kind(Kind::Ghost).tip("Закрити").show(ui).clicked()
+                                {
+                                    close.push(t.seq);
+                                }
+                            });
                         });
                 })
                 .response
-                .rect
-                .height();
-            bottom -= h + S2;
+                .rect;
+            // під мишею повідомлення не зникає
+            if pointer.is_some_and(|p| h.contains(p)) {
+                hold.push(t.seq);
+            }
+            bottom -= h.height() + S2;
         }
+        for t in self.toasts.iter_mut().filter(|t| hold.contains(&t.seq)) {
+            t.until = t.until.max(now + std::time::Duration::from_millis(1500));
+        }
+        self.toasts.retain(|t| !close.contains(&t.seq));
         if moving {
             ctx.request_repaint();
         } else {
@@ -2695,7 +2751,7 @@ fn window_button(ui: &mut Ui, tip: &str, paint: impl FnOnce(&egui::Painter, Pos2
         ui.painter().rect_stroke(r.expand(2.0), radius(R_MD + 2), Stroke::new(2.0_f32, ACCENT), StrokeKind::Outside);
     }
     paint(ui.painter(), r.center());
-    resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    resp.on_hover_text(tip).clicked()
 }
 
 /// Стовпці головного вікна: ідентифікатор, стандартна частка ширини, найменша ширина
@@ -2705,6 +2761,12 @@ const COLS: [(&str, f32, f32, &str); 3] =
 
 /// Стандартна ширина «Кольору» не більша за цю: ширше коло й палітра лише розтягують порожнечу.
 const COLOR_W_MAX: f32 = 500.0;
+
+/// На скільки клітинок плану кнопка зсуває вибрані прилади (як стрілка з Shift).
+const PLAN_STEP: i16 = 4;
+
+/// На скільки кнопка зсуває межу стовпців.
+const COL_STEP: f32 = 40.0;
 
 fn col_min(id: &str) -> f32 {
     COLS.iter().find(|c| c.0 == id).map_or(0.0, |c| c.2)
@@ -2750,6 +2812,18 @@ fn col_widths(order: &[&str; 3], saved: &std::collections::BTreeMap<String, f32>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toasts_stay_long_enough_to_read() {
+        use crate::app::toast_time;
+        use std::time::Duration;
+        assert_eq!(toast_time("Адресу скопійовано", true), Duration::from_millis(3500));
+        // 25 слів — близько 9 с
+        let long = "слово ".repeat(25);
+        assert_eq!(toast_time(&long, true), Duration::from_millis(9000));
+        // помилка висить, доки її не закриють
+        assert!(toast_time("Порт зайнятий", false) >= Duration::from_secs(3600));
+    }
 
     #[test]
     fn led_segments_are_wide_enough() {

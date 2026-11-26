@@ -166,7 +166,7 @@ impl App {
             m.push(item("grid", "Пресети", Act::OpenPresets));
         }
         if in_sel.len() == 1 {
-            m.push(item("settings", "Властивості…", Act::OpenProps(fid.clone())).key(Some("2×клік".into())));
+            m.push(item("settings", "Властивості", Act::OpenProps(fid.clone())).key(Some("2×клік".into())));
             m.push(item("copy", "Дублювати", Act::Duplicate(fid.clone())));
         }
         if !whole.is_empty() {
@@ -365,7 +365,7 @@ impl App {
             )
             .key(short_key(h, "clear")),
         );
-        m.push(item("layers", "Патч приладів…", Act::OpenSettings(Some(crate::dialogs::Tab::Patch))));
+        m.push(item("layers", "Патч приладів", Act::OpenSettings(Some(crate::dialogs::Tab::Patch))));
         m
     }
 
@@ -524,7 +524,7 @@ impl App {
                                         icons::image(name, 16.0, ifg.gamma_multiply(a)).paint_at(ui, ir);
                                     }
                                     let kw = key.as_ref().map_or(0.0, |k| {
-                                        ui.fonts(|f| f.layout_no_wrap(k.clone(), font(FS_XS), MUTED).size().x) + S2
+                                        ui.fonts(|f| f.layout_no_wrap(k.clone(), font(FS_SM), MUTED).size().x) + S2
                                     });
                                     let mut job = egui::text::LayoutJob::simple_singleline(
                                         label.clone(),
@@ -543,16 +543,14 @@ impl App {
                                             pos2(r.right() - S2, r.center().y),
                                             Align2::RIGHT_CENTER,
                                             k,
-                                            font(FS_XS),
+                                            font(FS_SM),
                                             if hot { WHITE } else { MUTED }.gamma_multiply(a),
                                         );
                                     }
                                     if resp.clicked() {
                                         chosen = Some(act.clone());
                                     }
-                                    if !*disabled {
-                                        resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-                                    }
+                                    if !*disabled {}
                                 }
                             }
                         }

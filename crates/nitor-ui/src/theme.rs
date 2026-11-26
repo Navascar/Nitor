@@ -16,8 +16,8 @@ pub const LINE_STRONG: Color32 = Color32::from_rgb(0x3d, 0x44, 0x52);
 /// межа полів вводу, списків і чекбоксів: ≥ 3:1 на BG, SURFACE і RAISED (WCAG 1.4.11)
 pub const LINE_FIELD: Color32 = Color32::from_rgb(0x70, 0x78, 0x88);
 pub const TEXT: Color32 = Color32::from_rgb(0xe6, 0xe8, 0xee);
-/// ≥ 4.5:1 на BG, SURFACE і RAISED
-pub const MUTED: Color32 = Color32::from_rgb(0x9a, 0xa1, 0xae);
+/// ≥ 4.5:1 на BG, SURFACE і RAISED (WCAG 2); APCA Lc ≥ 60 — читається й дрібний текст на темному
+pub const MUTED: Color32 = Color32::from_rgb(0xb0, 0xb6, 0xc2);
 /// єдиний акцент: основні дії, вибір (рамки, текст, лінії)
 pub const ACCENT: Color32 = Color32::from_rgb(0x4f, 0x8c, 0xff);
 /// заливка під білим текстом (контраст 4.7:1)
@@ -44,7 +44,7 @@ pub const BACKDROP: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 153);
 pub const INK: Color32 = Color32::from_rgb(0x0b, 0x0d, 0x10);
 
 // типографічна шкала
-pub const FS_XS: f32 = 11.0;
+// найменший текст — 12 px, напівжирний — від 14 px (Windows 11: дрібніше погано читається)
 pub const FS_SM: f32 = 12.0;
 pub const FS_MD: f32 = 14.0;
 pub const FS_LG: f32 = 16.0;

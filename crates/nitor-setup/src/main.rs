@@ -543,7 +543,7 @@ impl eframe::App for Gui {
                                         ui,
                                         |ui| {
                                             for l in &log {
-                                                ui.label(RichText::new(l).font(mono(FS_XS)).color(MUTED));
+                                                ui.label(RichText::new(l).font(mono(FS_SM)).color(MUTED));
                                             }
                                         },
                                     );
@@ -685,7 +685,7 @@ impl Gui {
                 TEXT,
             );
             ui.painter().galley(egui::pos2(r.left() + S3 + 26.0, r.top() + S3 + 22.0), galley, MUTED);
-            resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+            resp.clicked()
         };
         if card(
             ui,

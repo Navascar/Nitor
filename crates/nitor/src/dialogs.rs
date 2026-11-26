@@ -663,7 +663,7 @@ impl App {
                                 font(FS_MD),
                                 if on { TEXT } else { MUTED },
                             );
-                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            if resp.clicked() {
                                 go = Some(tab);
                             }
                         }
@@ -2051,7 +2051,7 @@ impl App {
                     for mode in &st.fx.modes {
                         let picked = st.current.as_deref() == Some(mode.name());
                         let chs = mode.channels().join(" ");
-                        let galley = ui.fonts(|f| f.layout(chs.clone(), font(FS_XS), MUTED, w - 2.0 * S3));
+                        let galley = ui.fonts(|f| f.layout(chs.clone(), font(FS_SM), MUTED, w - 2.0 * S3));
                         let h = S3 * 2.0 + 20.0 + galley.size().y + 2.0;
                         let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
                         resp.widget_info(|| {
@@ -2087,7 +2087,7 @@ impl App {
                             MUTED,
                         );
                         ui.painter().galley(pos2(r.left() + S3, r.top() + S3 + 22.0), galley, MUTED);
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                        if resp.clicked() {
                             chosen = Some(mode.clone());
                         }
                     }
@@ -2181,12 +2181,12 @@ impl App {
                     let live = self.tested.contains(&addr);
                     let (r, _) = ui.allocate_exact_size(vec2(96.0, CONTROL_H_SM), Sense::hover());
                     let g1 = format!("CH{}", i + 1);
-                    let w1 = widgets::text_width(ui, &g1, bold(FS_SM));
+                    let w1 = widgets::text_width(ui, &g1, bold(FS_MD));
                     ui.painter().text(
                         r.left_center(),
                         Align2::LEFT_CENTER,
                         &g1,
-                        bold(FS_SM),
+                        bold(FS_MD),
                         if live { ACCENT } else { TEXT },
                     );
                     ui.painter().text(
@@ -2346,7 +2346,7 @@ impl App {
                 font(FS_MD),
                 TEXT,
             );
-            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            if resp.clicked() {
                 p.test_open = !p.test_open;
                 if p.test_open {
                     if p.test_count == 0 {
@@ -2501,13 +2501,13 @@ fn color_chips(ui: &mut Ui, fx: &LibModel) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(S1, S1);
         for (_, hex, name) in crate::art::colors(fx) {
-            let tw = widgets::text_width(ui, name, font(FS_XS));
+            let tw = widgets::text_width(ui, name, font(FS_SM));
             let (r, _) = ui.allocate_exact_size(vec2(tw + 8.0 + S1 + 2.0 * S2, 18.0), Sense::hover());
             let p = ui.painter();
             p.rect_stroke(r, egui::CornerRadius::same(255), Stroke::new(1.0_f32, LINE_STRONG), StrokeKind::Inside);
             let c = nitor_core::Rgb::from_hex(hex).unwrap();
             p.circle_filled(pos2(r.left() + S2 + 4.0, r.center().y), 4.0, Color32::from_rgb(c.0, c.1, c.2));
-            p.text(pos2(r.left() + S2 + 8.0 + S1, r.center().y), Align2::LEFT_CENTER, name, font(FS_XS), MUTED);
+            p.text(pos2(r.left() + S2 + 8.0 + S1, r.center().y), Align2::LEFT_CENTER, name, font(FS_SM), MUTED);
         }
     });
 }
@@ -2554,7 +2554,7 @@ fn lib_card(ui: &mut Ui, r: Rect, fx: &LibModel) -> egui::Response {
         font(FS_SM),
         MUTED,
     );
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    resp
 }
 
 #[cfg(test)]
