@@ -286,8 +286,12 @@ impl<'a> Btn<'a> {
             (a.0.lerp_to_gamma(b.0, t), a.1.lerp_to_gamma(b.1, t), a.2.lerp_to_gamma(b.2, t))
         };
         let (mut fill, mut stroke, mut fg) = lerp3(colors(self.kind, false), colors(self.kind, true), h);
-        // наведення піднімає кнопку на 1 px, натискання опускає; місце в розкладці не змінюється
+        // наведення піднімає кнопку на 1 px, натискання опускає; місце в розкладці не змінюється.
+        // Натиснута кнопка на 1,5 % менша, але місце для назви рахуємо за повним розміром (`slack`):
+        // інакше назва, що ледь уміщається, на мить обрізалася б трикрапкою
+        let full_w = rect.width();
         let rect = crate::anim::lift_rect(rect, h, pr, 1.0);
+        let slack = full_w - rect.width();
         // «Готово» проявляється плавно з попереднього вигляду кнопки, галочка виростає без відскоку
         let done = self.kind == Kind::Done;
         let kind_id = resp.id.with("kind");
@@ -365,7 +369,7 @@ impl<'a> Btn<'a> {
                 x += isz + gap;
             }
             if let Some(g) = galley {
-                let max_w = text_right - x;
+                let max_w = text_right - x + slack;
                 let pos = pos2(x, rect.center().y - g.size().y / 2.0);
                 if revealing {
                     // назва проявляється з-під краю кнопки, без трикрапки
@@ -1242,4 +1246,52 @@ fn empty_state_in(ui: &mut Ui, icon: &str, title: &str, text: &str, (fill, ring,
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Тексти, які кнопка справді намалювала в кадрі (з гліфів: трикрапка є лише там, а не в `text()`).
+    fn painted_texts(out: &egui::FullOutput) -> Vec<String> {
+        out.shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => {
+                    Some(t.galley.rows.iter().flat_map(|r| r.row.glyphs.iter().map(|g| g.chr)).collect())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pressed_button_keeps_full_label() {
+        let ctx = egui::Context::default();
+        let frame = |events: Vec<egui::Event>, t: f64| {
+            let input = egui::RawInput { events, time: Some(t), ..Default::default() };
+            ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    btn("Скасувати").show(ui);
+                });
+            })
+        };
+        let at = egui::pos2(30.0, 20.0);
+        frame(vec![egui::Event::PointerMoved(at)], 0.0);
+        let press = egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        };
+        frame(vec![press], 0.1);
+        // анімація натискання (90 мс) рахується покадрово: тримаємо кнопку пів секунди
+        let mut out = frame(vec![], 0.12);
+        for k in 2..30 {
+            out = frame(vec![], 0.1 + k as f64 / 60.0);
+        }
+        let texts = painted_texts(&out);
+        assert!(texts.iter().any(|t| t == "Скасувати"), "назва повністю: {texts:?}");
+        assert!(texts.iter().all(|t| !t.contains('…')), "без трикрапки: {texts:?}");
+    }
 }
