@@ -979,7 +979,7 @@ impl App {
             );
             let slot = ((c as u64) << 32) | r as u64;
             let rect = anim::slot_rect(ui.ctx(), Id::new(("tile-slot", &f.id)), slot, rect, appear);
-            self.tile(ui, rect, f, &eff_ids, false);
+            self.tile(ui, rect, f, &eff_ids, false, None);
         }
         area
     }
@@ -1051,8 +1051,11 @@ impl App {
             })
             .collect();
         // ще не розставлені прилади стоять рядами під розставленими
-        let mut y0 =
-            fixtures.iter().filter_map(|f| f.pos).map(|p| p[1] as f32 * PLAN_CELL + th + S2).fold(0.0, f32::max);
+        let mut y0 = fixtures
+            .iter()
+            .flat_map(|f| f.pos.into_iter().chain(f.copies.iter().copied()))
+            .map(|p| p[1] as f32 * PLAN_CELL + th + S2)
+            .fold(0.0, f32::max);
         let mut x0 = 0.0;
         let mut auto = vec![[0i16; 2]; fixtures.len()];
         for (i, _) in fixtures.iter().enumerate().filter(|(_, f)| f.pos.is_none()) {
@@ -1089,7 +1092,12 @@ impl App {
                 self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some(to) });
             }
         }
-        let bottom = fixtures.iter().enumerate().map(|(i, f)| pos(f, i)[1] as f32 * PLAN_CELL + th).fold(0.0, f32::max);
+        let bottom = fixtures
+            .iter()
+            .enumerate()
+            .flat_map(|(i, f)| std::iter::once(pos(f, i)).chain(f.copies.iter().copied()))
+            .map(|p| p[1] as f32 * PLAN_CELL + th)
+            .fold(0.0, f32::max);
         let (area, _) = ui.allocate_exact_size(vec2(w, (bottom + th).max(320.0)), Sense::hover());
         // точки сітки — щоб було видно, куди прилипне плитка
         let p = ui.painter();
@@ -1103,16 +1111,38 @@ impl App {
             }
             y += step;
         }
-        for (i, f) in fixtures.iter().enumerate() {
-            let [x, y] = pos(f, i);
+        // плитки: сам прилад і його копії (кілька однакових приладів на одній адресі)
+        let tiles: Vec<(usize, Option<usize>, [i16; 2])> = fixtures
+            .iter()
+            .enumerate()
+            .flat_map(|(i, f)| {
+                std::iter::once((i, None, pos(f, i)))
+                    .chain(f.copies.iter().enumerate().map(move |(k, p)| (i, Some(k), *p)))
+            })
+            .collect();
+        for (i, copy, [x, y]) in tiles {
+            let f = &fixtures[i];
+            let key = match copy {
+                Some(k) => format!("{}@{k}", f.id),
+                None => f.id.clone(),
+            };
+            // перемістити плитку (сам прилад або копію)
+            let place = |to: [i16; 2]| match copy {
+                Some(k) => {
+                    let mut copies = f.copies.clone();
+                    copies[k] = to;
+                    Command::PlaceCopies { id: f.id.clone(), copies }
+                }
+                None => Command::PlaceFixture { id: f.id.clone(), pos: Some(to) },
+            };
             let mut min = pos2(area.left() + x as f32 * PLAN_CELL, area.top() + y as f32 * PLAN_CELL);
             if let Some((id, off)) = &self.plan_drag {
-                if *id == f.id {
+                if *id == key {
                     min += *off;
                 }
             }
             let rect = Rect::from_min_size(min, sizes[i]);
-            let resp = self.tile(ui, rect, f, eff_ids, true);
+            let resp = self.tile(ui, rect, f, eff_ids, true, copy);
             if resp.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
             }
@@ -1136,11 +1166,11 @@ impl App {
                     let max_x = ((w - sizes[i].x) / PLAN_CELL).floor().max(0.0) as i16;
                     let nx = (x + dx).clamp(0, max_x);
                     let ny = (y + dy).max(0);
-                    self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some([nx, ny]) });
+                    self.send(place([nx, ny]));
                 }
             }
             if resp.drag_started() {
-                self.plan_drag = Some((f.id.clone(), egui::Vec2::ZERO));
+                self.plan_drag = Some((key.clone(), egui::Vec2::ZERO));
             }
             if resp.dragged() {
                 if let Some((_, off)) = self.plan_drag.as_mut() {
@@ -1152,7 +1182,7 @@ impl App {
                     let max_x = ((w - sizes[i].x) / PLAN_CELL).floor().max(0.0);
                     let nx = ((x as f32 * PLAN_CELL + off.x) / PLAN_CELL).round().clamp(0.0, max_x);
                     let ny = ((y as f32 * PLAN_CELL + off.y) / PLAN_CELL).round().max(0.0);
-                    self.send(Command::PlaceFixture { id: f.id.clone(), pos: Some([nx as i16, ny as i16]) });
+                    self.send(place([nx as i16, ny as i16]));
                 }
             }
         }
@@ -1167,8 +1197,9 @@ impl App {
         f: &nitor_core::Fixture,
         eff_ids: &[String],
         drag: bool,
+        copy: Option<usize>,
     ) -> egui::Response {
-        let id = Id::new(("tile", &f.id));
+        let id = Id::new(("tile", &f.id, copy));
         self.tile_rects.push((f.id.clone(), rect));
         let sense = if drag { Sense::click_and_drag() } else { Sense::click() };
         let resp = ui.interact(rect, id, sense).on_hover_text(&f.profile);
@@ -1194,7 +1225,7 @@ impl App {
         let paint = |c: Option<&[u8; 4]>, k: usize| {
             let [r, g, b, w] = c.copied().unwrap_or([0, 0, 0, 0]);
             let col = Color32::from_rgb(r.saturating_add(w), g.saturating_add(w), b.saturating_add(w));
-            anim::calm_color(&ctx, Id::new(("calm", &f.id, k)), col)
+            anim::calm_color(&ctx, Id::new(("calm", &f.id, copy, k)), col)
         };
         let inner = rect.shrink(S2);
         let shift = ui.input(|i| i.modifiers.shift);
@@ -1212,8 +1243,9 @@ impl App {
                 );
                 // одна клітинка — це весь прилад, а не «сегмент 1»
                 let sid = if n == 1 { f.id.clone() } else { format!("{}#{k}", f.id) };
-                let cresp =
-                    ui.interact(cr, Id::new(("seg", &sid)), Sense::click()).on_hover_text(format!("Сегмент {}", k + 1));
+                let cresp = ui
+                    .interact(cr, Id::new(("seg", &sid, copy)), Sense::click())
+                    .on_hover_text(format!("Сегмент {}", k + 1));
                 p.rect_filled(cr, egui::CornerRadius::same(3), paint(live.get(k), k));
                 let seg_sel = self.sel.contains(&sid);
                 let seg_name = format!("{}, сегмент {}", f.name, k + 1);
@@ -1239,6 +1271,7 @@ impl App {
                     seg_clicked = true;
                 }
                 if cresp.secondary_clicked() {
+                    self.menu_copy = copy;
                     let m = self.fixture_menu(&sid);
                     self.want_menu(m);
                 }
@@ -1301,6 +1334,7 @@ impl App {
             self.pick(&f.id, shift);
         }
         if resp.secondary_clicked() {
+            self.menu_copy = copy;
             let m = self.fixture_menu(&f.id);
             self.want_menu(m);
         }
@@ -1435,7 +1469,8 @@ impl App {
         ui.spacing_mut().item_spacing.y = S2;
         for (key, label, color) in SLIDERS {
             let always = ["r", "g", "b", "w", "dimmer"].contains(&key);
-            if !always && !roles.contains(key) {
+            // строб — лише коли вибрано прилад, що його має
+            if !always && !roles.contains(key) || key == "strobe" && items.is_empty() {
                 continue;
             }
             let mut v = first.as_ref().map_or(0.0, |f| f.channel(key) as f32);
@@ -2299,10 +2334,18 @@ impl App {
                 })
                 .inner
             };
-        changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")), "");
-        ui.add_space(S2);
-        let spread = "Зсуває прилади один відносно одного: на нулі всі світять однаково, з більшим значенням колір біжить від приладу до приладу.";
-        changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None, spread);
+        // статичний колір не рухається — швидкість і розкид йому ні до чого
+        let still = self.eff.kind == EffectKind::Static;
+        if still {
+            ui.label(widgets::muted(
+                "Прилади світять своїм кольором із вкладки «Колір» (або палітрою). З «У такт музиці» яскравість спалахує на кожен удар.",
+            ));
+        } else {
+            changed |= compact(ui, "Швидкість", "effSpeed", &mut self.eff.speed, 1.0, Some(format!("{hz:.2} Гц")), "");
+            ui.add_space(S2);
+            let spread = "Зсуває прилади один відносно одного: на нулі всі світять однаково, з більшим значенням колір біжить від приладу до приладу.";
+            changed |= compact(ui, "Розкид фази", "effSpread", &mut self.eff.spread, 0.0, None, spread);
+        }
         ui.add_space(S2);
         self.effect_preview(ui, w);
         ui.add_space(S2);
@@ -2400,8 +2443,10 @@ impl App {
             );
         });
         if self.eff.beat {
-            ui.add_space(S3 - S2);
-            changed |= widgets::switch(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
+            if !still {
+                ui.add_space(S3 - S2);
+                changed |= widgets::switch(ui, &mut self.eff.beat_pulse, "Спалах яскравості на кожен удар").changed();
+            }
             ui.add_space(S3 - S2);
             ui.horizontal(|ui| {
                 match self.v.bpm {
@@ -2422,8 +2467,9 @@ impl App {
                     let key = short_key(&self.v.hotkeys, "tap");
                     // кільце на кожен удар: видно, що програма тримає темп
                     let since = self.core.now() - self.v.beat_at;
+                    // лише поки удари справді надходять (тап чи звук); тиша — кільце не блимає
                     let age = match self.v.bpm {
-                        _ if self.v.beat_at <= 0.0 => None,
+                        _ if self.v.beat_at <= 0.0 || !(0.0..2.5).contains(&since) => None,
                         Some(b) if b > 0.0 => Some(since.rem_euclid(60.0 / b) as f32),
                         _ => Some(since as f32),
                     };

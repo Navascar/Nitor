@@ -462,6 +462,11 @@ pub enum Command {
         id: String,
         pos: Option<[i16; 2]>,
     },
+    /// Копії плитки приладу на плані (лише вигляд: DMX той самий).
+    PlaceCopies {
+        id: String,
+        copies: Vec<[i16; 2]>,
+    },
     SaveProfile {
         name: String,
         channels: Vec<String>,
@@ -543,6 +548,7 @@ impl Command {
             Command::DeleteFixtures { .. } => "delete_fixtures",
             Command::MoveFixture { .. } => "move_fixture",
             Command::PlaceFixture { .. } => "place_fixture",
+            Command::PlaceCopies { .. } => "place_copies",
             Command::SaveProfile { .. } => "save_profile",
             Command::RawSet { .. } => "raw_set",
             Command::RawClear(_) => "raw_clear",
@@ -646,6 +652,7 @@ impl Command {
             "delete_fixtures" => "видалення приладів",
             "move_fixture" => "переміщення приладу",
             "place_fixture" => "переміщення на плані",
+            "place_copies" => "зміну копій на плані",
             "save_scene" => "збереження сцени",
             "recall_scene" => "виклик сцени",
             "delete_scene" => "видалення сцени",
@@ -1065,6 +1072,11 @@ impl Engine {
             Command::PlaceFixture { id, pos } => {
                 let i = self.fx_index(&id)?;
                 self.show.fixtures[i].pos = pos;
+            }
+            Command::PlaceCopies { id, mut copies } => {
+                let i = self.fx_index(&id)?;
+                copies.truncate(64);
+                self.show.fixtures[i].copies = copies;
             }
             Command::SaveProfile { name, channels, assign_to } => self.save_profile(&name, channels, assign_to)?,
             Command::RawSet { address, value } => {
@@ -1658,7 +1670,8 @@ impl Engine {
         };
         // ефект розходиться з одного кольору за перший цикл; у такт музиці — одразу
         let unfold = if beat.is_some() && self.tempo.bpm.is_some() { 1.0 } else { (t * eff.speed).clamp(0.0, 1.0) };
-        let pulse = beat.filter(|_| eff.beat_pulse).map(beat_pulse);
+        // статичний колір без спалаху нічого б не робив у такт — для нього спалах завжди
+        let pulse = beat.filter(|_| eff.beat_pulse || eff.kind == EffectKind::Static).map(beat_pulse);
         // «пікселі» ефекту: кожен сегмент кожного приладу (або прилад цілком)
         let mut pixel: IndexMap<(&str, usize), usize> = IndexMap::new();
         let mut count = 0usize;

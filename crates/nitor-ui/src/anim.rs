@@ -84,7 +84,10 @@ struct Glide {
 
 /// Прямокутник, що плавно переїжджає до `target` за `dur` с. Уперше — одразу на місці.
 /// Для підсвітки вибраного пункту: вкладки, перемикачі.
-pub fn glide_rect(ctx: &Context, id: Id, target: Rect, dur: f32) -> Rect {
+/// `origin` — кут контейнера: рух рахується відносно нього, тож прокрутка чи зсув вікна не тягнуть підсвітку слідом.
+pub fn glide_rect(ctx: &Context, id: Id, target: Rect, origin: Pos2, dur: f32) -> Rect {
+    let shift = origin.to_vec2();
+    let target = target.translate(-shift);
     let t = now(ctx);
     let g = ctx.data(|d| d.get_temp::<Glide>(id));
     let g = match g {
@@ -101,7 +104,7 @@ pub fn glide_rect(ctx: &Context, id: Id, target: Rect, dur: f32) -> Rect {
     if k < 1.0 {
         ctx.request_repaint();
     }
-    lerp_rect(g.from, g.to, ease_out(k))
+    lerp_rect(g.from, g.to, ease_out(k)).translate(shift)
 }
 
 /// Забути положення підсвітки (наступна поява — одразу на місці).

@@ -1100,7 +1100,7 @@ pub fn segmented<T: PartialEq + Clone>(
                     resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, on, *label));
                     focus_ring(ui, &resp, r, R_MD);
                     if on {
-                        let r = crate::anim::glide_rect(ui.ctx(), id.with("pill"), r, 0.2);
+                        let r = crate::anim::glide_rect(ui.ctx(), id.with("pill"), r, ui.max_rect().min, 0.2);
                         ui.painter().set(slot, egui::Shape::rect_filled(r, radius(R_SM), ACCENT_STRONG));
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, radius(R_SM), LINE);

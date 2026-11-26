@@ -135,6 +135,9 @@ pub struct Fixture {
     /// Місце на плані сцени (клітинки сітки); `None` — ще не розставлено.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pos: Option<[i16; 2]>,
+    /// Ще плитки цього приладу на плані: кілька однакових приладів на одній адресі DMX.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copies: Vec<[i16; 2]>,
 }
 
 /// Значення колірних каналів 0..255 (дробові — після ефектів і кросфейду).
@@ -190,6 +193,7 @@ impl Fixture {
             speed: 128,
             model,
             pos: None,
+            copies: vec![],
         }
     }
 

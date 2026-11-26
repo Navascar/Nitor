@@ -874,6 +874,32 @@ fn effect_follows_beat() {
 }
 
 #[test]
+fn static_color_pulses_on_beat() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "Dim+RGB (4 кан.)", 1);
+    ok(&mut e, hex(&[&a], "#00ff00"));
+    ok(&mut e, effect(EffectKind::Static, &[&a]));
+    assert_eq!(e.render(0.3)[2], 255, "без музики — власний колір без змін");
+    ok(&mut e, Command::SetEffect(EffectPatch { beat: Some(true), ..Default::default() }));
+    for i in 0..3 {
+        ok(&mut e, Command::Beat(10.0 + i as f64 * 0.5));
+    }
+    assert!(e.render(11.001)[2] >= 250, "на ударі — повна яскравість");
+    assert!(e.render(11.4)[2] < 150, "між ударами — приглушено, навіть без перемикача спалаху");
+    assert_eq!(e.render(11.4)[1], 0, "колір не змінюється");
+}
+
+#[test]
+fn plan_copies_are_undoable() {
+    let mut e = Engine::new();
+    let a = add(&mut e, "RGB (3 кан.)", 1);
+    ok(&mut e, Command::PlaceCopies { id: a.clone(), copies: vec![[4, 4], [8, 0]] });
+    assert_eq!(e.show.fixtures[0].copies, vec![[4, 4], [8, 0]]);
+    ok(&mut e, Command::Undo);
+    assert!(e.show.fixtures[0].copies.is_empty());
+}
+
+#[test]
 fn scheduled_actions() {
     let mut e = Engine::new();
     let a = add(&mut e, "Dim+RGB (4 кан.)", 1);

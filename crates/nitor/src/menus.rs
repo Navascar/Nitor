@@ -166,6 +166,27 @@ impl App {
             m.push(item("settings", "Властивості", Act::OpenProps(fid.clone())).key(Some("2×клік".into())));
             m.push(item("copy", "Дублювати", Act::Duplicate(fid.clone())));
         }
+        // копії плитки на плані: однакові прилади на одній адресі DMX показуються всі
+        let copy = self.menu_copy.take();
+        if self.v.prefs.plan && in_sel.len() == 1 {
+            let mut more = f.copies.clone();
+            let [x, y] = copy.and_then(|k| f.copies.get(k).copied()).or(f.pos).unwrap_or([0, 0]);
+            more.push([x + 4, y + 4]);
+            m.push(item(
+                "plus",
+                "Ще одна плитка на плані",
+                Act::Cmd(Command::PlaceCopies { id: fid.clone(), copies: more }),
+            ));
+            if let Some(k) = copy.filter(|k| *k < f.copies.len()) {
+                let mut less = f.copies.clone();
+                less.remove(k);
+                m.push(item(
+                    "x",
+                    "Прибрати цю плитку з плану",
+                    Act::Cmd(Command::PlaceCopies { id: fid.clone(), copies: less }),
+                ));
+            }
+        }
         if !whole.is_empty() {
             m.push(Item::Sep);
             let label = if whole.len() > 1 {

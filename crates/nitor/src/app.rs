@@ -318,6 +318,8 @@ pub struct App {
     pub flash_hold: Option<FlashHold>,
     /// Плитку перетягують на плані: прилад і зсув від його місця.
     pub plan_drag: Option<(String, egui::Vec2)>,
+    /// Правий клік був по копії плитки на плані (її номер) — для пункту «Прибрати цю копію».
+    pub menu_copy: Option<usize>,
     pub audio: Option<crate::audio::Audio>,
     pub midi: Option<crate::midi::Midi>,
     pub midi_error: String,
@@ -405,6 +407,7 @@ impl App {
             shot_frame: None,
             flash_hold: None,
             plan_drag: None,
+            menu_copy: None,
             audio: None,
             midi: None,
             midi_error: String::new(),

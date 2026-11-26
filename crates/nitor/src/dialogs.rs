@@ -640,7 +640,7 @@ impl App {
                             });
                             widgets::focus_ring(ui, &resp, r, R_MD);
                             if on {
-                                let r = nitor_ui::anim::glide_rect(ui.ctx(), pill_id, r, 0.2);
+                                let r = nitor_ui::anim::glide_rect(ui.ctx(), pill_id, r, ui.max_rect().min, 0.2);
                                 // вибране — тло й рамка акценту, текст світлий (синій текст на цьому тлі — 4.46:1)
                                 ui.painter().set(
                                     pill,

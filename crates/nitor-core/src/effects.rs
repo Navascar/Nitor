@@ -19,10 +19,12 @@ pub enum EffectKind {
     Strobe,
     Random,
     Fire,
+    /// Власний колір приладу (або палітра по приладах); у такт музиці — спалах яскравості на кожен удар.
+    Static,
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 8] = [
+    pub const ALL: [EffectKind; 9] = [
         EffectKind::None,
         EffectKind::Rainbow,
         EffectKind::Fade,
@@ -31,6 +33,7 @@ impl EffectKind {
         EffectKind::Strobe,
         EffectKind::Random,
         EffectKind::Fire,
+        EffectKind::Static,
     ];
 
     pub fn label(self) -> &'static str {
@@ -43,6 +46,7 @@ impl EffectKind {
             EffectKind::Strobe => "Стробоскоп",
             EffectKind::Random => "Випадкові кольори",
             EffectKind::Fire => "Вогонь",
+            EffectKind::Static => "Статичний колір",
         }
     }
 }
@@ -149,7 +153,7 @@ impl EffectKind {
     /// Циклів ефекту на удар у режимі «у такт музиці»: крокові ефекти — на кожен удар, плавні — на такт.
     pub fn cycles_per_beat(self) -> f64 {
         match self {
-            EffectKind::Pulse | EffectKind::Strobe | EffectKind::Random => 1.0,
+            EffectKind::Pulse | EffectKind::Strobe | EffectKind::Random | EffectKind::Static => 1.0,
             _ => 0.25,
         }
     }
@@ -187,6 +191,13 @@ pub fn effect_color(effect: &Effect, index: usize, count: usize, t: f64, unfold:
 
     match effect.kind {
         EffectKind::None => base,
+        EffectKind::Static => {
+            if palette.is_empty() {
+                base
+            } else {
+                rgbc(palette[index % palette.len()])
+            }
+        }
         EffectKind::Rainbow => {
             let (r, g, b) = hsv_to_rgb(floor_mod(phase, 1.0), 1.0, 1.0);
             Color::rgb(r * 255.0, g * 255.0, b * 255.0)
