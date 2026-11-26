@@ -162,9 +162,6 @@ impl App {
             m.push(item("selectAll", "Вибрати весь прилад", Act::SelectWhole(fid.clone())));
         }
         m.push(item("list", "Вибрати всі такі самі прилади", Act::SelectSameProfile(f.profile.clone())));
-        if self.v.preset_fixtures.iter().any(|x| in_sel.contains(x)) {
-            m.push(item("grid", "Пресети", Act::OpenPresets));
-        }
         if in_sel.len() == 1 {
             m.push(item("settings", "Властивості", Act::OpenProps(fid.clone())).key(Some("2×клік".into())));
             m.push(item("copy", "Дублювати", Act::Duplicate(fid.clone())));

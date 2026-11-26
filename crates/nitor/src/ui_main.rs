@@ -9,7 +9,7 @@ use nitor_core::engine::{ColorValues, EffectPatch};
 use nitor_core::fixtures::programs;
 use nitor_core::{Command, EffectKind, Rgb};
 
-use crate::app::{Act, App, FLASH_WHITE, FlashHold, Pane, c32, cap, readable_text, speed_from_slider};
+use crate::app::{Act, App, FLASH_WHITE, FlashHold, c32, cap, readable_text, speed_from_slider};
 use crate::hotkeys::short_key;
 use crate::menus::paint_static_chip;
 use nitor_core::engine::{FlashSource, StaticSource};
@@ -850,8 +850,8 @@ impl App {
                  приладами."
             }
             "Пресети" => {
-                "Вбудовані програми прожектора: він сам змінює кольори, Nitor лише вибирає програму. Назад до кольору — \
-                 перемикач «Колір»."
+                "Вбудовані програми вибраного прожектора: він сам змінює кольори, Nitor лише вибирає програму. \
+                 Назад до свого кольору — клік по кольору вище."
             }
             _ => return None,
         })
@@ -949,7 +949,7 @@ impl App {
         let mut positions = vec![];
         let (mut col, mut row) = (0usize, 0usize);
         for f in &fixtures {
-            let span = seg_span(self.v.segs(f), cw, cols);
+            let span = seg_span(self.v.bar_cells(f), cw, cols);
             if col + span > cols {
                 col = 0;
                 row += 1;
@@ -1046,7 +1046,7 @@ impl App {
         let sizes: Vec<egui::Vec2> = fixtures
             .iter()
             .map(|f| {
-                let span = seg_span(self.v.segs(f), tw, cols) as f32;
+                let span = seg_span(self.v.bar_cells(f), tw, cols) as f32;
                 vec2(tw * span + S2 * (span - 1.0), th)
             })
             .collect();
@@ -1186,7 +1186,8 @@ impl App {
         let end_addr = self.v.end(f);
         let label = format!("{}, DMX {}–{}", f.name, f.address, end_addr);
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &label));
-        let n = self.v.segs(f);
+        // смуга LED-бару (і бар в режимі з одним сегментом) чи кругла лампа
+        let n = self.v.bar_cells(f);
         let live = self.v.live.get(&f.id).cloned().unwrap_or_default();
         let ctx = ui.ctx().clone();
         // живий колір без миготіння на екрані (строб, «Спалах»): WCAG 2.3.1
@@ -1199,7 +1200,7 @@ impl App {
         let shift = ui.input(|i| i.modifiers.shift);
         let mut seg_clicked = false;
         let mut lamp_bottom;
-        if n > 1 {
+        if n > 0 {
             let bar = Rect::from_min_size(pos2(inner.left(), inner.top() + S2), vec2(inner.width(), 32.0));
             p.rect_filled(bar, radius(R_SM), INK);
             let cells = bar.shrink(3.0);
@@ -1209,7 +1210,8 @@ impl App {
                     pos2(cells.left() + k as f32 * (cw + 3.0), cells.top()),
                     vec2(cw, cells.height()),
                 );
-                let sid = format!("{}#{k}", f.id);
+                // одна клітинка — це весь прилад, а не «сегмент 1»
+                let sid = if n == 1 { f.id.clone() } else { format!("{}#{k}", f.id) };
                 let cresp =
                     ui.interact(cr, Id::new(("seg", &sid)), Sense::click()).on_hover_text(format!("Сегмент {}", k + 1));
                 p.rect_filled(cr, egui::CornerRadius::same(3), paint(live.get(k), k));
@@ -1307,46 +1309,40 @@ impl App {
 
     // ----------------------------------------------------------------- колір --
     fn color_panel(&mut self, ui: &mut Ui) -> Rect {
-        let targets = self.preset_targets();
-        // «Пресети» є, щойно в шоу є прилад із вбудованими програмами (а не лише коли його вибрано)
-        // або коли модель приладу має програми в іншому режимі: тоді «Пресети» підкажуть змінити режим
-        let in_other_mode = || {
-            self.v.show.fixtures.iter().filter_map(|f| f.model.as_ref()).any(|m| {
-                nitor_core::library::find(&m.m, &m.n)
-                    .is_some_and(|lm| lm.modes.iter().any(|md| nitor_core::fixtures::has_presets(md.channels())))
-            })
-        };
-        let bars = !self.v.preset_fixtures.is_empty() || in_other_mode();
-        let show_presets = bars && self.pane == Pane::Presets;
         ui.horizontal(|ui| {
             ui.set_min_height(CONTROL_H_SM);
-            if bars {
-                // перемикач «Пресети / Колір»
-                let mut pane = if show_presets { Pane::Presets } else { Pane::Color };
-                let opts = [(Pane::Presets, "Пресети"), (Pane::Color, "Колір")];
-                if widgets::segmented(ui, Id::new("pane-seg"), &mut pane, &opts, None) {
-                    self.pane = pane;
-                }
-                if show_presets {
-                    widgets::help(ui, Self::panel_help("Пресети").unwrap_or_default());
-                }
-            } else {
-                widgets::h2(ui, "Колір");
-            }
+            widgets::h2(ui, "Колір");
         });
         ui.add_space(S3 - S2);
-        if show_presets && self.v.preset_fixtures.is_empty() {
-            ui.add_space(S4);
+        self.color_pane(ui);
+        // «Пресети» — нижче кольору й лише коли вибрано прилад із вбудованими програмами. Якщо модель має
+        // програми в іншому режимі DMX — підказка змінити режим
+        let sel = self.sel_fixtures();
+        let targets: Vec<String> = sel.iter().filter(|id| self.v.preset_fixtures.contains(id)).cloned().collect();
+        let other_mode = targets.is_empty()
+            && sel.iter().filter_map(|id| self.v.fixture(id)).filter_map(|f| f.model.as_ref()).any(|m| {
+                nitor_core::library::find(&m.m, &m.n)
+                    .is_some_and(|lm| lm.modes.iter().any(|md| nitor_core::fixtures::has_presets(md.channels())))
+            });
+        if targets.is_empty() && !other_mode {
+            return Rect::NOTHING;
+        }
+        ui.add_space(S5);
+        ui.horizontal(|ui| {
+            ui.set_min_height(CONTROL_H_SM);
+            widgets::h2(ui, "Пресети");
+            widgets::help(ui, Self::panel_help("Пресети").unwrap_or_default());
+        });
+        ui.add_space(S3 - S2);
+        if targets.is_empty() {
             widgets::empty_state(
                 ui,
                 "grid",
                 "Пресети недоступні в цьому режимі",
                 "Вбудовані програми працюють лише в деяких режимах DMX (у WASH 243 — H001 і A001). Двічі клацніть прилад і натисніть «Змінити режим». Режим на самому приладі теж має бути таким самим.",
             );
-        } else if show_presets {
-            self.presets_pane(ui, &targets);
         } else {
-            self.color_pane(ui);
+            self.presets_pane(ui, &targets);
         }
         Rect::NOTHING
     }
@@ -2624,7 +2620,7 @@ impl App {
                                 {
                                     undo_seq = Some(t.seq);
                                 }
-                                if !t.info && icon_btn("x").small().kind(Kind::Ghost).tip("Закрити").show(ui).clicked()
+                                if !t.info && icon_btn("x").small().kind(Kind::Plain).tip("Закрити").show(ui).clicked()
                                 {
                                     close.push(t.seq);
                                 }
@@ -2664,11 +2660,11 @@ enum Swatch {
 /// тож кола 24 px не перетинаються (WCAG 2.5.8, виняток за відстанню). Висота клітинки — 26 px.
 const SEG_MIN_W: f32 = 21.0;
 
-/// На скільки стовпців сітки (ширина `cw`, проміжок `S2`) стає плитка приладу з `n` сегментами:
-/// LED-бар — щонайменше на два, а ширше, поки клітинки не стануть `SEG_MIN_W`. Висота плиток однакова.
+/// На скільки стовпців сітки (ширина `cw`, проміжок `S2`) стає плитка приладу з `n` клітинками смуги
+/// (`bar_cells`; 0 — не бар, один стовпець): LED-бар — щонайменше на два, навіть з однією клітинкою, а ширше, поки клітинки не стануть `SEG_MIN_W`. Висота плиток однакова.
 /// Не більше `cols`: у вужчому стовпці клітинки тонші.
 fn seg_span(n: usize, cw: f32, cols: usize) -> usize {
-    if n <= 1 {
+    if n == 0 {
         return 1;
     }
     // клітинки з проміжками 3 px, рамка бару 3 px з боків, поля плитки S2 з боків
@@ -2838,17 +2834,18 @@ mod tests {
         // 25 слів — близько 9 с
         let long = "слово ".repeat(25);
         assert_eq!(toast_time(&long, true), Duration::from_millis(9000));
-        // помилка висить, доки її не закриють
-        assert!(toast_time("Порт зайнятий", false) >= Duration::from_secs(3600));
+        // помилка — удвічі довше, але теж зникає сама
+        assert_eq!(toast_time("Порт зайнятий", false), Duration::from_millis(7000));
     }
 
     #[test]
     fn led_segments_are_wide_enough() {
         // стовпець сітки ~108 px: 8 сегментів — на два стовпці, 12 — на три, 24 — на шість
         let cw = 108.0;
-        for (n, span) in [(1, 1), (2, 2), (8, 2), (12, 3), (24, 6)] {
+        // 0 — не бар; бар з однією клітинкою (WASH 243 у H001) — теж на два стовпці
+        for (n, span) in [(0, 1), (1, 2), (2, 2), (8, 2), (12, 3), (24, 6)] {
             assert_eq!(seg_span(n, cw, 10), span, "{n} сегментів");
-            if n > 1 {
+            if n > 0 {
                 let inner = cw * span as f32 + S2 * (span as f32 - 1.0) - 2.0 * S2 - 6.0;
                 let cell = (inner - 3.0 * (n as f32 - 1.0)) / n as f32;
                 assert!(cell >= SEG_MIN_W, "{n} сегментів: {cell} px");

@@ -63,6 +63,15 @@ impl View {
         segment_count(self.channels(f))
     }
 
+    /// Скільки клітинок у смузі LED-бару на плитці; 0 — прилад не бар (кругла «лампа»). Бар — і модель
+    /// типу «LED-бар» з бібліотеки в будь-якому режимі (напр. WASH 243 у H001 — одна клітинка на всю смугу).
+    pub fn bar_cells(&self, f: &Fixture) -> usize {
+        let n = self.segs(f);
+        let bar_model =
+            || f.model.as_ref().and_then(|m| nitor_core::library::find(&m.m, &m.n)).is_some_and(|lm| lm.t == "bar");
+        if n > 1 || bar_model() { n } else { 0 }
+    }
+
     /// Остання адреса приладу.
     pub fn end(&self, f: &Fixture) -> usize {
         f.address as usize + self.channels(f).len().saturating_sub(1)
@@ -108,12 +117,6 @@ pub fn slider_from_speed(s: f64) -> f32 {
     (40.0 * (s / 0.05).log10()).round() as f32
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
-    Color,
-    Presets,
-}
-
 pub struct Toast {
     pub text: String,
     pub info: bool,
@@ -129,13 +132,12 @@ pub struct Toast {
 pub const TOASTS_MAX: usize = 3;
 
 /// Скільки показується повідомлення (WCAG 2.2.1): довше для довшого тексту, близько 0,3 с на слово,
-/// але не менше 3,5 с. Помилка висить, доки її не закриють хрестиком (або не витіснять три новіші).
+/// але не менше 3,5 с; помилка — удвічі довше, щоб устигнути прочитати, що робити. Під мишею
+/// повідомлення не зникає, хрестиком помилку можна закрити раніше.
 pub fn toast_time(text: &str, info: bool) -> Duration {
-    if !info {
-        return Duration::from_secs(24 * 3600);
-    }
     let words = text.split_whitespace().count() as u64;
-    Duration::from_millis((1500 + 300 * words).max(3500))
+    let t = Duration::from_millis((1500 + 300 * words).max(3500));
+    if info { t } else { t * 2 }
 }
 
 /// Дії з меню, гарячих клавіш і вікон підтвердження.
@@ -153,7 +155,6 @@ pub enum Act {
     StopEffectOn(Vec<String>),
     SelectWhole(String),
     SelectSameProfile(String),
-    OpenPresets,
     OpenProps(String),
     Duplicate(String),
     DeleteFixtures {
@@ -244,7 +245,6 @@ pub struct App {
     pub sel: Vec<String>,
     pub last_color: Rgb,
     pub eff: EffDraft,
-    pub pane: Pane,
     /// виділення рамкою: де почали тягнути і що було вибрано до того
     pub band: Option<(egui::Pos2, Vec<String>)>,
     /// плитки приладів цього кадру (для виділення рамкою)
@@ -273,6 +273,8 @@ pub struct App {
     pub title_open: bool,
     /// коли востаннє натиснули Esc (чи було відкрите вікно або меню) — для затримки перед «Закрити Nitor?»
     pub esc_t: f64,
+    /// Розмір вікна в попередньому кадрі: змінився — анімації одразу на місці (`anim::set_snap`).
+    pub last_size: egui::Vec2,
     pub toasts: Vec<Toast>,
     /// у системі вимкнено анімацію (зчитано під час запуску)
     pub sys_reduce_motion: bool,
@@ -352,7 +354,6 @@ impl App {
                 order: Default::default(),
                 synced: false,
             },
-            pane: Pane::Color,
             band: None,
             tile_rects: vec![],
             flash_cfg: None,
@@ -369,6 +370,7 @@ impl App {
             title_slack: 0.0,
             title_open: false,
             esc_t: 0.0,
+            last_size: egui::Vec2::ZERO,
             toasts: vec![],
             sys_reduce_motion: crate::winshell::system_reduce_motion(),
             focus_back: None,
@@ -578,29 +580,10 @@ impl App {
                 self.sel.push(id.to_string());
             }
         }
-        // клік по бару з програмами відкриває пресети
-        if self.sel.iter().any(|s| s == id) && self.v.preset_fixtures.contains(&fid) {
-            self.open_presets();
-        }
     }
 
     pub fn select_only(&mut self, id: &str) {
         self.sel = vec![id.to_string()];
-    }
-
-    /// Прилади для пресетів: вибрані LED-бари, а якщо їх не вибрано — усі.
-    pub fn preset_targets(&self) -> Vec<String> {
-        let picked: Vec<String> =
-            self.sel_fixtures().into_iter().filter(|id| self.v.preset_fixtures.contains(id)).collect();
-        if picked.is_empty() { self.v.preset_fixtures.clone() } else { picked }
-    }
-
-    pub fn open_presets(&mut self) {
-        if self.v.preset_fixtures.is_empty() {
-            self.toast("Немає приладів із вбудованими програмами", false);
-            return;
-        }
-        self.pane = Pane::Presets;
     }
 
     /// «Зменшити рух» діє: власний вибір, а без нього — як у системі.
@@ -969,7 +952,6 @@ impl App {
             Act::SelectSameProfile(p) => {
                 self.sel = self.v.show.fixtures.iter().filter(|f| f.profile == p).map(|f| f.id.clone()).collect();
             }
-            Act::OpenPresets => self.open_presets(),
             Act::OpenProps(id) => self.open_props(&id),
             Act::Duplicate(id) => self.duplicate(&id),
             // без питання: видалення скасовується одним кроком, у повідомленні — «Повернути»

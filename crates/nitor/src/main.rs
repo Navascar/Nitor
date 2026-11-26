@@ -227,6 +227,15 @@ impl eframe::App for App {
         if ctx.style().animation_time != want {
             ctx.style_mut(|s| s.animation_time = want);
         }
+        // згорнуте вікно чи нова розкладка (відновили, змінили розмір): елементи одразу на нових місцях.
+        // Інакше після згортання підсвітки, плитки й повідомлення «доїжджали» з місць крихітного вікна
+        let size = ctx.screen_rect().size();
+        let snap = ctx.input(|i| i.viewport().minimized == Some(true)) || self.last_size != size;
+        self.last_size = size;
+        nitor_ui::anim::set_snap(snap);
+        if snap {
+            ctx.clear_animations();
+        }
         self.flash_release(ctx);
         self.audio_tick();
         self.midi_tick(ctx);

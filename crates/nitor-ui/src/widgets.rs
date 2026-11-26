@@ -21,6 +21,8 @@ pub enum Kind {
     DangerOn,
     /// без рамки
     Ghost,
+    /// лише значок, без тла навіть під мишею — під мишею світлішає сам значок (хрестик у повідомленні)
+    Plain,
     /// «Очистити»: помітна, але не основна
     Warn,
     /// «Спалах»: світла рамка, як у «Очистити» й Blackout
@@ -405,6 +407,7 @@ fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
         Kind::Danger => (if hovered { alpha(DANGER, 0.12) } else { Color32::TRANSPARENT }, DANGER, DANGER),
         Kind::DangerOn => (DANGER_STRONG, DANGER_STRONG, WHITE),
         Kind::Ghost => (if hovered { RAISED } else { Color32::TRANSPARENT }, Color32::TRANSPARENT, TEXT),
+        Kind::Plain => (Color32::TRANSPARENT, Color32::TRANSPARENT, if hovered { WHITE } else { MUTED }),
         Kind::Warn => (if hovered { alpha(WARN, 0.12) } else { Color32::TRANSPARENT }, WARN, WARN),
         Kind::Outline => (if hovered { alpha(TEXT, 0.12) } else { Color32::TRANSPARENT }, TEXT, TEXT),
         Kind::Close if hovered => (DANGER_STRONG, DANGER_STRONG, WHITE),

@@ -16,6 +16,17 @@ pub fn reduced_motion() -> bool {
     REDUCED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+static SNAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Цей кадр — без переїздів: вікно згорнуте чи змінило розмір, тож старі положення вже нічого не значать.
+pub fn set_snap(on: bool) {
+    SNAP.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn snap() -> bool {
+    SNAP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Як `animate_bool_with_time`, але зі «Зменшити рух» — одразу кінцеве значення.
 pub fn anim_bool(ctx: &Context, id: Id, on: bool, time: f32) -> f32 {
     if reduced_motion() {
@@ -78,6 +89,7 @@ pub fn glide_rect(ctx: &Context, id: Id, target: Rect, dur: f32) -> Rect {
     let g = ctx.data(|d| d.get_temp::<Glide>(id));
     let g = match g {
         None => Glide { from: target, to: target, t0: t },
+        Some(_) if snap() => Glide { from: target, to: target, t0: t },
         Some(g) if g.to != target => {
             let k = ease_out(((t - g.t0) as f32 / dur).min(1.0));
             Glide { from: lerp_rect(g.from, g.to, k), to: target, t0: t }
@@ -114,6 +126,7 @@ pub fn slot_rect(ctx: &Context, id: Id, slot: u64, target: Rect, appear: bool) -
     let s = match ctx.data(|d| d.get_temp::<Slot>(id)) {
         None if appear => Slot { slot, shown: target, from: target.shrink2(target.size() * 0.08), t0: t },
         None => Slot { slot, shown: target, from: target, t0: t - DUR as f64 },
+        Some(_) if snap() => Slot { slot, shown: target, from: target, t0: t - DUR as f64 },
         Some(s) if s.slot != slot => Slot { slot, shown: s.shown, from: s.shown, t0: t },
         Some(s) => s,
     };

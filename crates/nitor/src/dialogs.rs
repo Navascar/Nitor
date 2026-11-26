@@ -46,7 +46,6 @@ pub struct SettingsState {
     /// прокрутити до розділу (MIDI і VirtualDJ — одне поле, два розділи)
     pub jump: Option<Tab>,
     /// вкладка «Бібліотека приладів»: розділ і пошук
-    pub lib: LibState,
     /// поля патчу, що редагуються: id → (назва, адреса)
     pub patch_names: std::collections::HashMap<String, String>,
     /// пошук налаштувань (фільтрує вкладки й гарячі клавіші)
@@ -347,6 +346,11 @@ impl App {
             OutputConfig::Sacn { host, universe } => (0, String::new(), host.clone(), *universe as i64),
             OutputConfig::None => (0, String::new(), String::new(), 0),
         };
+        // «Бібліотека приладів» — окреме велике вікно поверх налаштувань («Загальні» під ним)
+        if tab == Some(Tab::Library) {
+            self.lib = Some(LibState::new(false));
+        }
+        let tab = tab.filter(|t| *t != Tab::Library);
         self.settings = Some(SettingsState {
             // кнопка налаштувань завжди відкриває «Загальні»; інші вкладки — лише за прямим запитом
             tab: tab.unwrap_or(Tab::General),
@@ -361,7 +365,6 @@ impl App {
             capturing: None,
             tab_t: f64::NEG_INFINITY,
             jump: tab.filter(|t| *t == Tab::Os2l),
-            lib: LibState::new(false),
             patch_names: Default::default(),
             q: String::new(),
         });
@@ -575,7 +578,7 @@ impl App {
         let body_h = SETTINGS_BODY_H.min(ctx.screen_rect().height() * 0.9 - 160.0).max(200.0);
         // без внутрішніх полів: підкладка вкладок і картка налаштувань доходять до країв вікна
         let frame = dialog_frame(1080.0).fill(BG).inner_margin(0);
-        let mut lib_pick = None;
+        let mut open_lib = false;
         let esc_close = modal_with(ctx, "settings", 1080.0, frame, |ui| {
             // ліворуч на темній підкладці — назва вікна й вкладки; праворуч на всю висоту — картка налаштувань
             ui.horizontal_top(|ui| {
@@ -681,6 +684,11 @@ impl App {
                                 ui.label(widgets::muted("Нічого не знайдено"));
                             });
                         }
+                        // бібліотека більша за налаштування — окреме вікно поверх них, а вкладка не змінюється
+                        if go == Some(Tab::Library) {
+                            open_lib = true;
+                            go = None;
+                        }
                         if let Some(tab) = go.filter(|t| *t != st.tab) {
                             if page(tab) == page(st.tab) {
                                 st.jump = Some(tab); // той самий екран — лише прокрутка
@@ -723,14 +731,7 @@ impl App {
                             if t < 1.0 {
                                 ctx.request_repaint();
                             }
-                            if pg == Tab::Library {
-                                // у бібліотеки своя прокрутка карток — без зовнішньої
-                                let w = ui.available_width();
-                                ui.allocate_ui(vec2(w, body_h), |ui| {
-                                    ui.set_height(body_h);
-                                    lib_pick = self.library_body(ui, &mut st.lib, 260.0);
-                                });
-                            } else {
+                            {
                                 let mut area = egui::ScrollArea::vertical()
                                     .id_salt(("settings-scroll", pg as u8))
                                     .auto_shrink([false, false])
@@ -783,13 +784,11 @@ impl App {
                     });
             });
         });
-        // модель з бібліотеки — нове вікно приладу поверх налаштувань і вибір режиму DMX
-        if let Some(fx) = lib_pick {
-            self.open_add();
-            self.modes = Some(ModesState { fx, current: None, target: ModesFor::Add });
+        if open_lib {
+            self.lib = Some(LibState::new(false));
         }
-        // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно
-        let esc_close = esc_close && !capturing && self.ui_dlg.is_none() && self.add.is_none();
+        // Esc під час вибору клавіші скасовує лише вибір, а не закриває вікно; поверх — бібліотека: Esc закриває її
+        let esc_close = esc_close && !capturing && self.ui_dlg.is_none() && self.add.is_none() && self.lib.is_none();
         if !(close || esc_close) && self.settings.is_none() {
             self.settings = Some(st);
         }
@@ -2010,12 +2009,27 @@ impl App {
         let mut close = false;
         let mut pick: Option<LibModel> = None;
         let screen = ctx.screen_rect();
+        let over_settings = self.settings.is_some() && !st.for_props && self.add.is_none();
         let w = 1180f32.min(screen.width() * 0.96);
         let h = 860f32.min(screen.height() * 0.92);
         let modal =
             egui::Modal::new(Id::new("lib-dlg")).frame(dialog_frame(w)).backdrop_color(BACKDROP).show(ctx, |ui| {
                 ui.set_width(w - 2.0 * S5);
                 ui.set_height(h - 2.0 * S5);
+                // відкрито з налаштувань — повернутися до них кнопкою або Esc (налаштування лишаються під вікном)
+                if over_settings {
+                    if btn("Налаштування")
+                        .icon("arrowLeft")
+                        .small()
+                        .kind(Kind::Ghost)
+                        .key(Some("Esc".into()))
+                        .show(ui)
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                    ui.add_space(S2);
+                }
                 close |= dialog_head(ui, "Бібліотека приладів");
                 pick = self.library_body(ui, &mut st, 260.0);
             });
