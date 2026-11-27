@@ -500,7 +500,7 @@ impl App {
             );
         }
         let (fill, stroke) = if o.ok {
-            (RAISED, if resp.hovered() { LINE_STRONG } else { LINE })
+            if resp.hovered() { (RAISED_HOVER, LINE_STRONG) } else { (RAISED, LINE) }
         } else {
             // плавне червоне переливання, період 1,6 с; зі «Зменшити рух» — рівний червоний
             let k = if anim::reduced_motion() {
@@ -1537,7 +1537,7 @@ impl App {
                 } else if c > 0 {
                     (RAISED, ACCENT, ACCENT)
                 } else {
-                    (RAISED, if resp.hovered() { LINE_STRONG } else { LINE }, TEXT)
+                    if resp.hovered() { (RAISED_HOVER, LINE_STRONG, TEXT) } else { (RAISED, LINE, TEXT) }
                 };
                 resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, c > 0, &p.name));
                 widgets::focus_ring(ui, &resp, r, R_MD);

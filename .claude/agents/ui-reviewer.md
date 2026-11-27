@@ -9,7 +9,7 @@ tools: Read, Grep, Glob
 
 Дизайн-система (`crates/nitor-ui/src/theme.rs`):
 
-- **Кольори** — лише токени: `BG #0f1115`, `SURFACE #171a21`, `RAISED #1f232c`, `LINE #2b303b`,
+- **Кольори** — лише токени: `BG #0f1115`, `SURFACE #171a21`, `RAISED #1f232c`, `RAISED_HOVER #272c36` (тло під мишею), `LINE #2b303b`,
   `LINE_STRONG #3d4452`, `TEXT #e6e8ee`, `MUTED #b0b6c2`, `ACCENT #4f8cff` (єдиний акцент; заливка під білим
   текстом — `ACCENT_STRONG`), `DANGER` (лише небезпечні дії), `WARN` (лише попередження), `OK` (лише статус «працює»).
   Жодних `Color32::from_rgb` для елементів інтерфейсу поза `theme.rs` (виняток — кольори самих приладів і палітр).

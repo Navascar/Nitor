@@ -11,6 +11,8 @@ pub const BG: Color32 = Color32::from_rgb(0x0f, 0x11, 0x15);
 pub const SURFACE: Color32 = Color32::from_rgb(0x17, 0x1a, 0x21);
 /// плитки, поля, кнопки
 pub const RAISED: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2c);
+/// тло `RAISED` під мишею: на крок світліше, щоб наведення було видно не лише рамкою
+pub const RAISED_HOVER: Color32 = Color32::from_rgb(0x27, 0x2c, 0x36);
 pub const LINE: Color32 = Color32::from_rgb(0x2b, 0x30, 0x3b);
 pub const LINE_STRONG: Color32 = Color32::from_rgb(0x3d, 0x44, 0x52);
 /// межа полів вводу, списків і чекбоксів: ≥ 3:1 на BG, SURFACE і RAISED (WCAG 1.4.11)
@@ -205,7 +207,7 @@ pub fn apply(ctx: &egui::Context) {
         for (st, fill, line) in [
             (&mut w.noninteractive, SURFACE, LINE),
             (&mut w.inactive, RAISED, LINE_FIELD),
-            (&mut w.hovered, RAISED, MUTED),
+            (&mut w.hovered, RAISED_HOVER, MUTED),
             (&mut w.active, RAISED, ACCENT),
             (&mut w.open, RAISED, LINE_STRONG),
         ] {

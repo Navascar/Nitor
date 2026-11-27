@@ -7,6 +7,7 @@ colors:
   canvas: "#0f1115"         # BG — тло головного вікна
   surface: "#171a21"        # SURFACE — верхня панель, вікна, меню
   raised: "#1f232c"         # RAISED — плитки, поля, кнопки
+  raised-hover: "#272c36"   # RAISED_HOVER — тло кнопок і полів під мишею
   ink-deep: "#0b0d10"       # INK — «вимкнене» світло, тло монітора, текст на світлих кольорах
   hairline: "#2b303b"       # LINE
   hairline-strong: "#3d4452" # LINE_STRONG — рамка під мишею
@@ -100,6 +101,7 @@ motion:
 ## Глибина
 
 - Вікна й меню: `surface`, рамка `hairline`, радіус `lg`, тінь `SHADOW` (0 8 24, чорний 45 %).
+- Кнопки й поля під мишею — тло `raised-hover` і рамка `hairline-strong` (Warp: наведення — крок тла, не лише рамка).
 - Плитки: `raised`, рамка `hairline`; під мишею — `hairline-strong`, вибране — `primary-soft` + `primary`.
 - Картки «Ефекти» і «Сцени» — `surface` на `canvas` без рамки: тло вже відділяє (Refactoring UI, «Use fewer borders»).
   Рамку не додаємо туди, де тло й так інше.

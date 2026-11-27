@@ -399,7 +399,13 @@ impl<'a> Btn<'a> {
 
 fn colors(kind: Kind, hovered: bool) -> (Color32, Color32, Color32) {
     match kind {
-        Kind::Normal => (RAISED, if hovered { LINE_STRONG } else { LINE }, TEXT),
+        Kind::Normal => {
+            if hovered {
+                (RAISED_HOVER, LINE_STRONG, TEXT)
+            } else {
+                (RAISED, LINE, TEXT)
+            }
+        }
         Kind::Primary => {
             let f = if hovered { ACCENT_HOVER } else { ACCENT_STRONG };
             (f, ACCENT_STRONG, WHITE)
